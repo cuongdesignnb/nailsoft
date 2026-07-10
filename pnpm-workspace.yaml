@@ -1,7 +1,7 @@
 packages:
   - apps/*
   - packages/*
-onlyBuiltDependencies:
-  - '@scarf/scarf'
-  - esbuild
-  - sharp
+allowBuilds:
+  '@scarf/scarf': false
+  esbuild: true
+  sharp: true
