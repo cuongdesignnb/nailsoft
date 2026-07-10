@@ -49,7 +49,7 @@ export async function selectWorkspace(
   tenantId = body.data.tenantId;
   return body.data;
 }
-export async function restore() {
+async function performRestore() {
   const response = await fetch(`${api}/v1/auth/refresh`, {
     method: "POST",
     credentials: "include",
@@ -59,12 +59,16 @@ export async function restore() {
     },
     body: JSON.stringify({ deviceId: "admin-web" }),
   });
-  if (!response.ok) return false;
+  if (!response.ok) {
+    clearMemory();
+    return false;
+  }
   const body = await response.json();
   accessToken = body.data.accessToken;
   tenantId = body.data.tenantId;
   return true;
 }
+export const restore = createRefreshSingleFlight(performRestore);
 export async function authorizedFetch(path: string, init: RequestInit = {}) {
   if (!accessToken && !(await restore()))
     return new Response(null, { status: 401 });
@@ -91,3 +95,4 @@ export function clearMemory() {
   accessToken = undefined;
   tenantId = undefined;
 }
+import { createRefreshSingleFlight } from "@nailsoft/api-client";

@@ -21,7 +21,7 @@ const createUserSchema = z.object({
     "CASHIER",
     "NAIL_TECHNICIAN",
     "ACCOUNTANT",
-    "MARKETING_STAFF",
+    "MARKETING",
   ]),
   branchId: z.string().uuid().nullable(),
 });
@@ -35,7 +35,7 @@ const updateAccessSchema = z.object({
         "CASHIER",
         "NAIL_TECHNICIAN",
         "ACCOUNTANT",
-        "MARKETING_STAFF",
+        "MARKETING",
       ]),
     )
     .min(1),
@@ -163,11 +163,16 @@ export class UserService {
     requestId: string,
   ) {
     const body = updateAccessSchema.parse(input);
-    if (!auth.roles.includes("SALON_OWNER"))
-      throw new ForbiddenException({
-        code: "PERMISSION_DENIED",
-        message: "Only an owner can change access",
-      });
+    const owner = auth.roles.includes("SALON_OWNER");
+    if (!owner) {
+      if (membershipId === auth.membershipId)
+        throw new ForbiddenException({ code: "ROLE_ASSIGNMENT_DENIED", message: "Self elevation is not allowed" });
+      await this.assertTargetScope(auth, membershipId);
+      if (body.roles.some((role) => role === "SALON_OWNER" || role === "BRANCH_MANAGER"))
+        throw new ForbiddenException({ code: "ROLE_ASSIGNMENT_DENIED", message: "A Manager cannot assign Owner or Manager" });
+      if (body.branchIds.some((branchId) => !auth.branchIds.includes(branchId)))
+        throw new ForbiddenException({ code: "BRANCH_ASSIGNMENT_DENIED", message: "A branch is outside Manager scope" });
+    }
     return this.db.transaction(async (client) => {
       const target = await client.query<{ user_id: string; status: string }>(
         "SELECT user_id,status FROM tenant_memberships WHERE id=$1 AND tenant_id=$2 FOR UPDATE",
@@ -203,7 +208,7 @@ export class UserService {
         );
         if (owners.rows[0].count <= 1)
           throw new ConflictException({
-            code: "LAST_OWNER_REQUIRED",
+            code: "LAST_OWNER_CANNOT_BE_REMOVED",
             message: "The final active owner cannot be removed",
           });
       }
@@ -316,7 +321,7 @@ export class UserService {
       roles: string[];
       branches: string[];
     }>(
-      `SELECT tm.user_id,coalesce((SELECT array_agg(role) FROM membership_roles WHERE membership_id=tm.id),'{}') roles,coalesce((SELECT array_agg(branch_id::text) FROM membership_branches WHERE membership_id=tm.id),'{}') branches FROM tenant_memberships tm WHERE tm.id=$1 AND tm.tenant_id=$2`,
+      `SELECT tm.user_id,coalesce((SELECT array_agg(role) FROM membership_roles WHERE membership_id=tm.id),'{}') roles,coalesce((SELECT array_agg(branch_id::text) FROM membership_branches WHERE membership_id=tm.id),'{}') branches FROM tenant_memberships tm WHERE (tm.id=$1 OR tm.user_id=$1) AND tm.tenant_id=$2`,
       [membershipId, auth.tenantId],
     );
     const target = result.rows[0];
@@ -330,7 +335,7 @@ export class UserService {
       !auth.roles.includes("BRANCH_MANAGER") ||
       target.roles.includes("SALON_OWNER") ||
       target.branches.length === 0 ||
-      !target.branches.every((branch) => auth.branchIds.includes(branch))
+      !target.branches.some((branch) => auth.branchIds.includes(branch))
     )
       throw new ForbiddenException({
         code: "TARGET_SCOPE_DENIED",

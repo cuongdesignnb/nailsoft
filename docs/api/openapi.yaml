@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.1.0,
-    description: Multi-tenant modular monolith API skeleton,
+    version: 0.4.0,
+    description: Sprint 1 identity tenant branch and authorization API,
   }
 servers: [{ url: http://localhost:3001/v1 }]
 security: [{ bearerAuth: [], tenantContext: [] }]
@@ -234,6 +234,111 @@ paths:
           ],
         responses: { "201": { description: Revoked } },
       }
+  /users/invitations:
+    post:
+      tags: [invitations]
+      summary: Invite a member with tenant-scoped roles and branches
+      x-permission: user.invite
+      responses: { "201": { description: Invitation created }, "403": { description: INVITATION_SCOPE_DENIED } }
+    get:
+      tags: [invitations]
+      summary: List tenant invitations
+      x-permission: user.read
+      responses: { "200": { description: Invitation list } }
+  /users/invitations/{invitationId}:
+    get:
+      tags: [invitations]
+      x-permission: user.read
+      parameters: [{ name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "200": { description: Invitation }, "410": { description: INVITATION_NOT_FOUND } }
+  /users/invitations/{invitationId}/resend:
+    post:
+      tags: [invitations]
+      x-permission: user.invite
+      parameters: [{ name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "201": { description: Previous token invalidated and invitation resent } }
+  /users/invitations/{invitationId}/revoke:
+    post:
+      tags: [invitations]
+      x-permission: user.invite
+      parameters: [{ name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "201": { description: Invitation revoked } }
+  /auth/invitations/inspect:
+    post:
+      tags: [invitations]
+      security: []
+      summary: Inspect a hashed one-time invitation token
+      responses: { "201": { description: Invitation metadata }, "410": { description: INVITATION_EXPIRED or INVITATION_NOT_FOUND } }
+  /auth/invitations/accept:
+    post:
+      tags: [invitations]
+      security: []
+      summary: Accept invitation and atomically activate membership
+      responses: { "201": { description: Membership activated }, "409": { description: INVITATION_ALREADY_USED or INVITATION_REVOKED } }
+  /auth/forgot-password:
+    post:
+      tags: [password recovery]
+      security: []
+      summary: Request recovery with a neutral response
+      responses: { "202": { description: Request accepted regardless of account existence } }
+  /auth/reset-password:
+    post:
+      tags: [password recovery]
+      security: []
+      summary: Consume reset token and revoke every device session
+      responses: { "201": { description: Password reset }, "401": { description: PASSWORD_RESET_INVALID }, "410": { description: PASSWORD_RESET_EXPIRED } }
+  /auth/otp/request:
+    post:
+      tags: [phone authentication]
+      security: []
+      summary: Request a six-digit OTP with rate and resend limits
+      responses: { "201": { description: OTP challenge created }, "409": { description: OTP_RATE_LIMITED } }
+  /auth/otp/verify:
+    post:
+      tags: [phone authentication]
+      security: []
+      summary: Consume login OTP and continue workspace or MFA flow
+      responses: { "201": { description: Authentication state }, "401": { description: OTP_INVALID }, "410": { description: OTP_EXPIRED } }
+  /profile/phone/request-verification:
+    post: { tags: [phone authentication], summary: Request verification for own phone, responses: { "201": { description: Challenge created } } }
+  /profile/phone/verify:
+    post: { tags: [phone authentication], summary: Verify and persist own E.164 phone, responses: { "201": { description: Phone verified } } }
+  /auth/mfa/totp/enroll:
+    post:
+      tags: [mfa]
+      security: []
+      summary: Begin TOTP enrollment from an enrollment-only challenge
+      responses: { "201": { description: Secret returned once }, "403": { description: MFA_RESET_DENIED } }
+  /auth/mfa/totp/confirm:
+    post:
+      tags: [mfa]
+      security: []
+      summary: Confirm TOTP and return recovery codes once
+      responses: { "201": { description: Authenticated session }, "401": { description: MFA_CHALLENGE_INVALID } }
+  /auth/mfa/challenge/verify:
+    post:
+      tags: [mfa]
+      security: []
+      summary: Verify login TOTP challenge and create session
+      responses: { "201": { description: Authenticated session }, "401": { description: MFA_CHALLENGE_INVALID or MFA_CHALLENGE_EXPIRED } }
+  /auth/mfa/recovery/verify:
+    post:
+      tags: [mfa]
+      security: []
+      summary: Consume one recovery code and create session
+      responses: { "201": { description: Authenticated session }, "401": { description: MFA_RECOVERY_CODE_INVALID } }
+  /auth/mfa/recovery/regenerate:
+    post: { tags: [mfa], summary: Invalidate old recovery codes and create a new set, responses: { "201": { description: Codes returned once } } }
+  /auth/mfa/status:
+    get: { tags: [mfa], summary: Read own MFA status, responses: { "200": { description: MFA status } } }
+  /auth/mfa/totp:
+    delete: { tags: [mfa], summary: Disable TOTP after step-up verification, responses: { "200": { description: MFA disabled }, "401": { description: MFA_CHALLENGE_INVALID } } }
+  /auth/sessions/{id}:
+    delete:
+      tags: [sessions]
+      summary: Revoke an own session
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "204": { description: Session revoked }, "401": { description: SESSION_NOT_FOUND } }
   /ready:
     get:
       {

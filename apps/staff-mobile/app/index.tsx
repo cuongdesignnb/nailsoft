@@ -1,5 +1,7 @@
 import * as SecureStore from "expo-secure-store";
+import { createRefreshSingleFlight } from "@nailsoft/api-client";
 import { useEffect, useState } from "react";
+import { Link } from "expo-router";
 import {
   ActivityIndicator,
   Button,
@@ -8,22 +10,47 @@ import {
   TextInput,
   View,
 } from "react-native";
+
+const api = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3001";
+let accessToken: string | undefined;
+let tenantId: string | undefined;
+const restoreSession = createRefreshSingleFlight(async () => {
+  const refreshToken = await SecureStore.getItemAsync("refreshToken");
+  if (!refreshToken) return false;
+  const response = await fetch(`${api}/v1/auth/refresh`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ refreshToken, deviceId: "staff-mobile" }),
+  });
+  if (!response.ok) {
+    accessToken = undefined;
+    tenantId = undefined;
+    await SecureStore.deleteItemAsync("refreshToken");
+    return false;
+  }
+  const body = await response.json();
+  accessToken = body.data.accessToken;
+  tenantId = body.data.tenantId;
+  await SecureStore.setItemAsync("refreshToken", body.data.refreshToken);
+  return true;
+});
+
 export default function Home() {
   const [state, setState] = useState<
-    "restoring" | "login" | "loading" | "ready" | "error"
+    "restoring" | "login" | "loading" | "ready" | "error" | "workspace" | "mfa"
   >("restoring");
-  const [email, setEmail] = useState("staff5@example.test"),
+  const [email, setEmail] = useState(""),
     [password, setPassword] = useState("");
   useEffect(() => {
-    void SecureStore.getItemAsync("refreshToken")
-      .then((token) => setState(token ? "ready" : "login"))
+    void restoreSession()
+      .then((restored) => setState(restored ? "ready" : "login"))
       .catch(() => setState("login"));
   }, []);
   async function login() {
     setState("loading");
     try {
       const response = await fetch(
-        `${process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3001"}/v1/auth/login`,
+        `${api}/v1/auth/login`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -39,6 +66,10 @@ export default function Home() {
       );
       const body = await response.json();
       if (!response.ok) throw new Error();
+      if (body.data.workspaceSelectionRequired) { setState("workspace"); return; }
+      if (body.data.authenticationState) { setState("mfa"); return; }
+      accessToken = body.data.accessToken;
+      tenantId = body.data.tenantId;
       await SecureStore.setItemAsync("refreshToken", body.data.refreshToken);
       setState("ready");
     } catch {
@@ -56,11 +87,14 @@ export default function Home() {
       <SafeAreaView>
         <View style={{ padding: 24, gap: 12 }}>
           <Text style={{ fontSize: 12, color: "#6D28D9" }}>STAFF</Text>
-          <Text style={{ fontSize: 32, fontWeight: "700" }}>Today</Text>
-          <Text>Empty schedule state — chưa có lịch được giao.</Text>
+          <Text style={{ fontSize: 32, fontWeight: "700" }}>Home</Text>
+          <Text>Secure staff workspace foundation.</Text>
+          <Text>{accessToken ? `Workspace ${tenantId ?? "active"} is authenticated.` : "Session unavailable."}</Text>
+          {['invitation','branches','sessions','profile','language','workspace','mfa'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
         </View>
       </SafeAreaView>
     );
+  if (state === "workspace" || state === "mfa") return <SafeAreaView><View style={{padding:24,gap:12}}><Text style={{fontSize:28,fontWeight:'700'}}>{state === "workspace" ? "Select workspace" : "Additional verification"}</Text><Text>Your primary identity is verified. Continue without storing an incomplete session.</Text><Link href={state === "workspace" ? "/workspace" : "/mfa"}>Continue</Link></View></SafeAreaView>;
   return (
     <SafeAreaView>
       <View style={{ padding: 24, gap: 12 }}>

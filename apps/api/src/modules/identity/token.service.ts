@@ -43,6 +43,42 @@ export class TokenService {
       .setExpirationTime("5m")
       .sign(this.secret);
   }
+  async mfa(input: {
+    userId: string;
+    membershipId: string;
+    challengeId: string;
+    state: "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED";
+    device: { deviceId: string; deviceName: string; platform: "web" | "ios" | "android"; appVersion?: string };
+  }) {
+    return new SignJWT({
+      purpose: "mfa-challenge",
+      membershipId: input.membershipId,
+      challengeId: input.challengeId,
+      state: input.state,
+      device: input.device,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setSubject(input.userId)
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(this.secret);
+  }
+  async verifyMfa(token: string) {
+    try {
+      const { payload } = await jwtVerify(token, this.secret, { algorithms: ["HS256"] });
+      if (!payload.sub || payload.purpose !== "mfa-challenge" || typeof payload.membershipId !== "string" || typeof payload.challengeId !== "string" || (payload.state !== "MFA_REQUIRED" && payload.state !== "MFA_ENROLLMENT_REQUIRED") || typeof payload.device !== "object" || payload.device === null)
+        throw new Error("claims");
+      return {
+        userId: payload.sub,
+        membershipId: payload.membershipId,
+        challengeId: payload.challengeId,
+        state: payload.state,
+        device: deviceClaims(payload.device),
+      };
+    } catch {
+      throw new UnauthorizedException({ code: "MFA_CHALLENGE_EXPIRED", message: "MFA challenge is invalid or expired" });
+    }
+  }
   async verifyWorkspace(token: string) {
     try {
       const { payload } = await jwtVerify(token, this.secret, {
@@ -92,4 +128,15 @@ export class TokenService {
       });
     }
   }
+}
+
+function deviceClaims(value: object) {
+  const device = value as Record<string, unknown>;
+  if (typeof device.deviceId !== "string" || typeof device.deviceName !== "string" || !["web", "ios", "android"].includes(String(device.platform))) throw new Error("device claims");
+  return {
+    deviceId: device.deviceId,
+    deviceName: device.deviceName,
+    platform: device.platform as "web" | "ios" | "android",
+    ...(typeof device.appVersion === "string" ? { appVersion: device.appVersion } : {}),
+  };
 }

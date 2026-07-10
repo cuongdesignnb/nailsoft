@@ -1,5 +1,19 @@
 import type { ApiResponse } from '@nailsoft/domain-types';
 export interface ClientOptions { baseUrl: string; getAccessToken?: () => string | undefined; getTenantId?: () => string | undefined }
+/** Coalesces concurrent refresh attempts for one in-memory client session. */
+export function createRefreshSingleFlight(
+  performRefresh: () => Promise<boolean>,
+): () => Promise<boolean> {
+  let refreshPromise: Promise<boolean> | null = null;
+  return () => {
+    if (!refreshPromise) {
+      refreshPromise = performRefresh().finally(() => {
+        refreshPromise = null;
+      });
+    }
+    return refreshPromise;
+  };
+}
 export const createApiClient = (options: ClientOptions) => ({
   async request<T>(path: string, init: RequestInit = {}): Promise<ApiResponse<T>> {
     const headers = new Headers(init.headers);

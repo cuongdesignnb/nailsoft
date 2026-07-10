@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Headers,
@@ -116,6 +117,19 @@ export class AuthController {
       id,
       req.raw.requestId ?? "unknown",
     );
+  }
+  @Delete("sessions/:id")
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @HttpCode(204)
+  async deleteSession(@Param("id") id: string, @Req() req: AuthenticatedRequest) {
+    await this.auth.revoke(req.auth.tenantId, req.auth.userId, id, req.raw.requestId ?? "unknown");
+  }
+  @Delete("sessions")
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  async deleteSessions(@Req() req: AuthenticatedRequest) {
+    return this.ok(await this.auth.revokeAllOwn(req.auth.tenantId, req.auth.userId, req.raw.requestId ?? "unknown"), req.raw.requestId);
   }
   @Post("logout")
   @UseGuards(AuthGuard)

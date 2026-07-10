@@ -1,8 +1,14 @@
 name: CI
 on:
+  workflow_dispatch:
   pull_request:
   push:
     branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -22,8 +28,10 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
     env:
+      NODE_ENV: test
       DATABASE_URL: postgresql://nailsoft:nailsoft@localhost:5432/nailsoft
       REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-only-high-entropy-secret-change-me-2026
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -33,6 +41,29 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm db:reset
-      - run: pnpm test
-      - run: pnpm build
+      - name: Fresh database migration
+        run: pnpm db:migrate
+      - name: Deterministic seed
+        run: pnpm db:seed
+      - name: Unit tests
+        run: pnpm test:unit
+      - name: Integration tests
+        run: pnpm test:integration
+      - name: API contract tests
+        run: pnpm test:contract
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Admin Web E2E smoke
+        run: pnpm test:e2e
+      - name: Build API
+        run: pnpm --filter @nailsoft/api build
+      - name: Build Worker
+        run: pnpm --filter @nailsoft/worker build
+      - name: Build Admin Web
+        run: pnpm --filter @nailsoft/admin-web build
+      - name: Build Booking Web
+        run: pnpm --filter @nailsoft/booking-web build
+      - name: Build Owner Mobile
+        run: pnpm --filter @nailsoft/owner-mobile build
+      - name: Build Staff Mobile
+        run: pnpm --filter @nailsoft/staff-mobile build

@@ -3,7 +3,7 @@ import { FormEvent, useState } from "react";
 import { login, selectWorkspace } from "../../lib/auth";
 type Workspace = { membershipId: string; name: string; slug: string };
 type State =
-  "idle" | "loading" | "workspace" | "success" | "error" | "forbidden";
+  "idle" | "loading" | "workspace" | "mfa" | "success" | "error" | "forbidden";
 export default function LoginPage() {
   const [state, setState] = useState<State>("idle"),
     [message, setMessage] = useState(""),
@@ -22,6 +22,11 @@ export default function LoginPage() {
         setWorkspaceToken(data.workspaceToken);
         setWorkspaces(data.workspaces);
         setState("workspace");
+        return;
+      }
+      if (data.authenticationState) {
+        setState("mfa");
+        setMessage(data.authenticationState === "MFA_ENROLLMENT_REQUIRED" ? "MFA enrollment is required." : "Enter your MFA code.");
         return;
       }
       setState("success");
@@ -59,7 +64,6 @@ export default function LoginPage() {
             <input
               name="email"
               type="email"
-              defaultValue="owner@example.test"
               required
             />
           </label>
@@ -90,6 +94,7 @@ export default function LoginPage() {
           )}
         </section>
       )}
+      {state === "mfa" && <section><h2>Additional verification</h2><p>{message}</p><a href="/auth/mfa">Continue to MFA</a></section>}
       {state === "error" && (
         <div role="alert">
           <p>{message}</p>

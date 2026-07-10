@@ -7,8 +7,10 @@ import { PermissionGuard } from "./permission.guard.js";
 import { TokenService } from "./token.service.js";
 import { UserController } from "./user.controller.js";
 import { UserService } from "./user.service.js";
+import { IdentityLifecycleController } from "./identity-lifecycle.controller.js";
+import { IdentityLifecycleService } from "./identity-lifecycle.service.js";
 @Module({
-  controllers: [AuthController, UserController],
+  controllers: [AuthController, UserController, IdentityLifecycleController],
   providers: [
     AuthService,
     AuthGuard,
@@ -16,6 +18,7 @@ import { UserService } from "./user.service.js";
     PasswordService,
     TokenService,
     UserService,
+    IdentityLifecycleService,
   ],
   exports: [AuthGuard, PermissionGuard, TokenService],
 })

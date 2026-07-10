@@ -1,1 +1,1 @@
-import { describe,expect,it } from 'vitest'; import { OutboxProcessor } from './outbox.processor'; describe('outbox processor',()=>{it('uses PostgreSQL as source of truth',()=>expect(new OutboxProcessor().sourceOfTruth).toBe('postgresql'));});
+import { describe,expect,it } from 'vitest'; import { OutboxProcessor } from './outbox.processor.js'; describe('outbox processor',()=>{it('uses PostgreSQL as source of truth',()=>expect(new OutboxProcessor().sourceOfTruth).toBe('postgresql'));});

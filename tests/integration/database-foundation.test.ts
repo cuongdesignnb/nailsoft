@@ -33,10 +33,10 @@ describe("PostgreSQL foundation", () => {
       await client.query(`INSERT INTO users(origin_tenant_id,display_name) VALUES
         ('10000000-0000-4000-8000-000000000001','No phone A'),
         ('10000000-0000-4000-8000-000000000001','No phone B')`);
-      await client.query(`INSERT INTO users(origin_tenant_id,display_name,phone_normalized) VALUES
+      await client.query(`INSERT INTO users(origin_tenant_id,display_name,phone_e164) VALUES
         ('10000000-0000-4000-8000-000000000001','Phone A','+84999999999')`);
       await expect(
-        client.query(`INSERT INTO users(origin_tenant_id,display_name,phone_normalized) VALUES
+        client.query(`INSERT INTO users(origin_tenant_id,display_name,phone_e164) VALUES
         ('10000000-0000-4000-8000-000000000001','Phone B','+84999999999')`),
       ).rejects.toMatchObject({ code: "23505" });
     } finally {

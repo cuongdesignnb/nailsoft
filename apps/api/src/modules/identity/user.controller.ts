@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
@@ -27,7 +28,7 @@ export class UserController {
   ) {
     return this.ok(await this.users.list(req.auth), req);
   }
-  @Post() @RequirePermission("user.manage") async create(
+  @Post() @RequirePermission("user.update") async create(
     @Body() body: unknown,
     @Req() req: AuthenticatedRequest,
   ) {
@@ -45,7 +46,7 @@ export class UserController {
     return this.ok(await this.users.sessions(req.auth, membershipId), req);
   }
   @Patch(":membershipId/access")
-  @RequirePermission("user.manage")
+  @RequirePermission("user.assign_role")
   async updateAccess(
     @Param("membershipId") membershipId: string,
     @Body() body: unknown,
@@ -90,6 +91,24 @@ export class UserController {
       ),
       req,
     );
+  }
+  @Delete(":membershipId/sessions/:sessionId")
+  @HttpCode(204)
+  @RequirePermission("session.revoke_tenant")
+  async deleteSession(
+    @Param("membershipId") membershipId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    await this.users.revokeSession(req.auth, membershipId, sessionId, req.raw.requestId ?? "unknown");
+  }
+  @Delete(":membershipId/sessions")
+  @RequirePermission("session.revoke_tenant")
+  async deleteAll(
+    @Param("membershipId") membershipId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.ok(await this.users.revokeAllSessions(req.auth, membershipId, req.raw.requestId ?? "unknown"), req);
   }
   private ok<T>(data: T, req: AuthenticatedRequest) {
     return {

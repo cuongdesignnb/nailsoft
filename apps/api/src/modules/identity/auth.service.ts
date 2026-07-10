@@ -150,6 +150,32 @@ export class AuthService {
     );
   }
 
+  async loginVerifiedIdentity(
+    userId: string,
+    tenantSlug: string | undefined,
+    deviceInput: unknown,
+    requestId: string,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    const device = deviceSchema.parse(deviceInput);
+    const memberships = await this.memberships(userId, tenantSlug);
+    if (memberships.length === 0)
+      throw new UnauthorizedException({ code: "INVALID_CREDENTIALS", message: "Invalid credentials" });
+    if (!tenantSlug && memberships.length > 1)
+      return {
+        workspaceSelectionRequired: true,
+        workspaceToken: await this.tokens.workspace(userId),
+        workspaces: memberships.map((membership) => ({
+          membershipId: membership.id,
+          tenantId: membership.tenant_id,
+          name: membership.tenant_name,
+          slug: membership.tenant_slug,
+        })),
+      };
+    return this.issueSession(userId, memberships[0]!, device, requestId, ip, userAgent);
+  }
+
   async refresh(input: unknown, requestId: string, ip?: string) {
     const body = refreshSchema.parse(input);
     const result = await this.db.transaction(async (client) => {
@@ -272,6 +298,18 @@ export class AuthService {
     );
   }
 
+  async revokeAllOwn(tenantId: string, userId: string, requestId: string) {
+    const result = await this.db.query(
+      "UPDATE device_sessions SET revoked_at=coalesce(revoked_at,now()),revoke_reason='user_revoked_all' WHERE tenant_id=$1 AND user_id=$2 AND revoked_at IS NULL",
+      [tenantId, userId],
+    );
+    await this.db.query(
+      "INSERT INTO audit_logs(tenant_id,actor_user_id,action,entity_type,entity_id,after_json,request_id) VALUES($1,$2,'session.revoke_all','user',$2,$3,$4)",
+      [tenantId, userId, JSON.stringify({ revokedCount: result.rowCount }), requestId],
+    );
+    return { revokedCount: result.rowCount };
+  }
+
   private async memberships(userId: string, slug?: string) {
     const result = await this.db.query<MembershipRow>(
       `SELECT tm.id,tm.tenant_id,tm.authorization_version,t.name tenant_name,t.slug tenant_slug FROM tenant_memberships tm JOIN tenants t ON t.id=tm.tenant_id WHERE tm.user_id=$1 AND tm.status='ACTIVE' AND t.status='ACTIVE' AND ($2::text IS NULL OR t.slug=$2) ORDER BY t.name`,
@@ -286,7 +324,45 @@ export class AuthService {
     requestId: string,
     ip?: string,
     userAgent?: string,
+    skipMfa = false,
   ) {
+    const initialScope = await this.scope(this.db, membership.id);
+    if (!skipMfa && initialScope.roles.some((role) => role === "SALON_OWNER" || role === "BRANCH_MANAGER")) {
+      const method = await this.db.query("SELECT 1 FROM mfa_methods WHERE user_id=$1 AND status='ACTIVE'", [userId]);
+      const policy = await this.db.query<{ grace_expired: boolean }>(
+        `SELECT now() >= coalesce(tm.joined_at,tm.created_at) +
+          (coalesce(ts.auth_policy_json#>>'{mfa,enrollmentGraceMinutes}','1440')||' minutes')::interval grace_expired
+         FROM tenant_memberships tm JOIN tenant_settings ts ON ts.tenant_id=tm.tenant_id WHERE tm.id=$1`,
+        [membership.id],
+      );
+      if (!method.rowCount && !policy.rows[0]?.grace_expired) {
+        // Enrollment grace is explicit tenant policy; authorization still checks every request.
+      } else {
+      const state = method.rowCount ? "MFA_REQUIRED" as const : "MFA_ENROLLMENT_REQUIRED" as const;
+      const challengeId = randomUUID();
+      await this.db.query("INSERT INTO mfa_challenges(id,user_id,purpose,expires_at) VALUES($1,$2,$3,now()+interval '5 minutes')", [challengeId, userId, state === "MFA_REQUIRED" ? "LOGIN" : "ENROLLMENT"]);
+      return {
+        workspaceSelectionRequired: false,
+        authenticationState: state,
+        mfaToken: await this.tokens.mfa({
+          userId,
+          membershipId: membership.id,
+          challengeId,
+          state,
+          device: {
+            deviceId: device.deviceId,
+            deviceName: device.deviceName,
+            platform: device.platform,
+            ...(device.appVersion ? { appVersion: device.appVersion } : {}),
+          },
+        }),
+        expiresIn: 300,
+        tenantId: membership.tenant_id,
+        membershipId: membership.id,
+        userId,
+      };
+      }
+    }
     return this.db.transaction(async (client) => {
       const refresh = this.tokens.refresh(),
         sessionId = randomUUID();
@@ -340,6 +416,17 @@ export class AuthService {
         userId,
       };
     });
+  }
+  async completeMfa(mfaToken: string, requestId: string, ip?: string, userAgent?: string) {
+    const challenge = await this.tokens.verifyMfa(mfaToken);
+    const consumed = await this.db.query(
+      "UPDATE mfa_challenges SET consumed_at=now() WHERE id=$1 AND user_id=$2 AND consumed_at IS NULL AND expires_at>now()",
+      [challenge.challengeId, challenge.userId],
+    );
+    if (!consumed.rowCount) throw new UnauthorizedException({ code: "MFA_CHALLENGE_EXPIRED", message: "MFA challenge is invalid or expired" });
+    const membership = (await this.db.query<MembershipRow>(`SELECT tm.id,tm.tenant_id,tm.authorization_version,t.name tenant_name,t.slug tenant_slug FROM tenant_memberships tm JOIN tenants t ON t.id=tm.tenant_id WHERE tm.id=$1 AND tm.user_id=$2 AND tm.status='ACTIVE' AND t.status='ACTIVE'`, [challenge.membershipId, challenge.userId])).rows[0];
+    if (!membership) throw new UnauthorizedException({ code: "WORKSPACE_ACCESS_DENIED", message: "Workspace is not available" });
+    return this.issueSession(challenge.userId, membership, challenge.device, requestId, ip, userAgent, true);
   }
   private async scope(
     client: {

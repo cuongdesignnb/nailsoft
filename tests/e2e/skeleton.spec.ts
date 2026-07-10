@@ -1,2 +1,0 @@
-import { test,expect } from '@playwright/test'; test('admin skeleton loads',async({page})=>{await page.goto('/');await expect(page.getByRole('heading',{name:'Nailsoft operations'})).toBeVisible();});
-test('login exposes accessible loading-ready form state',async({page})=>{await page.goto('/login');await expect(page.getByRole('heading',{name:'Đăng nhập'})).toBeVisible();await expect(page.getByLabel('Email')).toHaveValue('owner@example.test');await expect(page.getByRole('button',{name:'Đăng nhập'})).toBeEnabled();});

@@ -44,6 +44,9 @@ importers:
 
   apps/admin-web:
     dependencies:
+      '@nailsoft/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@nailsoft/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
@@ -179,6 +182,9 @@ importers:
       '@expo/metro-runtime':
         specifier: ~5.0.5
         version: 5.0.5(react-native@0.79.4(@babel/core@7.29.7)(@types/react@19.0.14)(react@19.0.0))
+      '@nailsoft/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@nailsoft/domain-types':
         specifier: workspace:*
         version: link:../../packages/domain-types
@@ -231,6 +237,9 @@ importers:
       '@expo/metro-runtime':
         specifier: ~5.0.5
         version: 5.0.5(react-native@0.79.4(@babel/core@7.29.7)(@types/react@19.0.14)(react@19.0.0))
+      '@nailsoft/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
       '@nailsoft/domain-types':
         specifier: workspace:*
         version: link:../../packages/domain-types

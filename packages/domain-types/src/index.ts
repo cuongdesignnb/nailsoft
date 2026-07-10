@@ -1,4 +1,4 @@
-export const roles = ['PLATFORM_SUPER_ADMIN','SALON_OWNER','BRANCH_MANAGER','RECEPTIONIST','CASHIER','NAIL_TECHNICIAN','ACCOUNTANT','MARKETING_STAFF','CUSTOMER'] as const;
+export const roles = ['PLATFORM_SUPER_ADMIN','SALON_OWNER','BRANCH_MANAGER','RECEPTIONIST','CASHIER','NAIL_TECHNICIAN','ACCOUNTANT','MARKETING','CUSTOMER'] as const;
 export type Role = (typeof roles)[number];
 export type Locale = 'vi-VN' | 'en-US';
 export interface TenantContext { tenantId: string; branchId?: string; actorUserId: string; roles: Role[] }

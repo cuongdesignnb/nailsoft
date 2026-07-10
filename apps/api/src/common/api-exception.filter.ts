@@ -7,6 +7,7 @@ import {
 } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { ZodError } from "zod";
+import { redactSensitive } from "./redact-sensitive.js";
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
@@ -50,7 +51,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
               : "REQUEST_FAILED";
     if (status >= 500)
       request.log.error(
-        { err: exception, requestId: request.raw.requestId },
+        { err: redactSensitive(exception), requestId: request.raw.requestId },
         "request failed",
       );
     void reply.status(status).send({
@@ -58,6 +59,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       error: {
         code,
         message,
+        requestId: request.raw.requestId ?? "unknown",
         ...(exception instanceof ZodError
           ? { details: exception.flatten() }
           : {}),
