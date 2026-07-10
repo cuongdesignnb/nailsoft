@@ -1,0 +1,1 @@
+export default function Home(){return <main style={{maxWidth:720,margin:'auto',padding:32}}><p>NAILSOFT</p><h1>Đặt lịch làm đẹp</h1><p>Booking experience skeleton — availability and confirmation arrive in Sprint 3–4.</p></main>}

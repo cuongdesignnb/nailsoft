@@ -1,0 +1,2 @@
+export const backendModuleBoundaries = ['identity','organization','staff','service-catalog','availability','booking','queue','customer','service-execution','pos','payment','commission','inventory','voucher','loyalty','marketing','notification','reporting','approval','audit','subscription','integration'] as const;
+export type BackendModuleBoundary = (typeof backendModuleBoundaries)[number];

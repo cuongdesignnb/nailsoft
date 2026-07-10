@@ -1,0 +1,28 @@
+openapi: 3.1.0
+info: { title: Nailsoft API, version: 0.1.0, description: Multi-tenant modular monolith API skeleton }
+servers: [{ url: http://localhost:3001/v1 }]
+security: [{ bearerAuth: [], tenantContext: [] }]
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [system]
+      security: []
+      responses:
+        '200': { description: Healthy, content: { application/json: { schema: { $ref: '#/components/schemas/HealthResponse' } } } }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+    tenantContext: { type: apiKey, in: header, name: X-Tenant-Id, description: Requested tenant scope; always verified against the authenticated membership }
+  schemas:
+    HealthResponse:
+      type: object
+      required: [success, data, meta]
+      properties:
+        success: { const: true }
+        data: { type: object, required: [status, service], properties: { status: { const: ok }, service: { const: api } } }
+        meta: { $ref: '#/components/schemas/Meta' }
+    Meta:
+      type: object
+      required: [requestId, timestamp]
+      properties: { requestId: { type: string }, timestamp: { type: string, format: date-time } }

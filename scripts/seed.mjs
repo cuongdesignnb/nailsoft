@@ -1,0 +1,1 @@
+import pg from'pg';import{readFile}from'node:fs/promises';const c=new pg.Client({connectionString:process.env.DATABASE_URL??'postgresql://nailsoft:nailsoft@localhost:5432/nailsoft'});await c.connect();try{await c.query(await readFile('infra/seeds/development.sql','utf8'));}finally{await c.end();}

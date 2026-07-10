@@ -1,0 +1,1 @@
+BEGIN; DROP TABLE IF EXISTS outbox_events,idempotency_keys,audit_logs,commission_rules,loyalty_programs,vouchers,products,appointments,customers,services,service_categories,user_roles,users,branches,tenants CASCADE; DROP TABLE IF EXISTS schema_migrations; COMMIT;

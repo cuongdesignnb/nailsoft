@@ -1,0 +1,1 @@
+import { SafeAreaView, Text, View } from 'react-native'; export default function Home(){return <SafeAreaView><View style={{padding:24,gap:12}}><Text style={{fontSize:12,color:'#6D28D9'}}>SPRINT 0 · STAFF</Text><Text style={{fontSize:32,fontWeight:'700'}}>Today</Text><Text>Offline-aware schedule and operation queue foundation.</Text></View></SafeAreaView>}
