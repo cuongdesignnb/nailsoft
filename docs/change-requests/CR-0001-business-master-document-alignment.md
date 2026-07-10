@@ -1,61 +1,46 @@
-# CR-0001: Alignment with Business Master Document v1.0
+# CR-0001: Business Master Document Alignment
 
-- Status: Proposed — BA/Product Owner decision required
-- Source: `pasted-text.txt`, “Tài liệu nghiệp vụ tổng thể — Nail Salon Management Platform”, version 1.0
-- Created: 2026-07-10
-- Scope: Requirements reconciliation only; no approved business behavior is changed by this document.
+- Decision: Approved with Conditions
+- Decision date: 2026-07-10
+- Status: Closed
+- Source: Business Master Document v1.0
+- Implementation source: the reconciled SRS/PRD
+- Sprint 0 impact: no destructive migration and no scope expansion
 
-## Context
+## Governing conditions
 
-The business master document is directionally aligned with the current SRS/PRD and confirms the mandatory architecture: multi-tenant and multi-branch SaaS, mobile-first UX, PostgreSQL as system of record, optimistic UI, realtime synchronization, durable idempotency, transactional outbox, auditability and modular-monolith boundaries.
+Approved requirements enter their owning sprint, not Sprint 1 wholesale. The MVP does not become a full accounting system, the modular monolith remains, and critical booking, financial, voucher, gift-card, inventory and commission operations require durable idempotency. Every owning sprint must update SRS/PRD, ERD when applicable, OpenAPI, event catalog and tests.
 
-It also introduces requirements or terminology that are absent from, or more detailed than, the current implementation source. Per the project rule against silently changing business behavior, these items require explicit disposition.
+## Approved dispositions
 
-## Proposed requirement additions
+| ID     | Decision and binding rules                                                                                                                                                                                                                                                                                                                                 | Owning sprint                                            |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| CR1-01 | `PARTIALLY_COMPLETED` is system-derived only for a multi-item booking with at least one completed item and at least one unfinished/cancelled/unfulfillable item before final completion. Item/session states remain independent; clients cannot command this state; derivation history/event is auditable.                                                 | Booking and Service Execution                            |
+| CR1-02 | MVP supports tenant default and branch service price with effective start, optional end, no same-scope overlap and confirmation snapshot. Backend returns `pricingTrace`; discounts/vouchers apply after one base price. Manual override requires permission, reason and audit. Advanced dimensions and the approved precedence chain are post-MVP.        | Service Catalog; advanced rules post-MVP                 |
+| CR1-03 | Platform Super Admin has no default tenant business-data access. Sprint 1 establishes the policy boundary only. Full owner-granted, scoped, time-bound, read-only-by-default and revocable Support Access Grant plus short audited break-glass flow belongs to SaaS Administration. Tokens, passwords, raw card data and audit deletion are never exposed. | Sprint 1 boundary; full flow SaaS Administration         |
+| CR1-04 | All domain/outbox events use the approved versioned event envelope. Consumers deduplicate by `eventId`; incompatible payload changes increment `eventVersion`; aggregate version detects gaps; sensitive data is prohibited.                                                                                                                               | Sprint 1 onward                                          |
+| CR1-05 | Review is a capability across CRM, Service Experience and Marketing; it may remain a module inside the monolith. MVP Accounting is limited to reconciliation, revenue/tax/tip/refund/cash-session/credit-note/export capabilities under Finance/Reporting; no general ledger or complete AP/AR.                                                            | CRM/Growth; POS/Reporting                                |
+| CR1-06 | Gift-card issue/top-up/redeem/cancel/refund and commission lock/reopen/adjustment/payout batch require idempotency. Same key/same payload replays; same key/different payload conflicts; ledgers use unique references and consumers deduplicate.                                                                                                          | Membership/Growth; Commission                            |
+| CR1-07 | Paid invoices are immutable. Credit notes reference originals and adjust all affected ledgers. Replacement invoices retain the old record and audit chain and are retry-safe.                                                                                                                                                                              | POS/Finance or immediate Finance hardening after POS MVP |
+| CR1-08 | Offline operations include operation/version, tenant/branch/user/device/session, client time, base entity version, payload and client app identity. Server derives authority from the authenticated session and persists processing state; retry uses `operationId`. Critical operations await server confirmation.                                        | Mobile Offline Foundation and owning domain sprints      |
+| CR1-09 | Sprint 1 baseline includes structured/redacted logs, request/correlation ID, error tracking, API/database latency, error rate, health/readiness, worker/queue/WebSocket and auth-security signals. Booking/payment and production signals are added in their owning phases.                                                                                | Sprint 1 baseline; domain/production extensions later    |
+| CR1-10 | API adopts NestJS Fastify while the controller surface is small. Auth, cookies if used, multipart, rate limiting, CORS, Swagger, WebSocket, filters, request IDs, integration and load smoke tests must be verified. Performance claims require measurements.                                                                                              | Sprint 1                                                 |
 
-| ID | Proposed addition | Impact | Suggested backlog placement |
-|---|---|---|---|
-| CR1-01 | Add `PARTIALLY_COMPLETED` appointment state | Booking state machine, OpenAPI, reporting, cancellation/refund behavior | Decide before Sprint 4 |
-| CR1-02 | Add dynamic pricing by staff level, weekday/weekend, peak hour, season, VIP and complexity | Service price model, snapshot rules, permission/audit policy | Decide before Sprint 2 |
-| CR1-03 | Add explicit salon/support consent before Platform Super Admin can view sensitive tenant data | Support-access workflow, audit, time-bound authorization | Decide before Sprint 1 |
-| CR1-04 | Standardize business event envelope with event ID, tenant, entity, version, actor, timestamp, correlation ID and schema version | Outbox schema and consumer contracts | Approve during foundation hardening, before Sprint 4 |
-| CR1-05 | Add Review and Accounting as explicit modules | Module ownership, permissions, database and roadmap | Review in MVP/P1 scope planning |
-| CR1-06 | Add gift card creation and commission-period locking to mandatory idempotent commands | Idempotency policy and acceptance tests | Before POS/commission implementation |
-| CR1-07 | Add credit note and replacement invoice as paid-invoice adjustment mechanisms | Financial model and audit requirements | Before Sprint 7–8 |
-| CR1-08 | Add device and user fields to the offline operation envelope | Shared domain types, local SQLite queue, sync API | Before Sprint 6 |
-| CR1-09 | Add observability acceptance measures for WebSocket count, queue backlog, webhook/notification failures, cache hit rate, mobile crashes and abnormal tenant behavior | Telemetry model, dashboards and alerts | Foundation now; production hardening Sprint 12 |
-| CR1-10 | Use NestJS Fastify adapter as the preferred HTTP adapter | API bootstrap and compatibility validation | Technical decision; safe before Sprint 1 |
+## Approved pricing precedence for post-MVP rules
 
-## Clarifications required from BA/Product Owner
+`approved manual override → customer contract → campaign → branch + technician level → branch + time window → branch service price → tenant default service price`.
 
-1. Is `PARTIALLY_COMPLETED` an appointment state, a derived state from appointment items, or only a reporting label?
-2. Which dynamic pricing dimensions are MVP requirements, and what is their precedence when multiple rules match?
-3. What grants support access: salon owner approval, break-glass approval, or both? What is the expiry period?
-4. Are Review and Accounting separate bounded contexts or capabilities owned by Customer/Reporting/POS?
-5. Is “membership” the umbrella term for loyalty and prepaid packages, or a separate paid membership product?
-6. Are gift cards required for MVP, and are they treated as stored value with financial liability?
-7. Which markets are in the first pilot? This determines currency, tax, timezone and privacy defaults.
-8. Which booking statuses may salon administrators configure? Allowing arbitrary states may conflict with a fixed state machine and integrations.
+Only one base price is selected. Rules do not stack unless explicitly modeled as a surcharge. Money is calculated on the backend.
 
-## Confirmed non-conflicting requirements
+## Deferred implementation guardrail
 
-- PostgreSQL remains authoritative; Redis is not a sole source of truth.
-- Booking and financial writes require transactions and durable idempotency.
-- Important booking, financial, inventory and permission actions require audit records.
-- WebSocket events are synchronization hints; reconnect must refetch missed authoritative state.
-- Booking, payment, refund, voucher, package, commission lock and inventory cannot be finally committed offline.
-- Policies such as opening hours, deposits, cancellation, commission, tip, tax and permissions must be configurable.
-- AI remains post-MVP and may recommend but not autonomously execute financial or bulk-marketing actions.
+The following are approved requirements but must not be implemented before their owning sprint: advanced dynamic pricing, gift cards, credit notes, replacement invoices, review workflows, advanced accounting, full support impersonation and derived `PARTIALLY_COMPLETED` behavior.
 
-## Current implementation impact
+## Closure evidence
 
-Sprint 0 remains valid. No existing migration needs destructive alteration. If approved:
-
-- CR1-04 should extend `outbox_events` in a forward-only migration rather than editing production history.
-- CR1-08 should extend the shared `LocalOperation` type and validation schema together.
-- CR1-10 can change the API adapter before Sprint 1 endpoints are implemented.
-- Business-state and pricing decisions must be reflected in acceptance criteria, OpenAPI and tests in their owning sprint.
-
-## Acceptance of this change request
-
-BA/Product Owner should mark each CR1 item as `Accepted`, `Rejected`, `Deferred` or `Needs discovery`. Accepted items must be added to the relevant sprint backlog with acceptance criteria before implementation.
+- Decisions incorporated into the SRS/PRD addendum.
+- Requirements source register reconciled.
+- Event catalog and versioning rules created.
+- ADRs created for Fastify, event envelope, observability and support access.
+- ERD and migrations unchanged, as directed.
+- Documentation validation completed and reconciliation committed separately.

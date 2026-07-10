@@ -2802,3 +2802,49 @@ MVP được phép pilot khi:
 12. Reporting và scale hardening.
 
 Agent không được bắt đầu AI, marketing nâng cao hoặc custom branding trước khi các luồng booking, service execution và payment ổn định.
+
+---
+
+# 21. PHỤ LỤC YÊU CẦU ĐÃ PHÊ DUYỆT — CR-0001
+
+**Trạng thái:** Approved with Conditions, ngày 10/07/2026. Phụ lục này là một phần của nguồn triển khai chính và không làm thay đổi phạm vi Sprint 0.
+
+## 21.1. Booking và Service Execution
+
+- `PARTIALLY_COMPLETED` là trạng thái tổng hợp do hệ thống suy ra cho booking nhiều item; client không được chuyển trực tiếp.
+- Điều kiện: ít nhất một item hoàn thành, ít nhất một item chưa hoàn thành/đã hủy/không thể thực hiện, và booking chưa hoàn tất cuối cùng.
+- Item/session giữ trạng thái riêng; lịch sử suy ra phải audit được. Triển khai trong Booking và Service Execution Sprint.
+
+## 21.2. Pricing
+
+- MVP: giá mặc định service theo tenant, giá service theo branch, ngày bắt đầu, ngày kết thúc tùy chọn, cấm chồng lấn cùng scope, snapshot vào appointment item khi xác nhận.
+- Backend chọn đúng một base price và trả `pricingTrace`; discount/voucher áp dụng sau base price. Manual override cần quyền, lý do và audit.
+- Advanced pricing và thứ tự `manual override → customer contract → campaign → branch+technician → branch+time → branch service → tenant default` là post-MVP.
+
+## 21.3. Platform support
+
+- Platform Super Admin không mặc định đọc dữ liệu nghiệp vụ tenant. Sprint 1 chỉ tạo policy boundary.
+- Full Support Access Grant phải do Owner cấp, có scope/thời hạn/lý do, read-only mặc định, thu hồi ngay và audit; break-glass cần phê duyệt, thời hạn ngắn và cảnh báo Owner. Triển khai ở SaaS Administration Sprint.
+
+## 21.4. Event contract và observability
+
+- Mọi event mới từ Sprint 1 dùng envelope versioned gồm event/aggregate identity và version, tenant/branch, actor, source, correlation/causation/trace, data và schema version.
+- Consumer idempotent theo `eventId`; event đã phát là bất biến; cấm secret/dữ liệu nhạy cảm không cần thiết.
+- Sprint 1 observability baseline: structured redacted logging, request/correlation ID, error tracking, API/database latency, error rate, health/readiness, worker/queue/WebSocket và auth/security signals.
+
+## 21.5. Phạm vi capability
+
+- Review là capability trong CRM/Service Experience/Marketing, có thể là module trong monolith nhưng không là microservice MVP.
+- Accounting MVP chỉ gồm reconciliation, revenue/tax/tip/refund/cash session/credit note/export trong Finance/Reporting; không xây general ledger hoặc AP/AR đầy đủ.
+- Paid invoice bất biến; credit note và replacement invoice giữ reference/audit chain và idempotency, triển khai ở POS/Finance.
+
+## 21.6. Idempotency và offline
+
+- Gift-card issue/top-up/redeem/cancel/refund và commission lock/reopen/adjustment/payout batch bắt buộc idempotent trong sprint sở hữu.
+- Offline envelope bổ sung operation/version, tenant/branch/user/device/session, client time, base version, payload và client app. Server xác minh context từ session và retry theo `operationId`.
+- Không triển khai sớm advanced pricing, gift card, credit note, replacement invoice, review workflow, accounting nâng cao, full support impersonation hoặc `PARTIALLY_COMPLETED`.
+
+## 21.7. Quyết định kỹ thuật Sprint 1
+
+- Chuyển API skeleton sang NestJS Fastify trước khi controller mở rộng; kiểm chứng auth, cookie nếu dùng, multipart, rate limit, CORS, Swagger, WebSocket, error filter, request ID, integration và load smoke test.
+- Event catalog, ADR và test/API/ERD phải được cập nhật trong đúng sprint sở hữu; không tạo trước bảng post-MVP.
