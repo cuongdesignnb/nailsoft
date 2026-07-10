@@ -2,7 +2,6 @@ packages:
   - apps/*
   - packages/*
 onlyBuiltDependencies:
+  - '@scarf/scarf'
   - esbuild
   - sharp
-ignoredBuiltDependencies:
-  - '@scarf/scarf'
