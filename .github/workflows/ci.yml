@@ -34,10 +34,12 @@ jobs:
       JWT_SECRET: ci-only-high-entropy-secret-change-me-2026
     steps:
       - uses: actions/checkout@v4
+      # pnpm 11 requires Node >=22.13 (node:sqlite). Initialize Node first so
+      # pnpm/action-setup executes the package manager with the supported runtime.
+      - uses: actions/setup-node@v4
+        with: { node-version: 22.14.0 }
       - uses: pnpm/action-setup@v4
         with: { version: 11.7.0 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
