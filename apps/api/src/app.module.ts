@@ -1,2 +1,15 @@
-import { Module } from '@nestjs/common'; import { HealthModule } from './modules/health/health.module.js';
-@Module({imports:[HealthModule]}) export class AppModule {}
+import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { DatabaseModule } from "./infrastructure/database.module.js";
+import { RequestContextMiddleware } from "./common/request-context.middleware.js";
+import { HealthModule } from "./modules/health/health.module.js";
+import { IdentityModule } from "./modules/identity/identity.module.js";
+import { OrganizationModule } from "./modules/organization/organization.module.js";
+
+@Module({
+  imports: [DatabaseModule, HealthModule, IdentityModule, OrganizationModule],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestContextMiddleware).forRoutes("*");
+  }
+}

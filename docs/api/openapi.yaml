@@ -1,28 +1,226 @@
 openapi: 3.1.0
-info: { title: Nailsoft API, version: 0.1.0, description: Multi-tenant modular monolith API skeleton }
+info:
+  {
+    title: Nailsoft API,
+    version: 0.1.0,
+    description: Multi-tenant modular monolith API skeleton,
+  }
 servers: [{ url: http://localhost:3001/v1 }]
 security: [{ bearerAuth: [], tenantContext: [] }]
 paths:
+  /auth/login:
+    post:
+      tags: [authentication]
+      security: []
+      summary: Create a device session
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/LoginRequest" } },
+            },
+        }
+      responses:
+        {
+          "200": { description: Authenticated },
+          "401": { description: Invalid credentials },
+        }
+  /auth/refresh:
+    post:
+      tags: [authentication]
+      security: []
+      summary: Rotate a refresh token
+      responses:
+        {
+          "200": { description: Rotated },
+          "409": { description: Token reuse detected },
+        }
+  /auth/sessions:
+    get:
+      {
+        tags: [authentication],
+        summary: List own active device sessions,
+        responses: { "200": { description: Sessions } },
+      }
+  /auth/sessions/{id}/revoke:
+    post:
+      tags: [authentication]
+      summary: Revoke an own device session
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
+      responses: { "204": { description: Revoked } }
+  /organization:
+    get:
+      {
+        tags: [organization],
+        summary: Read salon configuration,
+        responses: { "200": { description: Organization } },
+      }
+    patch:
+      {
+        tags: [organization],
+        summary: Update salon configuration,
+        responses: { "200": { description: Updated } },
+      }
+  /branches:
+    get:
+      {
+        tags: [organization],
+        summary: List authorized branches,
+        responses: { "200": { description: Branch list } },
+      }
+    post:
+      {
+        tags: [organization],
+        summary: Create a branch,
+        responses: { "201": { description: Created } },
+      }
+  /branches/{id}:
+    get:
+      tags: [organization]
+      summary: Read an authorized branch
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
+      responses:
+        {
+          "200": { description: Branch },
+          "403": { description: Outside branch scope },
+        }
+    patch:
+      tags: [organization]
+      summary: Update an authorized branch
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
+      responses: { "200": { description: Updated } }
+  /branches/{id}/business-hours:
+    get:
+      {
+        tags: [organization],
+        summary: Read business hours,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses: { "200": { description: Hours } },
+      }
+    put:
+      {
+        tags: [organization],
+        summary: Replace weekly business hours,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses: { "200": { description: Updated } },
+      }
+  /users:
+    get:
+      {
+        tags: [users],
+        summary: List users in authorized scope,
+        responses: { "200": { description: Users } },
+      }
+    post:
+      {
+        tags: [users],
+        summary: Create a tenant and branch-scoped user,
+        responses: { "201": { description: Created } },
+      }
+  /ready:
+    get:
+      {
+        tags: [system],
+        security: [],
+        summary: Database readiness,
+        responses:
+          { "200": { description: Ready }, "503": { description: Not ready } },
+      }
   /health:
     get:
       operationId: getHealth
       tags: [system]
       security: []
       responses:
-        '200': { description: Healthy, content: { application/json: { schema: { $ref: '#/components/schemas/HealthResponse' } } } }
+        "200":
+          {
+            description: Healthy,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/HealthResponse" } },
+              },
+          }
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
-    tenantContext: { type: apiKey, in: header, name: X-Tenant-Id, description: Requested tenant scope; always verified against the authenticated membership }
+    tenantContext:
+      {
+        type: apiKey,
+        in: header,
+        name: X-Tenant-Id,
+        description: Requested tenant scope; always verified against the authenticated membership,
+      }
   schemas:
+    LoginRequest:
+      type: object
+      required: [tenantSlug, email, password, deviceId, deviceName, platform]
+      properties:
+        tenantSlug: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 8 }
+        deviceId: { type: string }
+        deviceName: { type: string }
+        platform: { enum: [web, ios, android] }
     HealthResponse:
       type: object
       required: [success, data, meta]
       properties:
         success: { const: true }
-        data: { type: object, required: [status, service], properties: { status: { const: ok }, service: { const: api } } }
-        meta: { $ref: '#/components/schemas/Meta' }
+        data:
+          {
+            type: object,
+            required: [status, service],
+            properties: { status: { const: ok }, service: { const: api } },
+          }
+        meta: { $ref: "#/components/schemas/Meta" }
     Meta:
       type: object
       required: [requestId, timestamp]
-      properties: { requestId: { type: string }, timestamp: { type: string, format: date-time } }
+      properties:
+        {
+          requestId: { type: string },
+          timestamp: { type: string, format: date-time },
+        }

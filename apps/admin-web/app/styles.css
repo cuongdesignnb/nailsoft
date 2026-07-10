@@ -1,1 +1,66 @@
-:root{font-family:Inter,system-ui,sans-serif;color:#172033;background:#f8fafc}*{box-sizing:border-box}body{margin:0}main{max-width:900px;margin:0 auto;padding:clamp(24px,8vw,96px)}h1{font-size:clamp(42px,8vw,72px);margin:.25em 0}.eyebrow{color:#6d28d9;font-weight:800;letter-spacing:.12em}section{margin-top:48px;padding:24px;background:white;border:1px solid #e2e8f0;border-radius:16px}li{margin:8px 0}@media(max-width:767px){main{padding:24px}section{margin-top:32px}}
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #172033;
+  background: #f8fafc;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: clamp(24px, 8vw, 96px);
+}
+h1 {
+  font-size: clamp(42px, 8vw, 72px);
+  margin: 0.25em 0;
+}
+.eyebrow {
+  color: #6d28d9;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+section {
+  margin-top: 48px;
+  padding: 24px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+}
+li {
+  margin: 8px 0;
+}
+@media (max-width: 767px) {
+  main {
+    padding: 24px;
+  }
+  section {
+    margin-top: 32px;
+  }
+}
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 650;
+}
+input,
+button {
+  font: inherit;
+  padding: 12px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+}
+button {
+  background: #6d28d9;
+  color: white;
+  border: 0;
+  font-weight: 700;
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
