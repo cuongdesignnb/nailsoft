@@ -1,1 +1,1 @@
-import { defineConfig } from 'vitest/config'; export default defineConfig({test:{include:['packages/**/*.test.ts','apps/{api,worker}/**/*.test.ts'],coverage:{provider:'v8'}}});
+import { defineConfig } from 'vitest/config'; export default defineConfig({test:{include:['packages/**/*.test.ts','apps/{api,worker}/**/*.test.ts','tests/integration/**/*.test.ts'],coverage:{provider:'v8'},poolOptions:{forks:{singleFork:true}}}});
