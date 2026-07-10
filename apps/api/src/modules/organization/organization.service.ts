@@ -50,11 +50,7 @@ const hoursInput = z
 export class OrganizationService {
   constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
   private branchAllowed(auth: AccessClaims, id: string) {
-    return (
-      auth.roles.includes("SALON_OWNER") ||
-      auth.roles.includes("PLATFORM_SUPER_ADMIN") ||
-      auth.branchIds.includes(id)
-    );
+    return auth.roles.includes("SALON_OWNER") || auth.branchIds.includes(id);
   }
   async tenant(auth: AccessClaims) {
     const result = await this.db.query(

@@ -5,9 +5,11 @@ Sprint 0 establishes shared isolation and reliability tables plus deterministic 
 ```mermaid
 erDiagram
   TENANTS ||--o{ BRANCHES : owns
-  TENANTS ||--o{ USERS : contains
-  USERS ||--o{ SESSIONS : authenticates
-  USERS ||--o{ USER_ROLES : assigned
+  USERS ||--o{ TENANT_MEMBERSHIPS : joins
+  TENANTS ||--o{ TENANT_MEMBERSHIPS : contains
+  TENANT_MEMBERSHIPS ||--o{ MEMBERSHIP_ROLES : assigned
+  TENANT_MEMBERSHIPS ||--o{ MEMBERSHIP_BRANCHES : scoped
+  TENANT_MEMBERSHIPS ||--o{ DEVICE_SESSIONS : authenticates
   PERMISSIONS ||--o{ ROLE_PERMISSIONS : grants
   TENANTS ||--|| TENANT_SETTINGS : configures
   BRANCHES ||--|| BRANCH_SETTINGS : configures
@@ -24,4 +26,4 @@ erDiagram
 
 All business tables carry `tenant_id`; branch-scoped tables carry `branch_id`. Composite tenant foreign keys prevent accidental cross-tenant references. PostgreSQL is authoritative.
 
-Sprint 1 adds rotating device sessions, permission mappings, tenant/branch settings and effective business hours. Platform support has only a policy boundary; no support-grant or impersonation table is created before the SaaS Administration sprint.
+Sprint 1 migration `0003` converts legacy per-tenant identities into global users with independently controlled tenant memberships, membership roles/branches, authorization versions and device sessions. Platform support has only a policy boundary; no support-grant or impersonation table is created before the SaaS Administration sprint.

@@ -23,8 +23,8 @@ export class PermissionGuard implements CanActivate {
     if (!permission) return true;
     const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const result = await this.db.query(
-      "SELECT 1 FROM user_roles ur JOIN role_permissions rp ON rp.role=ur.role WHERE ur.tenant_id=$1 AND ur.user_id=$2 AND rp.permission_code=$3 LIMIT 1",
-      [req.auth.tenantId, req.auth.userId, permission],
+      "SELECT 1 FROM membership_roles mr JOIN role_permissions rp ON rp.role=mr.role WHERE mr.membership_id=$1 AND rp.permission_code=$2 LIMIT 1",
+      [req.auth.membershipId, permission],
     );
     if (result.rowCount !== 1)
       throw new ForbiddenException({

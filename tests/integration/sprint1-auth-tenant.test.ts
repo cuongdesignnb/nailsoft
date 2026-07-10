@@ -6,6 +6,8 @@ let app: Awaited<ReturnType<typeof createApp>>;
 let accessToken = "";
 let refreshToken = "";
 let createdBranchId = "";
+let targetMembershipId = "";
+let managerAccessToken = "";
 const tenantId = "10000000-0000-4000-8000-000000000001";
 
 describe("Sprint 1 authentication and tenant isolation", () => {
@@ -16,15 +18,14 @@ describe("Sprint 1 authentication and tenant isolation", () => {
   });
   afterAll(async () => {
     const db = app.get(DatabaseService);
-    await db.query("DELETE FROM sessions WHERE tenant_id=$1", [tenantId]);
+    await db.query("DELETE FROM device_sessions WHERE tenant_id=$1", [
+      tenantId,
+    ]);
     await db.query(
-      "DELETE FROM user_roles WHERE tenant_id=$1 AND user_id IN (SELECT id FROM users WHERE tenant_id=$1 AND email='e2e.manager@example.test')",
+      "DELETE FROM tenant_memberships WHERE tenant_id=$1 AND user_id IN (SELECT id FROM users WHERE email='e2e.manager@example.test')",
       [tenantId],
     );
-    await db.query(
-      "DELETE FROM users WHERE tenant_id=$1 AND email='e2e.manager@example.test'",
-      [tenantId],
-    );
+    await db.query("DELETE FROM users WHERE email='e2e.manager@example.test'");
     if (createdBranchId) {
       await db.query(
         "DELETE FROM business_hours WHERE tenant_id=$1 AND branch_id=$2",
@@ -52,7 +53,7 @@ describe("Sprint 1 authentication and tenant isolation", () => {
         password: "DemoPass123!",
         deviceId: "e2e-web",
         deviceName: "E2E Browser",
-        platform: "web",
+        platform: "android",
       },
     });
     expect(response.statusCode).toBe(200);
@@ -118,7 +119,50 @@ describe("Sprint 1 authentication and tenant isolation", () => {
       },
     });
     expect(user.statusCode).toBe(201);
-    expect(user.json().data.roles[0].branchId).toBe(createdBranchId);
+    targetMembershipId = user.json().data.membershipId;
+    expect(user.json().data.branchIds[0]).toBe(createdBranchId);
+    const managerLogin = await app.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: {
+        tenantSlug: "nailsoft-demo",
+        email: "e2e.manager@example.test",
+        password: "SecurePass123!",
+        deviceId: "e2e-manager",
+        deviceName: "Manager Browser",
+        platform: "android",
+      },
+    });
+    expect(managerLogin.statusCode).toBe(200);
+    managerAccessToken = managerLogin.json().data.accessToken;
+  });
+  it("lets an owner inspect and remotely revoke employee sessions", async () => {
+    const headers = {
+      authorization: `Bearer ${accessToken}`,
+      "x-tenant-id": tenantId,
+    };
+    const sessions = await app.inject({
+      method: "GET",
+      url: `/v1/users/${targetMembershipId}/sessions`,
+      headers,
+    });
+    expect(sessions.statusCode).toBe(200);
+    expect(sessions.json().data).toHaveLength(1);
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/v1/users/${targetMembershipId}/sessions/revoke-all`,
+      headers,
+    });
+    expect(revoked.statusCode).toBe(201);
+    const denied = await app.inject({
+      method: "GET",
+      url: "/v1/branches",
+      headers: {
+        authorization: `Bearer ${managerAccessToken}`,
+        "x-tenant-id": tenantId,
+      },
+    });
+    expect(denied.statusCode).toBe(401);
   });
   it("rotates refresh tokens and detects reuse", async () => {
     const rotated = await app.inject({

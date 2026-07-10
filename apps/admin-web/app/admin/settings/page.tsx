@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { authorizedFetch } from "../../../lib/auth";
 type Branch = { id: string; name: string; code: string; timezone: string };
 type State = "loading" | "ready" | "empty" | "error" | "forbidden";
 export default function SettingsPage() {
@@ -7,19 +8,8 @@ export default function SettingsPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   async function load() {
     setState("loading");
-    const token = sessionStorage.getItem("nailsoft.accessToken"),
-      tenant = sessionStorage.getItem("nailsoft.tenantId");
-    if (!token || !tenant) {
-      setState("forbidden");
-      return;
-    }
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001"}/v1/branches`,
-        {
-          headers: { authorization: `Bearer ${token}`, "x-tenant-id": tenant },
-        },
-      );
+      const response = await authorizedFetch("/v1/branches");
       if (response.status === 401 || response.status === 403) {
         setState("forbidden");
         return;

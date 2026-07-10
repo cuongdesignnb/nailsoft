@@ -2,7 +2,10 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Inject,
+  Param,
+  Patch,
   Post,
   Req,
   UseGuards,
@@ -30,6 +33,61 @@ export class UserController {
   ) {
     return this.ok(
       await this.users.create(req.auth, body, req.raw.requestId ?? "unknown"),
+      req,
+    );
+  }
+  @Get(":membershipId/sessions")
+  @RequirePermission("session.read_tenant")
+  async sessions(
+    @Param("membershipId") membershipId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.ok(await this.users.sessions(req.auth, membershipId), req);
+  }
+  @Patch(":membershipId/access")
+  @RequirePermission("user.manage")
+  async updateAccess(
+    @Param("membershipId") membershipId: string,
+    @Body() body: unknown,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.ok(
+      await this.users.updateAccess(
+        req.auth,
+        membershipId,
+        body,
+        req.raw.requestId ?? "unknown",
+      ),
+      req,
+    );
+  }
+  @Post(":membershipId/sessions/:sessionId/revoke")
+  @HttpCode(204)
+  @RequirePermission("session.revoke_tenant")
+  async revokeSession(
+    @Param("membershipId") membershipId: string,
+    @Param("sessionId") sessionId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    await this.users.revokeSession(
+      req.auth,
+      membershipId,
+      sessionId,
+      req.raw.requestId ?? "unknown",
+    );
+  }
+  @Post(":membershipId/sessions/revoke-all")
+  @RequirePermission("session.revoke_tenant")
+  async revokeAll(
+    @Param("membershipId") membershipId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.ok(
+      await this.users.revokeAllSessions(
+        req.auth,
+        membershipId,
+        req.raw.requestId ?? "unknown",
+      ),
       req,
     );
   }

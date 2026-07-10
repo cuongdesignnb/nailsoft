@@ -44,6 +44,25 @@ paths:
         summary: List own active device sessions,
         responses: { "200": { description: Sessions } },
       }
+  /auth/select-workspace:
+    post:
+      {
+        tags: [authentication],
+        security: [],
+        summary: Select an active tenant membership,
+        responses:
+          {
+            "200": { description: Workspace session created },
+            "401": { description: Workspace unavailable },
+          },
+      }
+  /auth/logout:
+    post:
+      {
+        tags: [authentication],
+        summary: Revoke current device and clear Web cookies,
+        responses: { "204": { description: Logged out } },
+      }
   /auth/sessions/{id}/revoke:
     post:
       tags: [authentication]
@@ -158,6 +177,62 @@ paths:
         tags: [users],
         summary: Create a tenant and branch-scoped user,
         responses: { "201": { description: Created } },
+      }
+  /users/{membershipId}/access:
+    patch:
+      {
+        tags: [users],
+        summary: Replace membership roles branches and status,
+        parameters:
+          [
+            {
+              name: membershipId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses:
+          {
+            "200": { description: Access updated },
+            "409": { description: Last owner or invalid branch },
+          },
+      }
+  /users/{membershipId}/sessions:
+    get:
+      {
+        tags: [users],
+        summary: List target sessions in authorized scope,
+        parameters:
+          [
+            {
+              name: membershipId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses:
+          {
+            "200": { description: Sessions },
+            "403": { description: Target outside scope },
+          },
+      }
+  /users/{membershipId}/sessions/revoke-all:
+    post:
+      {
+        tags: [users],
+        summary: Revoke all target sessions,
+        parameters:
+          [
+            {
+              name: membershipId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses: { "201": { description: Revoked } },
       }
   /ready:
     get:

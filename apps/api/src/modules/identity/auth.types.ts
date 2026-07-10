@@ -2,6 +2,8 @@ import type { Role } from "@nailsoft/domain-types";
 export interface AccessClaims {
   userId: string;
   tenantId: string;
+  membershipId: string;
+  authorizationVersion: number;
   sessionId: string;
   roles: Role[];
   branchIds: string[];
