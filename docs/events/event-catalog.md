@@ -38,3 +38,7 @@ Every domain and outbox event uses this immutable structure:
 ## Initial catalog
 
 The owning sprint finalizes payload schemas and acceptance tests for: appointment created/confirmed/rescheduled/cancelled, customer checked in, service started/completed, invoice created, payment completed/failed, refund completed, tip recorded, commission calculated, voucher redeemed, package used, stock below threshold, shift started/ended, and notification requested/delivered/failed.
+
+## Sprint 2 events
+
+`service_category.created`, `service_category.updated`, `service_category.archived`, `service.created`, `service.updated`, `service.activated`, `service.deactivated`, `service.archived`, `service_price.created`, `service_price.updated`, `service_price.cancelled`, `skill.created`, `skill.updated`, `skill.archived`, `resource.created`, `resource.updated`, `resource.status_changed`, `staff.created`, `staff.updated`, `staff.status_changed`, `staff.branch_assigned`, `staff.branch_assignment_ended`, `staff.skill_changed`, `shift.created`, `shift.updated`, `shift.published`, `shift.cancelled`, `leave.requested`, `leave.approved`, `leave.rejected`, and `leave.cancelled` use the standard envelope and are consumed idempotently by `eventId`.

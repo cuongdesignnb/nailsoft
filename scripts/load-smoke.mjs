@@ -29,6 +29,10 @@ const scenarios = [
   { name: "select-workspace", expected: [400,401], run: () => request("/v1/auth/select-workspace", { method: "POST", body: JSON.stringify({ workspaceToken: "invalid-load-smoke-token-that-is-long-enough", membershipId: "00000000-0000-4000-8000-000000000000", deviceId: "load-select", deviceName: "Load Smoke", platform: "android" }) }) },
   { name: "refresh", setup: async (worker) => auth(`load-refresh-${worker}`), run: async (state, worker) => { const result = await request("/v1/auth/refresh", { method: "POST", body: JSON.stringify({ refreshToken: state.refreshToken, deviceId: `load-refresh-${worker}` }) }); if (result.status === 200) state.refreshToken = (await auth(`load-refresh-${worker}`)).refreshToken; return result; } },
   { name: "branches", setup: async (worker) => auth(`load-branch-${worker}`), run: (state) => request("/v1/branches", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }) },
+  { name: "service-list", setup: async (worker) => auth(`load-service-${worker}`), run: (state) => request("/v1/services?status=ACTIVE&page=1&pageSize=50", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }) },
+  { name: "staff-list", setup: async (worker) => auth(`load-staff-${worker}`), run: (state) => request("/v1/staff?status=ACTIVE", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }) },
+  { name: "shift-list", setup: async (worker) => auth(`load-shift-${worker}`), run: (state) => request("/v1/shifts?branchId=20000000-0000-4000-8000-000000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }) },
+  { name: "leave-list", setup: async (worker) => auth(`load-leave-${worker}`), run: (state) => request("/v1/leave-requests?branchId=20000000-0000-4000-8000-000000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }) },
 ];
 
 for (const concurrency of concurrencyLevels) {

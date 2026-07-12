@@ -10,3 +10,4 @@ test-results/
 .env.local
 *.log
 *.tsbuildinfo
+nailsoft-agent-sprint2-service-catalog-staff.md

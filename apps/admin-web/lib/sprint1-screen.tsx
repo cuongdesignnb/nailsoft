@@ -14,6 +14,16 @@ const routeConfig: Record<string, { title: string; endpoint?: string; empty: str
   "/admin/security/audit-logs": { title: "Audit logs", empty: "No audit events match the current filters." },
   "/admin/security/mfa": { title: "Multi-factor authentication", endpoint: "/v1/auth/mfa/status", empty: "MFA has not been enrolled." },
   "/admin/settings/localization": { title: "Language and locale", empty: "No locale preference has been selected." },
+  "/admin/catalog/categories": { title: "Service categories", endpoint: "/v1/service-categories", empty: "Create the first service category." },
+  "/admin/catalog/services": { title: "Service catalog", endpoint: "/v1/services?status=ACTIVE&page=1&pageSize=50", empty: "No active services are configured." },
+  "/admin/catalog/services/new": { title: "Create service", endpoint: "/v1/service-categories", empty: "Create a category before creating a service." },
+  "/admin/catalog/skills": { title: "Skills", endpoint: "/v1/skills", empty: "No skills are configured." },
+  "/admin/catalog/resource-types": { title: "Resource types", endpoint: "/v1/resource-types", empty: "No resource types are configured." },
+  "/admin/catalog/resources": { title: "Branch resources", endpoint: "/v1/resources", empty: "No branch resources are configured." },
+  "/admin/staff/list": { title: "Staff profiles", endpoint: "/v1/staff", empty: "No staff profiles match the current filters." },
+  "/admin/staff/new": { title: "Create staff profile", endpoint: "/v1/branches", empty: "No branches are available." },
+  "/admin/scheduling/shifts": { title: "Shift foundation", endpoint: "/v1/shifts", empty: "No shifts have been created." },
+  "/admin/scheduling/leave-requests": { title: "Leave review", endpoint: "/v1/leave-requests", empty: "No leave requests are pending." },
 };
 
 export default function Sprint1Screen() {
@@ -39,7 +49,7 @@ export default function Sprint1Screen() {
 
   return (
     <main className="shell">
-      <nav className="topbar"><a href="/admin/dashboard">Nailsoft</a><a href="/admin/organization/branches">Branches</a><a href="/admin/team/users">Team</a><a href="/admin/security/sessions">Security</a></nav>
+      <nav className="topbar"><a href="/admin/dashboard">Nailsoft</a><a href="/admin/catalog/services">Catalog</a><a href="/admin/staff/list">Staff</a><a href="/admin/scheduling/shifts">Shifts</a><a href="/admin/scheduling/leave-requests">Leave</a><a href="/admin/organization/branches">Branches</a><a href="/admin/security/sessions">Security</a></nav>
       <section className="card" aria-busy={state === "loading"}>
         <p className="eyebrow">SPRINT 1 · IDENTITY & ORGANIZATION</p>
         <h1>{config.title}</h1>
