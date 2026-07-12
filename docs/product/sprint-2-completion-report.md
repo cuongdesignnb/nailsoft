@@ -12,7 +12,7 @@
 
 ## Verification
 
-Migration `0006_sprint2_hardening` was reset, rolled back and re-applied locally. Integration coverage includes overlap concurrency, permissions and add-on cycle protection. The final commit and CI run are recorded in the release handoff after the authenticated E2E lane completes.
+Migration `0006_sprint2_hardening` was reset, rolled back and re-applied locally. Integration coverage includes overlap concurrency, permissions and add-on cycle protection. Implementation commit `e0cdfffe5e2f867a16c58e90091355e0e5944513` passed GitHub Actions run `29184963858` (success), including authenticated E2E and mobile API integration.
 
 ## Out of scope
 
