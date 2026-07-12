@@ -10,7 +10,7 @@
 
 ## Verification
 
-Migration `0006_sprint2_hardening` was reset, rolled back and re-applied locally. Integration coverage includes overlap concurrency, permissions and add-on cycle protection. The final report is updated with the commit and CI run after the release pipeline is green.
+Migration `0006_sprint2_hardening` was reset, rolled back and re-applied locally. Integration coverage includes overlap concurrency, permissions and add-on cycle protection. Commit `99c180ff70ba8ccb63b31eb47da3129c6a9cb47d` passed GitHub Actions run `29181620160` (success).
 
 ## Out of scope
 
