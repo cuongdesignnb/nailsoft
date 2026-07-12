@@ -33,7 +33,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       service_addon_cycle: "SERVICE_ADDON_CYCLE",
     };
     const status =
-      databaseCode === "23505" || databaseCode === "23P01"
+      databaseCode === "23505" || databaseCode === "23P01" || databaseCode === "23514"
         ? HttpStatus.CONFLICT
         : exception instanceof ZodError
           ? HttpStatus.BAD_REQUEST
@@ -52,7 +52,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
             : "Internal server error";
     const code =
       databaseDomainCode[databaseConstraint ?? ""] ??
-      (databaseCode === "23505" || databaseCode === "23P01"
+      (databaseCode === "23505" || databaseCode === "23P01" || databaseCode === "23514"
         ? "DUPLICATE_RESOURCE"
         : exception instanceof ZodError
           ? "VALIDATION_ERROR"

@@ -13,6 +13,10 @@ Sprint 2 adds catalog, branch pricing, resource configuration, operational staff
 - Mutations write audit log and outbox event in the same transaction.
 - Branch manager writes are restricted to membership branch scope; platform super admin is denied without an explicit support grant.
 
+## Closure checkpoint
+
+Authenticated Playwright E2E now exercises real login and PostgreSQL-backed API flows for catalog, pricing, skills, resources, staff assignments, shifts, leave, role/branch authorization and Owner/Staff Mobile API journeys. The suite uses unique data and tenant-filtered cleanup; no access token is injected or backend mocked.
+
 ## Deferred debt
 
-SMS/email production provider, deeper business E2E coverage and safe reseeding of an already-populated database remain tracked technical debt and do not expand Sprint 2 scope.
+SMS/email production provider, production-scale performance benchmarking and safe reseeding of an already-populated database remain tracked technical debt. They do not expand Sprint 2 scope.

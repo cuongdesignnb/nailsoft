@@ -77,8 +77,20 @@ jobs:
         run: pnpm test:contract
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
-      - name: Admin Web E2E smoke
+      - name: Start API for authenticated E2E
+        shell: bash
+        run: |
+          pnpm --filter @nailsoft/api dev > api-e2e.log 2>&1 &
+          for i in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:3001/v1/health > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat api-e2e.log
+          exit 1
+      - name: Authenticated Sprint 2 E2E
         run: pnpm test:e2e
+      - name: Mobile Sprint 2 API integration
+        run: pnpm exec playwright test tests/e2e/sprint2-mobile-api.spec.ts
       - name: Build API
         run: pnpm --filter @nailsoft/api build
       - name: Build Worker

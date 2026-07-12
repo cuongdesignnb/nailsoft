@@ -6,6 +6,7 @@ coverage/
 .expo/
 playwright-report/
 test-results/
+.playwright/
 .env
 .env.local
 *.log

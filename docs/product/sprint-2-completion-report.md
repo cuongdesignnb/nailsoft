@@ -7,10 +7,12 @@
 - PostgreSQL exclusion constraints protect active staff assignment ranges, primary branch ranges and published shift ranges. Add-on cycles are rejected by a database trigger.
 - Granular permission cleanup and role matrix coverage; platform support identities cannot cross tenant boundaries.
 - Idempotency keys are sent by operational clients and audit/outbox writes remain in the same transaction.
+- Authenticated Playwright deep E2E: 12 tests passed against a real API and PostgreSQL, including role/branch authorization and concurrent publish.
+- Mobile API integration: Owner and Staff flows passed through the same authenticated API session.
 
 ## Verification
 
-Migration `0006_sprint2_hardening` was reset, rolled back and re-applied locally. Integration coverage includes overlap concurrency, permissions and add-on cycle protection. Commit `99c180ff70ba8ccb63b31eb47da3129c6a9cb47d` passed GitHub Actions run `29181620160` (success).
+Migration `0006_sprint2_hardening` was reset, rolled back and re-applied locally. Integration coverage includes overlap concurrency, permissions and add-on cycle protection. The final commit and CI run are recorded in the release handoff after the authenticated E2E lane completes.
 
 ## Out of scope
 

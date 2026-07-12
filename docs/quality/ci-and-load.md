@@ -1,6 +1,6 @@
-# Sprint 1 CI and load smoke
+# CI, authenticated E2E and load smoke
 
-CI can run on push, pull request or `workflow_dispatch`, uses concurrency cancellation, PostgreSQL 16 and Redis 7, and declares test-only secrets explicitly. The mandatory job runs frozen install, lint, strict typecheck, fresh migration, deterministic seed, unit, integration, OpenAPI contract, Admin Web E2E, then builds API, Worker, Admin Web, Booking Web, Owner Mobile and Staff Mobile.
+CI can run on push, pull request or `workflow_dispatch`, uses concurrency cancellation, PostgreSQL 16 and Redis 7, and declares test-only secrets explicitly. The mandatory job runs frozen install, lint, strict typecheck, fresh migration, deterministic seed, unit, integration, OpenAPI contract, authenticated Sprint 2 E2E against a real API/PostgreSQL process, a separate Mobile Sprint 2 API integration step, then builds API, Worker, Admin Web, Booking Web, Owner Mobile and Staff Mobile.
 
 Run locally:
 

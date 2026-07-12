@@ -20,7 +20,7 @@ describe("PostgreSQL foundation", () => {
     expect(result.rows[0]).toEqual({
       tenants: 1,
       branches: 2,
-      users: 12,
+      users: 15,
       services: 30,
       customers: 20,
       appointments: 40,
