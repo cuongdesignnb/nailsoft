@@ -80,7 +80,7 @@ jobs:
       - name: Start API for authenticated E2E
         shell: bash
         run: |
-          pnpm --filter @nailsoft/api dev > api-e2e.log 2>&1 &
+          NODE_ENV=development pnpm --filter @nailsoft/api dev > api-e2e.log 2>&1 &
           for i in {1..60}; do
             if curl --fail --silent http://127.0.0.1:3001/v1/health > /dev/null; then exit 0; fi
             sleep 2
