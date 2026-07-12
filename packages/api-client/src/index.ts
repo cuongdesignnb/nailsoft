@@ -25,3 +25,4 @@ export const createApiClient = (options: ClientOptions) => ({
     return response.json() as Promise<ApiResponse<T>>;
   }
 });
+export function availabilityPath(query:import('@nailsoft/domain-types').AvailabilityQuery){const p=new URLSearchParams({branchId:query.branchId,serviceId:query.serviceId,dateFrom:query.dateFrom,dateTo:query.dateTo,slotIntervalMin:String(query.slotIntervalMin??15)});if(query.staffId)p.set('staffId',query.staffId);return`/v1/availability?${p}`;}

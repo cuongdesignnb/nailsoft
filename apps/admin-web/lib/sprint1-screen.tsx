@@ -4,6 +4,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { authorizedFetch } from "./auth";
+import Sprint3Screen from "./sprint3-screen";
 
 type Resource = {
   title: string;
@@ -39,6 +40,7 @@ function unwrap(body: any): any[] { const value = body?.data; return Array.isArr
 
 export default function Sprint1Screen() {
   const pathname = usePathname();
+  if (pathname.startsWith("/admin/calendar") || pathname.startsWith("/admin/availability") || pathname.startsWith("/admin/scheduling/blocks")) return <Sprint3Screen pathname={pathname} />;
   if (pathname.startsWith("/admin/catalog/services/") && !pathname.endsWith("/new")) return <ServiceDetailScreen id={pathname.split("/").pop() ?? ""} />;
   if (pathname.startsWith("/admin/staff/") && !pathname.endsWith("/new") && pathname.split("/").length > 3) return <StaffDetailScreen id={pathname.split("/").pop() ?? ""} />;
   const resource = useMemo(() => resources[pathname], [pathname]);

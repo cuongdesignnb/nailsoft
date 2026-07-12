@@ -3,7 +3,7 @@ info:
   {
     title: Nailsoft API,
     version: 0.5.0,
-    description: Sprint 2 service catalog and staff foundation API,
+    description: Sprint 3 availability, calendar read and busy-block API,
   }
 servers: [{ url: http://localhost:3001/v1 }]
 security: [{ bearerAuth: [], tenantContext: [] }]
@@ -402,6 +402,44 @@ paths:
     get: { tags: [staff], summary: List leave requests, responses: { "200": { description: Leave requests }, "409": { description: Version or state conflict } } }
     post: { tags: [staff], summary: Create leave request, requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LeaveRequestInput" } } } }, responses: { "201": { description: Created }, "409": { description: Idempotency or state conflict } } }
 
+  /availability:
+    get:
+      tags: [availability]
+      summary: Calculate authoritative availability
+      parameters:
+        - { name: branchId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: serviceId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: dateFrom, in: query, required: true, schema: { type: string, format: date } }
+        - { name: dateTo, in: query, required: true, schema: { type: string, format: date } }
+        - { name: staffId, in: query, schema: { type: string, format: uuid } }
+        - { name: slotIntervalMin, in: query, schema: { enum: [5, 10, 15, 30], default: 15 } }
+      responses: { "200": { description: Availability result }, "400": { description: Invalid range or interval }, "403": { description: Outside branch scope } }
+  /availability/explain:
+    post:
+      tags: [availability]
+      summary: Explain availability at an instant
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AvailabilityExplainRequest" } } } }
+      responses: { "200": { description: Rule-by-rule explanation } }
+  /calendar/events:
+    get:
+      tags: [calendar]
+      summary: Read normalized shift, leave and busy-block events
+      responses: { "200": { description: Calendar events }, "403": { description: Branch or own-calendar scope denied } }
+  /calendar/summary:
+    get: { tags: [calendar], summary: Read calendar daily summary, responses: { "200": { description: Daily summary } } }
+  /availability-blocks:
+    get: { tags: [availability-blocks], summary: List blocks, responses: { "200": { description: Blocks } } }
+    post:
+      tags: [availability-blocks]
+      summary: Create an audited manual, external or maintenance block
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AvailabilityBlockInput" } } } }
+      responses: { "200": { description: Created or idempotently replayed }, "400": { description: Invalid target or range } }
+  /availability-blocks/{blockId}:
+    get: { tags: [availability-blocks], summary: Read block, responses: { "200": { description: Block }, "404": { description: Not found } } }
+    patch: { tags: [availability-blocks], summary: Update block with optimistic version, responses: { "200": { description: Updated }, "409": { description: Version conflict } } }
+  /availability-blocks/{blockId}/cancel:
+    post: { tags: [availability-blocks], summary: Cancel block without hard delete, responses: { "200": { description: Cancelled }, "409": { description: Version or status conflict } } }
+
 components:
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
@@ -413,6 +451,28 @@ components:
         description: Requested tenant scope; always verified against the authenticated membership,
       }
   schemas:
+    AvailabilityExplainRequest:
+      type: object
+      required: [branchId, serviceId, startAt]
+      properties:
+        branchId: { type: string, format: uuid }
+        serviceId: { type: string, format: uuid }
+        startAt: { type: string, format: date-time }
+        staffId: { type: string, format: uuid }
+    AvailabilityBlockInput:
+      type: object
+      required: [branchId, blockType, title, startAt, endAt]
+      properties:
+        branchId: { type: string, format: uuid }
+        staffId: { type: string, format: uuid }
+        resourceId: { type: string, format: uuid }
+        blockType: { enum: [MANUAL, EXTERNAL, MAINTENANCE] }
+        title: { type: string, maxLength: 200 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        source: { type: string }
+        sourceReference: { type: string }
+        notes: { type: string }
     LoginRequest:
       type: object
       required: [tenantSlug, email, password, deviceId, deviceName, platform]

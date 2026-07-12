@@ -67,6 +67,8 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
+      - name: Sprint 3 migration rollback and re-migrate
+        run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
       - name: Unit tests
@@ -87,10 +89,13 @@ jobs:
           done
           cat api-e2e.log
           exit 1
-      - name: Authenticated Sprint 2 E2E
+      - name: Authenticated Sprint 1-3 E2E
         run: pnpm test:e2e
-      - name: Mobile Sprint 2 API integration
-        run: pnpm exec playwright test tests/e2e/sprint2-mobile-api.spec.ts
+      - name: Mobile Sprint 2-3 API integration
+        run: pnpm exec playwright test tests/e2e/sprint2-mobile-api.spec.ts tests/e2e/sprint3-availability-calendar.spec.ts
+      - name: Availability load smoke
+        env: { LOAD_DURATION_SECONDS: 2, LOAD_WARMUP_SECONDS: 1, LOAD_CONCURRENCY: 2 }
+        run: pnpm load:smoke
       - name: Build API
         run: pnpm --filter @nailsoft/api build
       - name: Build Worker

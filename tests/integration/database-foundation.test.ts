@@ -19,7 +19,7 @@ describe("PostgreSQL foundation", () => {
       (SELECT count(*)::int FROM appointments) appointments`);
     expect(result.rows[0]).toEqual({
       tenants: 1,
-      branches: 2,
+      branches: 3,
       users: 15,
       services: 30,
       customers: 20,

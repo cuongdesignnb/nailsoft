@@ -99,7 +99,7 @@ export default function Home() {
           </Text>
           <Text>Phiên đăng nhập đã được khôi phục an toàn.</Text>
           <Text>{accessToken ? `Workspace ${tenantId ?? "active"} is authenticated.` : "Session unavailable."}</Text>
-          {['organization','branches','services','staff','shifts','leave','leaveReview','team','sessions','profile','language'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
+          {['calendarDay','calendarWeek','availability','explain','blocks','createBlock','organization','branches','services','staff','shifts','leave','team','sessions','profile','language'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
         </View>
       </SafeAreaView>
     );

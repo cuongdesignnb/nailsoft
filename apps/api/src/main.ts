@@ -8,6 +8,7 @@ import { SwaggerModule, DocumentBuilder } from "@nestjs/swagger";
 import { AppModule } from "./app.module.js";
 import { ApiExceptionFilter } from "./common/api-exception.filter.js";
 import fastifyCookie from "@fastify/cookie";
+import { RedisIoAdapter } from "./infrastructure/redis-io.adapter.js";
 
 export async function createApp() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -34,6 +35,9 @@ export async function createApp() {
   });
   app.enableShutdownHooks();
   app.useGlobalFilters(new ApiExceptionFilter());
+  const realtimeAdapter = new RedisIoAdapter(app);
+  await realtimeAdapter.connect();
+  app.useWebSocketAdapter(realtimeAdapter);
   const config = new DocumentBuilder()
     .setTitle("Nailsoft API")
     .setDescription("Multi-tenant salon management API")

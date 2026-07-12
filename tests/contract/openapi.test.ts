@@ -13,5 +13,9 @@ describe('OpenAPI contract', () => {
     expect(contract).toContain('/auth/mfa/challenge/verify:');
     expect(contract).toContain('requestId:');
     expect(contract).toContain('timestamp:');
+    expect(contract).toContain('/availability:');
+    expect(contract).toContain('/availability/explain:');
+    expect(contract).toContain('/calendar/events:');
+    expect(contract).toContain('/availability-blocks:');
   });
 });

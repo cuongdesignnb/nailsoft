@@ -93,7 +93,7 @@ export default function Home() {
           <Text style={{ fontSize: 32, fontWeight: "700" }}>Home</Text>
           <Text>Secure staff workspace foundation.</Text>
           <Text>{accessToken ? `Workspace ${tenantId ?? "active"} is authenticated.` : "Session unavailable."}</Text>
-          {['profile','branches','skills','shifts','leave','createLeave','leaveDetail','invitation','sessions','language','workspace','mfa'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
+          {['myCalendar','myBusy','myAvailability','profile','branches','skills','shifts','leave','createLeave','leaveDetail','invitation','sessions','language','workspace','mfa'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
         </View>
       </SafeAreaView>
     );
