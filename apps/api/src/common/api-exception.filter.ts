@@ -21,8 +21,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
       typeof exception === "object" && exception !== null && "code" in exception
         ? String(exception.code)
         : undefined;
+    const databaseConstraint =
+      typeof exception === "object" && exception !== null && "constraint" in exception
+        ? String(exception.constraint)
+        : undefined;
+    const databaseDomainCode: Record<string, string> = {
+      service_prices_active_no_overlap: "PRICE_OVERLAP",
+      staff_branch_assignment_no_overlap: "STAFF_BRANCH_ASSIGNMENT_OVERLAP",
+      staff_primary_assignment_no_overlap: "STAFF_PRIMARY_BRANCH_CONFLICT",
+      shifts_published_no_overlap: "SHIFT_OVERLAP",
+      service_addon_cycle: "SERVICE_ADDON_CYCLE",
+    };
     const status =
-      databaseCode === "23505"
+      databaseCode === "23505" || databaseCode === "23P01"
         ? HttpStatus.CONFLICT
         : exception instanceof ZodError
           ? HttpStatus.BAD_REQUEST
@@ -40,7 +51,8 @@ export class ApiExceptionFilter implements ExceptionFilter {
             ? exception.message
             : "Internal server error";
     const code =
-      databaseCode === "23505"
+      databaseDomainCode[databaseConstraint ?? ""] ??
+      (databaseCode === "23505" || databaseCode === "23P01"
         ? "DUPLICATE_RESOURCE"
         : exception instanceof ZodError
           ? "VALIDATION_ERROR"
@@ -48,7 +60,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
             ? String(raw.code)
             : status === 500
               ? "INTERNAL_ERROR"
-              : "REQUEST_FAILED";
+              : "REQUEST_FAILED");
     if (status >= 500)
       request.log.error(
         { err: redactSensitive(exception), requestId: request.raw.requestId },

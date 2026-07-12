@@ -1,0 +1,12 @@
+BEGIN;
+DROP TRIGGER IF EXISTS service_addon_cycle_guard ON service_addons;
+DROP FUNCTION IF EXISTS prevent_service_addon_cycle();
+ALTER TABLE shifts DROP CONSTRAINT IF EXISTS shifts_published_no_overlap;
+ALTER TABLE shifts DROP COLUMN IF EXISTS published_range;
+ALTER TABLE staff_branch_assignments DROP CONSTRAINT IF EXISTS staff_primary_assignment_no_overlap;
+ALTER TABLE staff_branch_assignments DROP CONSTRAINT IF EXISTS staff_branch_assignment_no_overlap;
+ALTER TABLE staff_branch_assignments DROP COLUMN IF EXISTS effective_range;
+DELETE FROM role_permissions WHERE permission_code='leave.create_branch';
+DELETE FROM permissions WHERE code='leave.create_branch';
+DELETE FROM schema_migrations WHERE version='0006_sprint2_hardening';
+COMMIT;

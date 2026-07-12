@@ -10,7 +10,7 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "vitest run && playwright test",
-    "test:unit": "vitest run packages apps/api/test apps/worker",
+    "test:unit": "vitest run packages apps/api/test apps/worker tests/mobile",
     "test:integration": "vitest run tests/integration",
     "test:contract": "vitest run tests/contract",
     "test:e2e": "playwright test",

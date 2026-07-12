@@ -387,6 +387,8 @@ paths:
   /staff:
     get: { tags: [staff], summary: List staff, responses: { "200": { description: Staff } } }
     post: { tags: [staff], summary: Create staff profile, responses: { "201": { description: Created } } }
+  /staff/me:
+    get: { tags: [staff], summary: Read the authenticated staff profile, responses: { "200": { description: Profile }, "403": { description: Platform tenant denial } } }
   /staff/{id}/branches:
     get: { tags: [staff], summary: List operational assignments, responses: { "200": { description: Assignments } } }
     post: { tags: [staff], summary: Assign staff branch, responses: { "201": { description: Created } } }
@@ -397,8 +399,8 @@ paths:
     get: { tags: [staff], summary: List shifts, responses: { "200": { description: Shifts } } }
     post: { tags: [staff], summary: Create shift, responses: { "201": { description: Created } } }
   /leave-requests:
-    get: { tags: [staff], summary: List leave requests, responses: { "200": { description: Leave requests } } }
-    post: { tags: [staff], summary: Create leave request, responses: { "201": { description: Created } } }
+    get: { tags: [staff], summary: List leave requests, responses: { "200": { description: Leave requests }, "409": { description: Version or state conflict } } }
+    post: { tags: [staff], summary: Create leave request, requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LeaveRequestInput" } } } }, responses: { "201": { description: Created }, "409": { description: Idempotency or state conflict } } }
 
 components:
   securitySchemes:
@@ -421,6 +423,16 @@ components:
         deviceId: { type: string }
         deviceName: { type: string }
         platform: { enum: [web, ios, android] }
+    LeaveRequestInput:
+      type: object
+      required: [staffId, branchId, startAt, endAt]
+      properties:
+        staffId: { type: string, format: uuid }
+        branchId: { type: string, format: uuid }
+        leaveType: { enum: [PERSONAL, SICK, ANNUAL, UNPAID, OTHER] }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        reason: { type: string, nullable: true }
     HealthResponse:
       type: object
       required: [success, data, meta]

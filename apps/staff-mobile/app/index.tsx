@@ -10,8 +10,9 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { api as sessionApi, setSession } from "../lib/session";
 
-const api = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3001";
+const api = sessionApi;
 let accessToken: string | undefined;
 let tenantId: string | undefined;
 const restoreSession = createRefreshSingleFlight(async () => {
@@ -31,6 +32,7 @@ const restoreSession = createRefreshSingleFlight(async () => {
   const body = await response.json();
   accessToken = body.data.accessToken;
   tenantId = body.data.tenantId;
+  setSession(accessToken, tenantId);
   await SecureStore.setItemAsync("refreshToken", body.data.refreshToken);
   return true;
 });
@@ -70,6 +72,7 @@ export default function Home() {
       if (body.data.authenticationState) { setState("mfa"); return; }
       accessToken = body.data.accessToken;
       tenantId = body.data.tenantId;
+      setSession(accessToken, tenantId);
       await SecureStore.setItemAsync("refreshToken", body.data.refreshToken);
       setState("ready");
     } catch {
@@ -90,7 +93,7 @@ export default function Home() {
           <Text style={{ fontSize: 32, fontWeight: "700" }}>Home</Text>
           <Text>Secure staff workspace foundation.</Text>
           <Text>{accessToken ? `Workspace ${tenantId ?? "active"} is authenticated.` : "Session unavailable."}</Text>
-          {['invitation','branches','sessions','profile','language','workspace','mfa'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
+          {['profile','branches','skills','shifts','leave','createLeave','leaveDetail','invitation','sessions','language','workspace','mfa'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
         </View>
       </SafeAreaView>
     );

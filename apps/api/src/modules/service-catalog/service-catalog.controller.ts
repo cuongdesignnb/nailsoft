@@ -3,7 +3,7 @@ import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, 
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { AuthGuard } from "../identity/auth.guard.js";
 import { PermissionGuard } from "../identity/permission.guard.js";
-import { RequirePermission } from "../identity/permission.decorator.js";
+import { RequireAnyPermission, RequirePermission } from "../identity/permission.decorator.js";
 import type { AuthenticatedRequest } from "../identity/auth.types.js";
 import { ServiceCatalogService } from "./service-catalog.service.js";
 
@@ -55,6 +55,7 @@ export class ServiceCatalogController {
   @Post("resources/:id/archive") @RequirePermission("resource.archive") archiveResource(@Param("id") id:string,@Req() req:AuthenticatedRequest){return this.ok(this.service.archiveResource(req.auth,id,this.rid(req)),req);}
 
   @Get("staff") @RequirePermission("staff.read") staff(@Query() q:any,@Req() req:AuthenticatedRequest){return this.ok(this.service.staff(req.auth,q),req);}
+  @Get("staff/me") @RequirePermission("staff.read") staffMe(@Req() req:AuthenticatedRequest){return this.ok(this.service.staffMe(req.auth),req);}
   @Post("staff") @RequirePermission("staff.create") createStaff(@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.createStaff(req.auth,b,this.rid(req)),req);}
   @Get("staff/:id") @RequirePermission("staff.read") staffOne(@Param("id") id:string,@Req() req:AuthenticatedRequest){return this.ok(this.service.staffOne(req.auth,id),req);}
   @Patch("staff/:id") @RequirePermission("staff.update") updateStaff(@Param("id") id:string,@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.updateStaff(req.auth,id,b,this.rid(req)),req);}
@@ -81,10 +82,10 @@ export class ServiceCatalogController {
   @Post("shift-recurrence-rules/:id/pause") @RequirePermission("shift.update") pauseRecurrence(@Param("id") id:string,@Req() req:AuthenticatedRequest){return this.ok(this.service.updateRecurrence(req.auth,id,{status:"PAUSED"}),req);}
   @Post("shift-recurrence-rules/:id/resume") @RequirePermission("shift.update") resumeRecurrence(@Param("id") id:string,@Req() req:AuthenticatedRequest){return this.ok(this.service.updateRecurrence(req.auth,id,{status:"ACTIVE"}),req);}
 
-  @Get("leave-requests") @RequirePermission("leave.read_branch") leaves(@Query() q:any,@Req() req:AuthenticatedRequest){return this.ok(this.service.leaves(req.auth,q),req);}
-  @Post("leave-requests") @RequirePermission("leave.create_own") createLeave(@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.createLeave(req.auth,b,this.rid(req)),req);}
-  @Get("leave-requests/:id") @RequirePermission("leave.read_branch") leave(@Param("id") id:string,@Req() req:AuthenticatedRequest){return this.ok(this.service.leave(req.auth,id),req);}
-  @Patch("leave-requests/:id") @RequirePermission("leave.create_own") updateLeave(@Param("id") id:string,@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.updateLeave(req.auth,id,b,this.rid(req)),req);}
+  @Get("leave-requests") @RequireAnyPermission("leave.read_branch","leave.read_own") leaves(@Query() q:any,@Req() req:AuthenticatedRequest){return this.ok(this.service.leaves(req.auth,q),req);}
+  @Post("leave-requests") @RequireAnyPermission("leave.create_own","leave.create_branch") createLeave(@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.createLeave(req.auth,b,this.rid(req)),req);}
+  @Get("leave-requests/:id") @RequireAnyPermission("leave.read_branch","leave.read_own") leave(@Param("id") id:string,@Req() req:AuthenticatedRequest){return this.ok(this.service.leave(req.auth,id),req);}
+  @Patch("leave-requests/:id") @RequireAnyPermission("leave.create_own","leave.create_branch") updateLeave(@Param("id") id:string,@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.updateLeave(req.auth,id,b,this.rid(req)),req);}
   @Post("leave-requests/:id/submit") @RequirePermission("leave.create_own") submitLeave(@Param("id") id:string,@Req() req:AuthenticatedRequest){return this.ok(this.service.leaveTransition(req.auth,id,"PENDING",{},this.rid(req)),req);}
   @Post("leave-requests/:id/approve") @RequirePermission("leave.review_branch") approveLeave(@Param("id") id:string,@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.leaveTransition(req.auth,id,"APPROVED",b,this.rid(req)),req);}
   @Post("leave-requests/:id/reject") @RequirePermission("leave.review_branch") rejectLeave(@Param("id") id:string,@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.leaveTransition(req.auth,id,"REJECTED",b,this.rid(req)),req);}

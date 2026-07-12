@@ -10,8 +10,9 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { api as sessionApi, setSession } from "../lib/session";
 
-const api = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3001";
+const api = sessionApi;
 let accessToken: string | undefined;
 let tenantId: string | undefined;
 const restoreSession = createRefreshSingleFlight(async () => {
@@ -31,6 +32,7 @@ const restoreSession = createRefreshSingleFlight(async () => {
   const body = await response.json();
   accessToken = body.data.accessToken;
   tenantId = body.data.tenantId;
+  setSession(accessToken, tenantId);
   await SecureStore.setItemAsync("refreshToken", body.data.refreshToken);
   return true;
 });
@@ -74,6 +76,7 @@ export default function Home() {
       if (body.data.authenticationState) { setState("mfa"); return; }
       accessToken = body.data.accessToken;
       tenantId = body.data.tenantId;
+      setSession(accessToken, tenantId);
       await SecureStore.setItemAsync("refreshToken", body.data.refreshToken);
       setState("ready");
     } catch {
@@ -96,7 +99,7 @@ export default function Home() {
           </Text>
           <Text>Phiên đăng nhập đã được khôi phục an toàn.</Text>
           <Text>{accessToken ? `Workspace ${tenantId ?? "active"} is authenticated.` : "Session unavailable."}</Text>
-          {['organization','branches','team','sessions','profile','language'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
+          {['organization','branches','services','staff','shifts','leave','leaveReview','team','sessions','profile','language'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
         </View>
       </SafeAreaView>
     );
