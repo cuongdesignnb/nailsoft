@@ -18,5 +18,12 @@ export default defineConfig({
       reuseExistingServer: true,
       timeout: 120000,
     },
+    {
+      command:
+        "node apps/booking-web/node_modules/next/dist/bin/next dev apps/booking-web -p 3002",
+      url: "http://127.0.0.1:3002",
+      reuseExistingServer: true,
+      timeout: 120000,
+    },
   ],
 });

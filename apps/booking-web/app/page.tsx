@@ -1,1 +1,21 @@
-export default function Home(){return <main style={{maxWidth:720,margin:'auto',padding:32}}><p>NAILSOFT</p><h1>Đặt lịch làm đẹp</h1><p>Booking experience skeleton — availability and confirmation arrive in Sprint 3–4.</p></main>}
+export default function Home() {
+  return (
+    <main className="booking-shell">
+      <header className="brand">
+        <strong>NAILSOFT</strong>
+        <a href="/manage-booking">Quản lý lịch hẹn</a>
+      </header>
+      <section className="hero">
+        <p>ĐẶT LỊCH TRỰC TUYẾN</p>
+        <h1>Thời gian làm đẹp dành riêng cho bạn.</h1>
+        <p className="muted">
+          Xem giờ trống không cần tài khoản. Giá, múi giờ và chính sách được
+          hiển thị trước khi xác nhận.
+        </p>
+        <a className="primary" href="/book/nailsoft-demo">
+          Bắt đầu đặt lịch
+        </a>
+      </section>
+    </main>
+  );
+}

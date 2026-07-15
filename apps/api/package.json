@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nest start --watch",
+    "dev": "pnpm --filter @nailsoft/validation build && nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
     "lint": "eslint src test",
@@ -16,6 +16,7 @@
     "@fastify/cors": "^11.0.1",
     "@fastify/static": "^8.2.0",
     "@nailsoft/domain-types": "workspace:*",
+    "@nailsoft/validation": "workspace:*",
     "@nestjs/common": "^11.1.3",
     "@nestjs/core": "^11.1.3",
     "@nestjs/platform-fastify": "^11.1.3",

@@ -28,6 +28,8 @@ function Shell({
         <a href="/admin/dashboard">Nailsoft</a>
         <a href="/admin/calendar/day">Calendar day</a>
         <a href="/admin/calendar/week">Calendar week</a>
+        <a href="/admin/appointments">Appointments</a>
+        <a href="/admin/appointments/new">Quick create</a>
         <a href="/admin/availability/search">Availability</a>
         <a href="/admin/availability/explain">Explain</a>
         <a href="/admin/scheduling/blocks">Busy blocks</a>
@@ -154,6 +156,8 @@ function Calendar({ pathname }: { pathname: string }) {
             <option>SHIFT</option>
             <option>LEAVE</option>
             <option>BUSY_BLOCK</option>
+            <option>APPOINTMENT</option>
+            <option>SLOT_HOLD</option>
           </select>
         </label>
         <button onClick={load}>Refetch</button>
@@ -167,6 +171,14 @@ function Calendar({ pathname }: { pathname: string }) {
               key={e.id}
             >
               <strong>{e.title}</strong>
+              {e.eventType === "APPOINTMENT" && e.sourceId && (
+                <a href={`/admin/appointments/${e.sourceId}/overview`}>
+                  Open appointment
+                </a>
+              )}
+              {e.eventType === "SLOT_HOLD" && (
+                <small>Temporary hold · opens quick create review only</small>
+              )}
               <span>{e.eventType}</span>
               <time>{new Date(e.startAt).toLocaleString("vi-VN")}</time>
               <small>

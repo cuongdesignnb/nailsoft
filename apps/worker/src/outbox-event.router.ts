@@ -46,6 +46,24 @@ const blockEvents = new Set([
   "availability.block_updated",
   "availability.block_cancelled",
 ]);
+const bookingEvents = new Set([
+  "slot_hold.created",
+  "slot_hold.consumed",
+  "slot_hold.released",
+  "slot_hold.expired",
+  "appointment.created",
+  "appointment.pending_confirmation",
+  "appointment.deposit_required",
+  "appointment.deposit_waived",
+  "appointment.confirmed",
+  "appointment.rescheduled",
+  "appointment.cancelled",
+  "appointment.expired",
+  "appointment.assignment_changed",
+  "schedule.staff_reserved",
+  "schedule.resource_reserved",
+  "schedule.reservation_released",
+]);
 
 @Injectable()
 export class OutboxEventRouter {
@@ -56,6 +74,7 @@ export class OutboxEventRouter {
   async route(event: OutboxEvent): Promise<RoutedEvent> {
     const control = this.control(event);
     if (control) return { kind: "control", message: control };
+    if (bookingEvents.has(event.event_type)) return this.booking(event);
     if (
       !tenantWide.has(event.event_type) &&
       !branchWide.has(event.event_type) &&
@@ -82,7 +101,9 @@ export class OutboxEventRouter {
         branches = target ? [target] : [];
       }
       if (blockEvents.has(event.event_type))
-        staffId = stringValue(event.payload_json.staffId ?? event.payload_json.staff_id);
+        staffId = stringValue(
+          event.payload_json.staffId ?? event.payload_json.staff_id,
+        );
     }
     if (branches.length === 0) return { kind: "ignored" };
 
@@ -114,6 +135,53 @@ export class OutboxEventRouter {
       });
     }
     return { kind: "invalidation", deliveries };
+  }
+
+  private async booking(event: OutboxEvent): Promise<RoutedEvent> {
+    const branchId =
+      event.branch_id ?? stringValue(event.payload_json.branchId);
+    if (!branchId) return { kind: "ignored" };
+    await this.assertBranch(event.tenant_id, branchId);
+    let staffIds = Array.isArray(event.payload_json.staffIds)
+      ? event.payload_json.staffIds.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [];
+    if (!staffIds.length && event.aggregate_type === "appointment") {
+      const result = await this.repo.query<{ staff_id: string }>(
+        `SELECT DISTINCT asa.staff_id FROM appointment_items ai
+         JOIN appointment_item_staff_assignments asa
+           ON asa.tenant_id=ai.tenant_id AND asa.appointment_item_id=ai.id
+         WHERE ai.tenant_id=$1 AND ai.appointment_id=$2 AND asa.status='ACTIVE'`,
+        [event.tenant_id, event.aggregate_id],
+      );
+      staffIds = result.rows.map((row) => row.staff_id);
+    }
+    for (const staffId of staffIds)
+      await this.assertStaff(event.tenant_id, branchId, staffId);
+    return {
+      kind: "invalidation",
+      deliveries: [
+        {
+          payload: {
+            eventId: event.id,
+            tenantId: event.tenant_id,
+            branchId,
+            dataVersion: await this.version(event.tenant_id, branchId),
+            sourceEventType: event.event_type,
+            refetch: true,
+            occurredAt: event.created_at.toISOString(),
+          },
+          rooms: [
+            ...new Set([
+              `tenant:${event.tenant_id}`,
+              `branch:${branchId}`,
+              ...staffIds.map((id) => `staff:${id}`),
+            ]),
+          ],
+        },
+      ],
+    };
   }
 
   private control(event: OutboxEvent): RealtimeControlMessage | undefined {
@@ -201,9 +269,9 @@ export class OutboxEventRouter {
         event.payload_json.staff_id ??
         event.payload_json.id,
     );
-    let branchId = event.branch_id ?? stringValue(
-      event.payload_json.branchId ?? event.payload_json.branch_id,
-    );
+    let branchId =
+      event.branch_id ??
+      stringValue(event.payload_json.branchId ?? event.payload_json.branch_id);
     if (event.event_type.startsWith("shift.")) {
       const row = (
         await this.repo.query<{ staff_id: string; branch_id: string }>(
@@ -245,7 +313,11 @@ export class OutboxEventRouter {
       throw new CrossTenantEventError("Branch does not belong to event tenant");
   }
 
-  private async assertStaff(tenantId: string, branchId: string, staffId: string) {
+  private async assertStaff(
+    tenantId: string,
+    branchId: string,
+    staffId: string,
+  ) {
     const result = await this.repo.query(
       `SELECT 1 FROM staff_profiles sp
        JOIN staff_branch_assignments sa ON sa.tenant_id=sp.tenant_id AND sa.staff_id=sp.id

@@ -2,21 +2,28 @@
 
 ## Status
 
-Sprint 3 implementation and closure hardening are complete locally. `DONE` remains gated by GitHub Actions for the final pushed commit. The immutable final commit and run ID are recorded in the delivery handoff after that run completes.
+Sprint 3: `DONE`
+
+- Accepted closure commit: `99848b3f3e56e4c7fb256e99e8de6fa16593127c`
+- Accepted CI run: [29425123706](https://github.com/cuongdesignnb/nailsoft/actions/runs/29425123706)
+- Accepted by BA/Product Owner as the Sprint 4 start checkpoint.
 
 ## Git
 
 - Branch: `main`
 - Sprint 3 start checkpoint: `2584562f9b836bb9672f04a8c351c436ece406e4`
 - Closure start checkpoint: `f708fc8850283f42b009a886fd09a2e13669d630`
-- Closure commit: the immutable Git object containing this report; the exact SHA is recorded in the delivery handoff and successful GitHub Actions run
+- Closure commit: `99848b3f3e56e4c7fb256e99e8de6fa16593127c`
 - Commit message: `feat: close sprint 3 realtime security and outbox`
-- `origin/main`: updated only after the complete local pipeline passed
+- `origin/main`: `99848b3f3e56e4c7fb256e99e8de6fa16593127c`
 - Working tree target: clean
 
 ## GitHub Actions
 
-- Run ID / URL / commit: pending final push
+- Run ID: `29425123706`
+- URL: https://github.com/cuongdesignnb/nailsoft/actions/runs/29425123706
+- Commit: `99848b3f3e56e4c7fb256e99e8de6fa16593127c`
+- Status: `SUCCESS`
 - Required steps: WebSocket authorization integration, durable outbox Worker integration, Sprint 3 closure authenticated E2E
 - Acceptance rule: only the successful run for the final closure commit qualifies
 

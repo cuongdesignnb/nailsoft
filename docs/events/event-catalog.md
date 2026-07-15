@@ -53,3 +53,9 @@ Hardening failures are synchronous domain conflicts and do not emit events. Succ
 The Worker routes organization (`branch.updated`, `business_hours.updated`), service and price, service skill/resource requirements, staff/assignment/skill, shift, leave, resource and availability-block events. Tenant-wide events resolve every active branch; branch-wide events resolve active staff rooms; staff-specific events resolve the authoritative branch assignment. Each delivery reads the latest `availability_versions` row and carries the outbox `eventId`.
 
 Security events `session.revoked`, `session.logout_all`, `membership.suspended`, `membership.revoked`, `user.suspended`, `user.disabled`, `authorization.changed`, `branch_scope.removed` and `role.changed` map to minimal Redis disconnect control messages. Unknown events are acknowledged and increment `outbox_event_ignored_total`. A branch or staff target that does not belong to the event tenant is failed without emit.
+
+## Sprint 4 events
+
+`slot_hold.created`, `slot_hold.released`, `slot_hold.expired`, `slot_hold.consumed`, `appointment.created`, `appointment.pending_confirmation`, `appointment.deposit_required`, `appointment.deposit_waived`, `appointment.confirmed`, `appointment.rescheduled`, `appointment.cancelled` and `appointment.expired` use the standard transactional outbox envelope.
+
+Booking events contain identifiers, status, aggregate version, schedule boundaries and `refetch: true`; they never contain raw capability tokens, OTP values, customer contact details, notes or the full booking aggregate. The Worker routes tenant/branch/assigned-staff rooms and emits availability invalidation plus calendar create/update/remove hints. Notification jobs are created idempotently by appointment/event and are delivered by provider adapters.

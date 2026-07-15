@@ -2,8 +2,10 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.5.0,
-    description: Sprint 3 availability, calendar read and busy-block API,
+    version: 0.6.0,
+    description: Sprint 4 booking lifecycle,
+    public booking,
+    availability and calendar API,
   }
 servers: [{ url: http://localhost:3001/v1 }]
 security: [{ bearerAuth: [], tenantContext: [] }]
@@ -239,7 +241,11 @@ paths:
       tags: [invitations]
       summary: Invite a member with tenant-scoped roles and branches
       x-permission: user.invite
-      responses: { "201": { description: Invitation created }, "403": { description: INVITATION_SCOPE_DENIED } }
+      responses:
+        {
+          "201": { description: Invitation created },
+          "403": { description: INVITATION_SCOPE_DENIED },
+        }
     get:
       tags: [invitations]
       summary: List tenant invitations
@@ -249,96 +255,212 @@ paths:
     get:
       tags: [invitations]
       x-permission: user.read
-      parameters: [{ name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }]
-      responses: { "200": { description: Invitation }, "410": { description: INVITATION_NOT_FOUND } }
+      parameters:
+        [
+          {
+            name: invitationId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
+      responses:
+        {
+          "200": { description: Invitation },
+          "410": { description: INVITATION_NOT_FOUND },
+        }
   /users/invitations/{invitationId}/resend:
     post:
       tags: [invitations]
       x-permission: user.invite
-      parameters: [{ name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }]
-      responses: { "201": { description: Previous token invalidated and invitation resent } }
+      parameters:
+        [
+          {
+            name: invitationId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
+      responses:
+        {
+          "201":
+            { description: Previous token invalidated and invitation resent },
+        }
   /users/invitations/{invitationId}/revoke:
     post:
       tags: [invitations]
       x-permission: user.invite
-      parameters: [{ name: invitationId, in: path, required: true, schema: { type: string, format: uuid } }]
+      parameters:
+        [
+          {
+            name: invitationId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
       responses: { "201": { description: Invitation revoked } }
   /auth/invitations/inspect:
     post:
       tags: [invitations]
       security: []
       summary: Inspect a hashed one-time invitation token
-      responses: { "201": { description: Invitation metadata }, "410": { description: INVITATION_EXPIRED or INVITATION_NOT_FOUND } }
+      responses:
+        {
+          "201": { description: Invitation metadata },
+          "410": { description: INVITATION_EXPIRED or INVITATION_NOT_FOUND },
+        }
   /auth/invitations/accept:
     post:
       tags: [invitations]
       security: []
       summary: Accept invitation and atomically activate membership
-      responses: { "201": { description: Membership activated }, "409": { description: INVITATION_ALREADY_USED or INVITATION_REVOKED } }
+      responses:
+        {
+          "201": { description: Membership activated },
+          "409": { description: INVITATION_ALREADY_USED or INVITATION_REVOKED },
+        }
   /auth/forgot-password:
     post:
       tags: [password recovery]
       security: []
       summary: Request recovery with a neutral response
-      responses: { "202": { description: Request accepted regardless of account existence } }
+      responses:
+        {
+          "202":
+            { description: Request accepted regardless of account existence },
+        }
   /auth/reset-password:
     post:
       tags: [password recovery]
       security: []
       summary: Consume reset token and revoke every device session
-      responses: { "201": { description: Password reset }, "401": { description: PASSWORD_RESET_INVALID }, "410": { description: PASSWORD_RESET_EXPIRED } }
+      responses:
+        {
+          "201": { description: Password reset },
+          "401": { description: PASSWORD_RESET_INVALID },
+          "410": { description: PASSWORD_RESET_EXPIRED },
+        }
   /auth/otp/request:
     post:
       tags: [phone authentication]
       security: []
       summary: Request a six-digit OTP with rate and resend limits
-      responses: { "201": { description: OTP challenge created }, "409": { description: OTP_RATE_LIMITED } }
+      responses:
+        {
+          "201": { description: OTP challenge created },
+          "409": { description: OTP_RATE_LIMITED },
+        }
   /auth/otp/verify:
     post:
       tags: [phone authentication]
       security: []
       summary: Consume login OTP and continue workspace or MFA flow
-      responses: { "201": { description: Authentication state }, "401": { description: OTP_INVALID }, "410": { description: OTP_EXPIRED } }
+      responses:
+        {
+          "201": { description: Authentication state },
+          "401": { description: OTP_INVALID },
+          "410": { description: OTP_EXPIRED },
+        }
   /profile/phone/request-verification:
-    post: { tags: [phone authentication], summary: Request verification for own phone, responses: { "201": { description: Challenge created } } }
+    post:
+      {
+        tags: [phone authentication],
+        summary: Request verification for own phone,
+        responses: { "201": { description: Challenge created } },
+      }
   /profile/phone/verify:
-    post: { tags: [phone authentication], summary: Verify and persist own E.164 phone, responses: { "201": { description: Phone verified } } }
+    post:
+      {
+        tags: [phone authentication],
+        summary: Verify and persist own E.164 phone,
+        responses: { "201": { description: Phone verified } },
+      }
   /auth/mfa/totp/enroll:
     post:
       tags: [mfa]
       security: []
       summary: Begin TOTP enrollment from an enrollment-only challenge
-      responses: { "201": { description: Secret returned once }, "403": { description: MFA_RESET_DENIED } }
+      responses:
+        {
+          "201": { description: Secret returned once },
+          "403": { description: MFA_RESET_DENIED },
+        }
   /auth/mfa/totp/confirm:
     post:
       tags: [mfa]
       security: []
       summary: Confirm TOTP and return recovery codes once
-      responses: { "201": { description: Authenticated session }, "401": { description: MFA_CHALLENGE_INVALID } }
+      responses:
+        {
+          "201": { description: Authenticated session },
+          "401": { description: MFA_CHALLENGE_INVALID },
+        }
   /auth/mfa/challenge/verify:
     post:
       tags: [mfa]
       security: []
       summary: Verify login TOTP challenge and create session
-      responses: { "201": { description: Authenticated session }, "401": { description: MFA_CHALLENGE_INVALID or MFA_CHALLENGE_EXPIRED } }
+      responses:
+        {
+          "201": { description: Authenticated session },
+          "401":
+            { description: MFA_CHALLENGE_INVALID or MFA_CHALLENGE_EXPIRED },
+        }
   /auth/mfa/recovery/verify:
     post:
       tags: [mfa]
       security: []
       summary: Consume one recovery code and create session
-      responses: { "201": { description: Authenticated session }, "401": { description: MFA_RECOVERY_CODE_INVALID } }
+      responses:
+        {
+          "201": { description: Authenticated session },
+          "401": { description: MFA_RECOVERY_CODE_INVALID },
+        }
   /auth/mfa/recovery/regenerate:
-    post: { tags: [mfa], summary: Invalidate old recovery codes and create a new set, responses: { "201": { description: Codes returned once } } }
+    post:
+      {
+        tags: [mfa],
+        summary: Invalidate old recovery codes and create a new set,
+        responses: { "201": { description: Codes returned once } },
+      }
   /auth/mfa/status:
-    get: { tags: [mfa], summary: Read own MFA status, responses: { "200": { description: MFA status } } }
+    get:
+      {
+        tags: [mfa],
+        summary: Read own MFA status,
+        responses: { "200": { description: MFA status } },
+      }
   /auth/mfa/totp:
-    delete: { tags: [mfa], summary: Disable TOTP after step-up verification, responses: { "200": { description: MFA disabled }, "401": { description: MFA_CHALLENGE_INVALID } } }
+    delete:
+      {
+        tags: [mfa],
+        summary: Disable TOTP after step-up verification,
+        responses:
+          {
+            "200": { description: MFA disabled },
+            "401": { description: MFA_CHALLENGE_INVALID },
+          },
+      }
   /auth/sessions/{id}:
     delete:
       tags: [sessions]
       summary: Revoke an own session
-      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
-      responses: { "204": { description: Session revoked }, "401": { description: SESSION_NOT_FOUND } }
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
+      responses:
+        {
+          "204": { description: Session revoked },
+          "401": { description: SESSION_NOT_FOUND },
+        }
   /ready:
     get:
       {
@@ -364,87 +486,721 @@ paths:
               },
           }
   /service-categories:
-    get: { tags: [service-catalog], summary: List categories, responses: { "200": { description: Categories } } }
-    post: { tags: [service-catalog], summary: Create category, responses: { "201": { description: Created } } }
+    get:
+      {
+        tags: [service-catalog],
+        summary: List categories,
+        responses: { "200": { description: Categories } },
+      }
+    post:
+      {
+        tags: [service-catalog],
+        summary: Create category,
+        responses: { "201": { description: Created } },
+      }
   /service-categories/{id}:
-    get: { tags: [service-catalog], summary: Get category, responses: { "200": { description: Category } } }
-    patch: { tags: [service-catalog], summary: Update category, responses: { "200": { description: Updated }, "409": { description: Version conflict } } }
+    get:
+      {
+        tags: [service-catalog],
+        summary: Get category,
+        responses: { "200": { description: Category } },
+      }
+    patch:
+      {
+        tags: [service-catalog],
+        summary: Update category,
+        responses:
+          {
+            "200": { description: Updated },
+            "409": { description: Version conflict },
+          },
+      }
   /services:
-    get: { tags: [service-catalog], summary: List services, responses: { "200": { description: Services } } }
-    post: { tags: [service-catalog], summary: Create service, responses: { "201": { description: Created } } }
+    get:
+      {
+        tags: [service-catalog],
+        summary: List services,
+        responses: { "200": { description: Services } },
+      }
+    post:
+      {
+        tags: [service-catalog],
+        summary: Create service,
+        responses: { "201": { description: Created } },
+      }
   /services/{id}:
-    get: { tags: [service-catalog], summary: Get service, responses: { "200": { description: Service } } }
-    patch: { tags: [service-catalog], summary: Update service, responses: { "200": { description: Updated }, "409": { description: Version conflict } } }
+    get:
+      {
+        tags: [service-catalog],
+        summary: Get service,
+        responses: { "200": { description: Service } },
+      }
+    patch:
+      {
+        tags: [service-catalog],
+        summary: Update service,
+        responses:
+          {
+            "200": { description: Updated },
+            "409": { description: Version conflict },
+          },
+      }
   /services/{id}/prices:
-    get: { tags: [service-catalog], summary: List service prices, responses: { "200": { description: Prices } } }
-    post: { tags: [service-catalog], summary: Create service price, responses: { "201": { description: Created }, "409": { description: Price overlap } } }
+    get:
+      {
+        tags: [service-catalog],
+        summary: List service prices,
+        responses: { "200": { description: Prices } },
+      }
+    post:
+      {
+        tags: [service-catalog],
+        summary: Create service price,
+        responses:
+          {
+            "201": { description: Created },
+            "409": { description: Price overlap },
+          },
+      }
   /skills:
-    get: { tags: [service-catalog], summary: List skills, responses: { "200": { description: Skills } } }
-    post: { tags: [service-catalog], summary: Create skill, responses: { "201": { description: Created } } }
+    get:
+      {
+        tags: [service-catalog],
+        summary: List skills,
+        responses: { "200": { description: Skills } },
+      }
+    post:
+      {
+        tags: [service-catalog],
+        summary: Create skill,
+        responses: { "201": { description: Created } },
+      }
   /resources:
-    get: { tags: [service-catalog], summary: List branch resources, responses: { "200": { description: Resources } } }
-    post: { tags: [service-catalog], summary: Create resource, responses: { "201": { description: Created } } }
+    get:
+      {
+        tags: [service-catalog],
+        summary: List branch resources,
+        responses: { "200": { description: Resources } },
+      }
+    post:
+      {
+        tags: [service-catalog],
+        summary: Create resource,
+        responses: { "201": { description: Created } },
+      }
   /staff:
-    get: { tags: [staff], summary: List staff, responses: { "200": { description: Staff } } }
-    post: { tags: [staff], summary: Create staff profile, responses: { "201": { description: Created } } }
+    get:
+      {
+        tags: [staff],
+        summary: List staff,
+        responses: { "200": { description: Staff } },
+      }
+    post:
+      {
+        tags: [staff],
+        summary: Create staff profile,
+        responses: { "201": { description: Created } },
+      }
   /staff/me:
-    get: { tags: [staff], summary: Read the authenticated staff profile, responses: { "200": { description: Profile }, "403": { description: Platform tenant denial } } }
+    get:
+      {
+        tags: [staff],
+        summary: Read the authenticated staff profile,
+        responses:
+          {
+            "200": { description: Profile },
+            "403": { description: Platform tenant denial },
+          },
+      }
   /staff/{id}/branches:
-    get: { tags: [staff], summary: List operational assignments, responses: { "200": { description: Assignments } } }
-    post: { tags: [staff], summary: Assign staff branch, responses: { "201": { description: Created } } }
+    get:
+      {
+        tags: [staff],
+        summary: List operational assignments,
+        responses: { "200": { description: Assignments } },
+      }
+    post:
+      {
+        tags: [staff],
+        summary: Assign staff branch,
+        responses: { "201": { description: Created } },
+      }
   /staff/{id}/skills:
-    get: { tags: [staff], summary: List staff skills, responses: { "200": { description: Skills } } }
-    put: { tags: [staff], summary: Replace staff skills, responses: { "200": { description: Updated } } }
+    get:
+      {
+        tags: [staff],
+        summary: List staff skills,
+        responses: { "200": { description: Skills } },
+      }
+    put:
+      {
+        tags: [staff],
+        summary: Replace staff skills,
+        responses: { "200": { description: Updated } },
+      }
   /shifts:
-    get: { tags: [staff], summary: List shifts, responses: { "200": { description: Shifts } } }
-    post: { tags: [staff], summary: Create shift, responses: { "201": { description: Created } } }
+    get:
+      {
+        tags: [staff],
+        summary: List shifts,
+        responses: { "200": { description: Shifts } },
+      }
+    post:
+      {
+        tags: [staff],
+        summary: Create shift,
+        responses: { "201": { description: Created } },
+      }
   /leave-requests:
-    get: { tags: [staff], summary: List leave requests, responses: { "200": { description: Leave requests }, "409": { description: Version or state conflict } } }
-    post: { tags: [staff], summary: Create leave request, requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LeaveRequestInput" } } } }, responses: { "201": { description: Created }, "409": { description: Idempotency or state conflict } } }
+    get:
+      {
+        tags: [staff],
+        summary: List leave requests,
+        responses:
+          {
+            "200": { description: Leave requests },
+            "409": { description: Version or state conflict },
+          },
+      }
+    post:
+      {
+        tags: [staff],
+        summary: Create leave request,
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema: { $ref: "#/components/schemas/LeaveRequestInput" },
+                  },
+              },
+          },
+        responses:
+          {
+            "201": { description: Created },
+            "409": { description: Idempotency or state conflict },
+          },
+      }
 
   /availability:
     get:
       tags: [availability]
       summary: Calculate authoritative availability
       parameters:
-        - { name: branchId, in: query, required: true, schema: { type: string, format: uuid } }
-        - { name: serviceId, in: query, required: true, schema: { type: string, format: uuid } }
-        - { name: dateFrom, in: query, required: true, schema: { type: string, format: date } }
-        - { name: dateTo, in: query, required: true, schema: { type: string, format: date } }
+        - {
+            name: branchId,
+            in: query,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+        - {
+            name: serviceId,
+            in: query,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+        - {
+            name: dateFrom,
+            in: query,
+            required: true,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: dateTo,
+            in: query,
+            required: true,
+            schema: { type: string, format: date },
+          }
         - { name: staffId, in: query, schema: { type: string, format: uuid } }
-        - { name: slotIntervalMin, in: query, schema: { enum: [5, 10, 15, 30], default: 15 } }
-      responses: { "200": { description: Availability result }, "400": { description: Invalid range or interval }, "403": { description: Outside branch scope }, "409": { description: Branch exists but is inactive; AVAILABILITY_BRANCH_INACTIVE } }
+        - {
+            name: slotIntervalMin,
+            in: query,
+            schema: { enum: [5, 10, 15, 30], default: 15 },
+          }
+      responses:
+        {
+          "200": { description: Availability result },
+          "400": { description: Invalid range or interval },
+          "403": { description: Outside branch scope },
+          "409":
+            {
+              description: Branch exists but is inactive; AVAILABILITY_BRANCH_INACTIVE,
+            },
+        }
   /availability/explain:
     post:
       tags: [availability]
       summary: Explain availability at an instant
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AvailabilityExplainRequest" } } } }
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/AvailabilityExplainRequest" },
+                },
+            },
+        }
       responses:
         "200":
           description: Rule-by-rule explanation; available=true implies no blockingReasons and every blocking rule is true
-          content: { application/json: { schema: { $ref: "#/components/schemas/AvailabilityExplainResponse" } } }
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      $ref: "#/components/schemas/AvailabilityExplainResponse",
+                    },
+                },
+            }
         "409": { description: Branch exists but is inactive }
   /calendar/events:
     get:
       tags: [calendar]
       summary: Read normalized shift, leave and busy-block events
-      responses: { "200": { description: Calendar events }, "403": { description: Branch or own-calendar scope denied } }
+      responses:
+        {
+          "200": { description: Calendar events },
+          "403": { description: Branch or own-calendar scope denied },
+        }
   /calendar/summary:
-    get: { tags: [calendar], summary: Read calendar daily summary, responses: { "200": { description: Daily summary } } }
+    get:
+      {
+        tags: [calendar],
+        summary: Read calendar daily summary,
+        responses: { "200": { description: Daily summary } },
+      }
   /availability-blocks:
-    get: { tags: [availability-blocks], summary: List blocks, responses: { "200": { description: Blocks } } }
+    get:
+      {
+        tags: [availability-blocks],
+        summary: List blocks,
+        responses: { "200": { description: Blocks } },
+      }
     post:
       tags: [availability-blocks]
       summary: Create an audited manual, external or maintenance block
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AvailabilityBlockInput" } } } }
-      responses: { "200": { description: Created or idempotently replayed }, "400": { description: Invalid target or range } }
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/AvailabilityBlockInput" },
+                },
+            },
+        }
+      responses:
+        {
+          "200": { description: Created or idempotently replayed },
+          "400": { description: Invalid target or range },
+        }
   /availability-blocks/{blockId}:
-    get: { tags: [availability-blocks], summary: Read block, responses: { "200": { description: Block }, "404": { description: Not found } } }
-    patch: { tags: [availability-blocks], summary: Update block with optimistic version, responses: { "200": { description: Updated }, "409": { description: Version conflict } } }
+    get:
+      {
+        tags: [availability-blocks],
+        summary: Read block,
+        responses:
+          { "200": { description: Block }, "404": { description: Not found } },
+      }
+    patch:
+      {
+        tags: [availability-blocks],
+        summary: Update block with optimistic version,
+        responses:
+          {
+            "200": { description: Updated },
+            "409": { description: Version conflict },
+          },
+      }
   /availability-blocks/{blockId}/cancel:
-    post: { tags: [availability-blocks], summary: Cancel block without hard delete, responses: { "200": { description: Cancelled }, "409": { description: Version or status conflict } } }
+    post:
+      {
+        tags: [availability-blocks],
+        summary: Cancel block without hard delete,
+        responses:
+          {
+            "200": { description: Cancelled },
+            "409": { description: Version or status conflict },
+          },
+      }
+  /booking-plans:
+    post:
+      {
+        tags: [booking],
+        summary: Build a sequential service plan from authoritative availability,
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema: { $ref: "#/components/schemas/BookingPlanRequest" },
+                  },
+              },
+          },
+        responses:
+          {
+            "201": { description: Booking plan },
+            "409": { description: Availability changed or slot unavailable },
+          },
+      }
+  /slot-holds:
+    post:
+      {
+        tags: [booking],
+        summary: Reserve staff and resources for a short TTL,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { $ref: "#/components/schemas/CreateSlotHoldRequest" },
+                  },
+              },
+          },
+        responses:
+          {
+            "201": { description: Active hold and scoped hold capability },
+            "409":
+              {
+                description: Staff/resource conflict,
+                stale availability or hold limit,
+              },
+          },
+      }
+  /slot-holds/{holdId}:
+    get:
+      {
+        tags: [booking],
+        summary: Read a tenant-scoped hold,
+        responses:
+          {
+            "200": { description: Hold },
+            "404": { description: Hold not found },
+          },
+      }
+  /slot-holds/{holdId}/release:
+    post:
+      {
+        tags: [booking],
+        summary: Release a hold and its reservations,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "201": { description: Released or idempotently replayed },
+            "409": { description: Hold state conflict },
+          },
+      }
+  /appointments:
+    get:
+      {
+        tags: [appointments],
+        summary: Search branch/own appointments,
+        responses:
+          {
+            "200": { description: Appointment summaries },
+            "403": { description: Tenant, branch or own scope denied },
+          },
+      }
+    post:
+      {
+        tags: [appointments],
+        summary: Atomically consume a hold and create an appointment,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { $ref: "#/components/schemas/CreateAppointmentRequest" },
+                  },
+              },
+          },
+        responses:
+          {
+            "201": { description: Created appointment },
+            "409":
+              { description: Hold expired/consumed or idempotency conflict },
+          },
+      }
+  /appointments/{appointmentId}:
+    get:
+      {
+        tags: [appointments],
+        summary: Read permission-shaped appointment detail,
+        responses:
+          {
+            "200": { description: Appointment detail },
+            "403": { description: Branch or own assignment denied },
+            "404": { description: Not found },
+          },
+      }
+  /appointments/{appointmentId}/history:
+    get:
+      {
+        tags: [appointments],
+        summary: Read append-only status history,
+        responses: { "200": { description: History } },
+      }
+  /appointments/{appointmentId}/schedule-revisions:
+    get:
+      {
+        tags: [appointments],
+        summary: Read append-only schedule revisions,
+        responses: { "200": { description: Revisions } },
+      }
+  /appointments/{appointmentId}/confirm:
+    post:
+      {
+        tags: [appointments],
+        summary: Confirm a pending appointment,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "201": { description: Confirmed },
+            "409": { description: Version, state or deposit conflict },
+          },
+      }
+  /appointments/{appointmentId}/reschedule:
+    post:
+      {
+        tags: [appointments],
+        summary: Atomically replace reservations while preserving price snapshots,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema: { $ref: "#/components/schemas/RescheduleRequest" },
+                  },
+              },
+          },
+        responses:
+          {
+            "201":
+              { description: Rescheduled; current state remains CONFIRMED },
+            "409": { description: Version, service or reservation conflict },
+          },
+      }
+  /appointments/{appointmentId}/cancel:
+    post:
+      {
+        tags: [appointments],
+        summary: Cancel without deleting the appointment,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/CancelRequest" } },
+              },
+          },
+        responses:
+          {
+            "201": { description: Cancelled with policy outcome },
+            "409": { description: Version or state conflict },
+          },
+      }
+  /appointments/{appointmentId}/waive-deposit:
+    post:
+      {
+        tags: [appointments],
+        summary: Waive required deposit with an audited reason,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "201": { description: Waived and confirmed },
+            "409": { description: Version or state conflict },
+          },
+      }
+  /public/salons/{salonSlug}:
+    get:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: Read public salon profile,
+        responses:
+          {
+            "200": { description: Public salon profile },
+            "404": { description: Salon unavailable },
+          },
+      }
+  /public/salons/{salonSlug}/branches:
+    get:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: List public active branches and booking policies,
+        responses: { "200": { description: Branches } },
+      }
+  /public/salons/{salonSlug}/services:
+    get:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: List online-bookable services and effective prices,
+        responses: { "200": { description: Services } },
+      }
+  /public/salons/{salonSlug}/availability:
+    get:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: Search availability without an account,
+        responses:
+          {
+            "200": { description: Availability },
+            "409": { description: Rate limited or unavailable },
+          },
+      }
+  /public/salons/{salonSlug}/slot-holds:
+    post:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: Create a rate-limited public hold,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          { "201": { description: Active hold and scoped capability } },
+      }
+  /public/salons/{salonSlug}/contact-verification/request:
+    post:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: Request pre-booking OTP,
+        responses:
+          {
+            "201": { description: Neutral challenge response },
+            "409": { description: Rate limited },
+          },
+      }
+  /public/salons/{salonSlug}/contact-verification/verify:
+    post:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: Exchange OTP for a short-lived contact capability,
+        responses:
+          {
+            "201": { description: Contact capability },
+            "401": { description: Invalid or expired code },
+          },
+      }
+  /public/salons/{salonSlug}/bookings:
+    post:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: Create a verified public booking,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "201": { description: Booking reference and status },
+            "403": { description: Hold/contact capability invalid },
+          },
+      }
+  /public/bookings/access/request:
+    post:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: Request neutral booking-management challenge,
+        responses:
+          { "201": { description: Neutral response regardless of match } },
+      }
+  /public/bookings/access/verify:
+    post:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: Exchange OTP for appointment-scoped management capability,
+        responses:
+          {
+            "201": { description: Management capability },
+            "401": { description: Invalid or expired challenge },
+          },
+      }
+  /public/bookings/{bookingReference}:
+    get:
+      {
+        tags: [public-booking],
+        security: [{ bearerAuth: [] }],
+        summary: Read privacy-shaped booking using management capability,
+        responses:
+          {
+            "200": { description: Managed booking },
+            "401": { description: Token missing },
+            "403": { description: Capability invalid or revoked },
+          },
+      }
+  /public/bookings/{bookingReference}/reschedule-holds:
+    post:
+      {
+        tags: [public-booking],
+        security: [{ bearerAuth: [] }],
+        summary: Hold a replacement schedule,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "201": { description: Replacement hold } },
+      }
+  /public/bookings/{bookingReference}/reschedule:
+    post:
+      {
+        tags: [public-booking],
+        security: [{ bearerAuth: [] }],
+        summary: Customer reschedule command,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "201": { description: Rescheduled },
+            "409": { description: Version or reservation conflict },
+          },
+      }
+  /public/bookings/{bookingReference}/cancel:
+    post:
+      {
+        tags: [public-booking],
+        security: [{ bearerAuth: [] }],
+        summary: Customer cancellation command,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "201": { description: Cancelled },
+            "409": { description: Version or state conflict },
+          },
+      }
 
 components:
+  parameters:
+    IdempotencyKey:
+      {
+        name: Idempotency-Key,
+        in: header,
+        required: true,
+        schema: { type: string, minLength: 16, maxLength: 128 },
+        description: Actor-scoped command replay key; raw value is never logged,
+      }
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
     tenantContext:
@@ -471,7 +1227,17 @@ components:
         count: { type: integer, minimum: 1 }
     AvailabilityExplainResponse:
       type: object
-      required: [available, startAt, timezone, blockingReasons, warnings, rules, resourceSummary, staffCandidates]
+      required:
+        [
+          available,
+          startAt,
+          timezone,
+          blockingReasons,
+          warnings,
+          rules,
+          resourceSummary,
+          staffCandidates,
+        ]
       properties:
         available: { type: boolean }
         startAt: { type: string, format: date-time }
@@ -513,6 +1279,104 @@ components:
         source: { type: string }
         sourceReference: { type: string }
         notes: { type: string }
+    StaffPreference:
+      oneOf:
+        - {
+            type: object,
+            required: [type],
+            properties: { type: { const: ANY } },
+          }
+        - {
+            type: object,
+            required: [type, staffId],
+            properties:
+              {
+                type: { const: SPECIFIC },
+                staffId: { type: string, format: uuid },
+              },
+          }
+    BookingPlanRequest:
+      type: object
+      required: [branchId, desiredStartAt, items]
+      properties:
+        branchId: { type: string, format: uuid }
+        desiredStartAt: { type: string, format: date-time }
+        items:
+          {
+            type: array,
+            minItems: 1,
+            maxItems: 5,
+            items:
+              {
+                type: object,
+                required: [serviceId, staffPreference],
+                properties:
+                  {
+                    serviceId: { type: string, format: uuid },
+                    staffPreference:
+                      { $ref: "#/components/schemas/StaffPreference" },
+                    availabilityFingerprint:
+                      { type: string, minLength: 64, maxLength: 64 },
+                  },
+              },
+          }
+    CreateSlotHoldRequest:
+      allOf:
+        - { $ref: "#/components/schemas/BookingPlanRequest" }
+        - {
+            type: object,
+            properties:
+              {
+                availabilityDataVersion: { type: integer, minimum: 1 },
+                clientKey: { type: string },
+                source: { enum: [CUSTOMER_WEB, RECEPTION, OWNER_MOBILE, API] },
+              },
+          }
+    CreateAppointmentRequest:
+      type: object
+      required: [holdId, customer]
+      properties:
+        holdId: { type: string, format: uuid }
+        holdToken: { type: string, writeOnly: true }
+        contactVerificationToken: { type: string, writeOnly: true }
+        customer:
+          {
+            type: object,
+            properties:
+              {
+                customerId: { type: string, format: uuid },
+                displayName: { type: string },
+                phone: { type: string },
+                email: { type: string, format: email },
+                locale: { enum: [vi-VN, en-US] },
+              },
+          }
+        customerNote: { type: string, maxLength: 2000 }
+        internalNote: { type: string, maxLength: 4000 }
+        marketingConsent: { type: boolean, default: false }
+        confirm: { type: boolean, default: true }
+    RescheduleRequest:
+      type: object
+      required: [version, replacementHoldId, reasonCode]
+      properties:
+        {
+          version: { type: integer, minimum: 1 },
+          replacementHoldId: { type: string, format: uuid },
+          replacementHoldToken: { type: string, writeOnly: true },
+          reasonCode: { type: string },
+          note: { type: string },
+        }
+    CancelRequest:
+      type: object
+      required: [version, reasonCode]
+      properties:
+        {
+          version: { type: integer, minimum: 1 },
+          reasonCode: { type: string },
+          note: { type: string },
+          actorType: { enum: [USER, CUSTOMER], default: USER },
+          policyOverrideReason: { type: string },
+        }
     LoginRequest:
       type: object
       required: [tenantSlug, email, password, deviceId, deviceName, platform]

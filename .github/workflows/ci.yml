@@ -16,14 +16,19 @@ jobs:
     services:
       postgres:
         image: postgres:16-alpine
-        env: { POSTGRES_DB: nailsoft, POSTGRES_USER: nailsoft, POSTGRES_PASSWORD: nailsoft }
-        ports: ['5432:5432']
+        env:
+          {
+            POSTGRES_DB: nailsoft,
+            POSTGRES_USER: nailsoft,
+            POSTGRES_PASSWORD: nailsoft,
+          }
+        ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U nailsoft -d nailsoft"
           --health-interval 5s --health-timeout 3s --health-retries 10
       redis:
         image: redis:7-alpine
-        ports: ['6379:6379']
+        ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s --health-timeout 3s --health-retries 10
@@ -68,7 +73,7 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 3 migration rollback and re-migrate
+      - name: Sprint 4 migration rollback and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
@@ -95,14 +100,18 @@ jobs:
           done
           cat api-e2e.log
           exit 1
-      - name: Authenticated Sprint 1-3 E2E
+      - name: Authenticated Sprint 1-4 E2E
         run: pnpm test:e2e
       - name: Sprint 3 closure authenticated E2E
         run: pnpm exec playwright test tests/e2e/sprint3-closure
-      - name: Mobile Sprint 2-3 API integration
-        run: pnpm exec playwright test tests/e2e/sprint2-mobile-api.spec.ts tests/e2e/sprint3-availability-calendar.spec.ts
-      - name: Availability load smoke
-        env: { LOAD_DURATION_SECONDS: 2, LOAD_WARMUP_SECONDS: 1, LOAD_CONCURRENCY: 2 }
+      - name: Mobile Sprint 2-4 integration
+        run: pnpm exec playwright test tests/e2e/sprint2-mobile-api.spec.ts tests/e2e/sprint3-availability-calendar.spec.ts tests/e2e/sprint4-booking-ui.spec.ts
+      - name: Scheduling and booking load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: calendar-day,appointment-list,appointment-detail
         run: pnpm load:smoke
       - name: Build API
         run: pnpm --filter @nailsoft/api build

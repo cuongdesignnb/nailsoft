@@ -8,9 +8,20 @@ import { ServiceCatalogModule } from "./modules/service-catalog/service-catalog.
 import { AvailabilityModule } from "./modules/availability/availability.module.js";
 import { BusyBlockModule } from "./modules/busy-block/busy-block.module.js";
 import { CalendarModule } from "./modules/calendar/calendar.module.js";
+import { BookingModule } from "./modules/booking/booking.module.js";
 
 @Module({
-  imports: [DatabaseModule, HealthModule, IdentityModule, OrganizationModule, ServiceCatalogModule, AvailabilityModule, BusyBlockModule, CalendarModule],
+  imports: [
+    DatabaseModule,
+    HealthModule,
+    IdentityModule,
+    OrganizationModule,
+    ServiceCatalogModule,
+    AvailabilityModule,
+    BusyBlockModule,
+    CalendarModule,
+    BookingModule,
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

@@ -14,10 +14,31 @@ export class RealtimeEmitter implements OnModuleDestroy {
 
   async invalidation(payload: AvailabilityInvalidatedEvent, rooms: string[]) {
     await this.ensureConnected();
-    this.emitter!
-      .of("/scheduling")
-      .to(rooms)
-      .emit("availability.invalidated", payload);
+    const target = this.emitter!.of("/scheduling").to(rooms);
+    target.emit("availability.invalidated", payload);
+    if (
+      payload.sourceEventType.startsWith("appointment.") ||
+      payload.sourceEventType.startsWith("slot_hold.")
+    ) {
+      const removed = [
+        "appointment.cancelled",
+        "appointment.expired",
+        "slot_hold.consumed",
+        "slot_hold.released",
+        "slot_hold.expired",
+      ].includes(payload.sourceEventType);
+      const created = ["appointment.created", "slot_hold.created"].includes(
+        payload.sourceEventType,
+      );
+      target.emit(
+        removed
+          ? "calendar.event_removed"
+          : created
+            ? "calendar.event_created"
+            : "calendar.event_updated",
+        payload,
+      );
+    }
   }
 
   async control(message: RealtimeControlMessage) {
@@ -35,7 +56,10 @@ export class RealtimeEmitter implements OnModuleDestroy {
       socket: { connectTimeout: 1_000, reconnectStrategy: false },
     });
     this.client.on("error", (error) =>
-      this.logger.warn({ event: "realtime.emit_failure", message: error.message }),
+      this.logger.warn({
+        event: "realtime.emit_failure",
+        message: error.message,
+      }),
     );
     await this.client.connect();
     this.emitter = new Emitter(this.client);

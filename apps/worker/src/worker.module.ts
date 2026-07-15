@@ -5,6 +5,9 @@ import { OutboxPoller } from "./outbox.poller.js";
 import { OutboxProcessor } from "./outbox.processor.js";
 import { OutboxRepository } from "./outbox.repository.js";
 import { RealtimeEmitter } from "./realtime-emitter.js";
+import { BookingMaintenancePoller } from "./booking-maintenance.poller.js";
+import { BookingMaintenanceProcessor } from "./booking-maintenance.processor.js";
+import { BookingNotificationRouter } from "./booking-notification.router.js";
 
 @Module({
   providers: [
@@ -14,6 +17,9 @@ import { RealtimeEmitter } from "./realtime-emitter.js";
     OutboxMetrics,
     OutboxProcessor,
     OutboxPoller,
+    BookingNotificationRouter,
+    BookingMaintenanceProcessor,
+    BookingMaintenancePoller,
   ],
   exports: [OutboxRepository, OutboxEventRouter, OutboxProcessor],
 })

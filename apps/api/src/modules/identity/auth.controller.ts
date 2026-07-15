@@ -101,8 +101,8 @@ export class AuthController {
     @Req() req: AuthenticatedRequest,
   ) {
     const result = await this.db.query(
-      'SELECT id,device_id "deviceId",device_name "deviceName",platform,app_version "appVersion",last_seen_at "lastSeenAt",expires_at "expiresAt",created_at "createdAt" FROM device_sessions WHERE membership_id=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at>now() ORDER BY created_at DESC',
-      [req.auth.membershipId, req.auth.userId],
+      'SELECT id,device_id "deviceId",device_name "deviceName",platform,app_version "appVersion",last_seen_at "lastSeenAt",expires_at "expiresAt",created_at "createdAt",(id=$3) "isCurrent" FROM device_sessions WHERE membership_id=$1 AND user_id=$2 AND revoked_at IS NULL AND expires_at>now() ORDER BY (id=$3) DESC,created_at DESC,id DESC',
+      [req.auth.membershipId, req.auth.userId, req.auth.sessionId],
     );
     return this.ok(result.rows, req.raw.requestId);
   }
@@ -122,14 +122,29 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
   @HttpCode(204)
-  async deleteSession(@Param("id") id: string, @Req() req: AuthenticatedRequest) {
-    await this.auth.revoke(req.auth.tenantId, req.auth.userId, id, req.raw.requestId ?? "unknown");
+  async deleteSession(
+    @Param("id") id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    await this.auth.revoke(
+      req.auth.tenantId,
+      req.auth.userId,
+      id,
+      req.raw.requestId ?? "unknown",
+    );
   }
   @Delete("sessions")
   @UseGuards(AuthGuard)
   @ApiBearerAuth()
   async deleteSessions(@Req() req: AuthenticatedRequest) {
-    return this.ok(await this.auth.revokeAllOwn(req.auth.tenantId, req.auth.userId, req.raw.requestId ?? "unknown"), req.raw.requestId);
+    return this.ok(
+      await this.auth.revokeAllOwn(
+        req.auth.tenantId,
+        req.auth.userId,
+        req.raw.requestId ?? "unknown",
+      ),
+      req.raw.requestId,
+    );
   }
   @Post("logout")
   @UseGuards(AuthGuard)

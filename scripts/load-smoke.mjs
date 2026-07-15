@@ -188,17 +188,74 @@ const scenarios = [
   {
     name: "calendar-week",
     setup: async (worker) => auth(`load-calendar-week-${worker}`),
-    run: (state) => request("/v1/calendar/events?branchId=20000000-0000-4000-8000-000000000001&from=2026-08-10T00:00:00%2B07:00&to=2026-08-17T00:00:00%2B07:00", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+    run: (state) =>
+      request(
+        "/v1/calendar/events?branchId=20000000-0000-4000-8000-000000000001&from=2026-08-10T00:00:00%2B07:00&to=2026-08-17T00:00:00%2B07:00",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
+    name: "appointment-list",
+    setup: async (worker) => auth(`load-appointment-list-${worker}`),
+    run: (state) =>
+      request(
+        "/v1/appointments?branchId=20000000-0000-4000-8000-000000000001&from=2026-07-01T00:00:00%2B07:00&to=2026-09-01T00:00:00%2B07:00&limit=50",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
+    name: "appointment-detail",
+    setup: async (worker) => auth(`load-appointment-detail-${worker}`),
+    run: (state) =>
+      request("/v1/appointments/70000000-0000-4000-8000-000000000001", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "public-booking-availability",
+    run: () =>
+      request(
+        "/v1/public/salons/nailsoft-demo/availability?branchId=20000000-0000-4000-8000-000000000001&serviceId=50000000-0000-4000-8000-000000000001&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=15",
+      ),
   },
   {
     name: "availability-explain",
     setup: async (worker) => auth(`load-explain-${worker}`),
-    run: (state) => request("/v1/availability/explain", { method:"POST",headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId },body:JSON.stringify({branchId:"20000000-0000-4000-8000-000000000001",serviceId:"50000000-0000-4000-8000-000000000001",startAt:"2026-08-10T10:00:00+07:00"}) }),
+    run: (state) =>
+      request("/v1/availability/explain", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+        body: JSON.stringify({
+          branchId: "20000000-0000-4000-8000-000000000001",
+          serviceId: "50000000-0000-4000-8000-000000000001",
+          startAt: "2026-08-10T10:00:00+07:00",
+        }),
+      }),
   },
 ];
 
-const selected = new Set((process.env.LOAD_SCENARIOS ?? "").split(",").filter(Boolean));
-const activeScenarios = selected.size ? scenarios.filter((scenario) => selected.has(scenario.name)) : scenarios;
+const selected = new Set(
+  (process.env.LOAD_SCENARIOS ?? "").split(",").filter(Boolean),
+);
+const activeScenarios = selected.size
+  ? scenarios.filter((scenario) => selected.has(scenario.name))
+  : scenarios;
 
 for (const concurrency of concurrencyLevels) {
   for (const scenario of activeScenarios) {

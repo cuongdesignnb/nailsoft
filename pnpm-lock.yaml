@@ -96,6 +96,9 @@ importers:
       '@nailsoft/domain-types':
         specifier: workspace:*
         version: link:../../packages/domain-types
+      '@nailsoft/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
       '@nestjs/common':
         specifier: ^11.1.3
         version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2)

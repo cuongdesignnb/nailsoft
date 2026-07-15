@@ -16,6 +16,7 @@ describe("outbox processor", () => {
       { route: vi.fn() } as never,
       { invalidation: vi.fn(), control: vi.fn() } as never,
       { increment: vi.fn(), observe: vi.fn() } as never,
+      { route: vi.fn() } as never,
     );
     expect(processor.sourceOfTruth).toBe("postgresql");
   });
@@ -53,8 +54,11 @@ describe("outbox processor", () => {
           deliveries: [{ payload: {}, rooms: ["branch:a"] }],
         }),
       } as never,
-      { invalidation: vi.fn().mockRejectedValue(new Error("Redis unavailable")) } as never,
+      {
+        invalidation: vi.fn().mockRejectedValue(new Error("Redis unavailable")),
+      } as never,
       { increment: vi.fn(), observe: vi.fn() } as never,
+      { route: vi.fn() } as never,
     );
     await processor.processBatch();
     expect(repo.retry).toHaveBeenCalledWith(
@@ -97,11 +101,14 @@ describe("outbox processor", () => {
       router as never,
       { invalidation: vi.fn() } as never,
       { increment: vi.fn(), observe: vi.fn() } as never,
+      { route: vi.fn() } as never,
     );
     await processor.processBatch();
     expect(repo.failed).toHaveBeenCalled();
     router.route.mockResolvedValue({ kind: "ignored" } as never);
-    repo.claim.mockResolvedValue([{ ...failedEvent, id: "10000000-0000-4000-8000-000000000097" }]);
+    repo.claim.mockResolvedValue([
+      { ...failedEvent, id: "10000000-0000-4000-8000-000000000097" },
+    ]);
     await processor.processBatch();
     expect(repo.processed).toHaveBeenCalled();
   });

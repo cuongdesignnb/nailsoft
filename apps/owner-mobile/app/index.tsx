@@ -39,7 +39,14 @@ const restoreSession = createRefreshSingleFlight(async () => {
 
 export default function Home() {
   const [state, setState] = useState<
-    "restoring" | "login" | "loading" | "ready" | "error" | "forbidden" | "workspace" | "mfa"
+    | "restoring"
+    | "login"
+    | "loading"
+    | "ready"
+    | "error"
+    | "forbidden"
+    | "workspace"
+    | "mfa"
   >("restoring");
   const [email, setEmail] = useState(""),
     [password, setPassword] = useState("");
@@ -51,29 +58,32 @@ export default function Home() {
   async function login() {
     setState("loading");
     try {
-      const response = await fetch(
-        `${api}/v1/auth/login`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            tenantSlug: "nailsoft-demo",
-            email,
-            password,
-            deviceId: "owner-mobile",
-            deviceName: "Owner Mobile",
-            platform: "android",
-          }),
-        },
-      );
+      const response = await fetch(`${api}/v1/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          tenantSlug: "nailsoft-demo",
+          email,
+          password,
+          deviceId: "owner-mobile",
+          deviceName: "Owner Mobile",
+          platform: "android",
+        }),
+      });
       if (response.status === 403) {
         setState("forbidden");
         return;
       }
       const body = await response.json();
       if (!response.ok) throw new Error();
-      if (body.data.workspaceSelectionRequired) { setState("workspace"); return; }
-      if (body.data.authenticationState) { setState("mfa"); return; }
+      if (body.data.workspaceSelectionRequired) {
+        setState("workspace");
+        return;
+      }
+      if (body.data.authenticationState) {
+        setState("mfa");
+        return;
+      }
       accessToken = body.data.accessToken;
       tenantId = body.data.tenantId;
       setSession(accessToken, tenantId);
@@ -98,12 +108,57 @@ export default function Home() {
             Salon overview
           </Text>
           <Text>Phiên đăng nhập đã được khôi phục an toàn.</Text>
-          <Text>{accessToken ? `Workspace ${tenantId ?? "active"} is authenticated.` : "Session unavailable."}</Text>
-          {['calendarDay','calendarWeek','availability','explain','blocks','createBlock','organization','branches','services','staff','shifts','leave','team','sessions','profile','language'].map((screen) => <Link key={screen} href={`/${screen}` as never}>{screen}</Link>)}
+          <Text>
+            {accessToken
+              ? `Workspace ${tenantId ?? "active"} is authenticated.`
+              : "Session unavailable."}
+          </Text>
+          {[
+            "appointmentsToday",
+            "appointments",
+            "calendarDay",
+            "calendarWeek",
+            "availability",
+            "explain",
+            "blocks",
+            "createBlock",
+            "organization",
+            "branches",
+            "services",
+            "staff",
+            "shifts",
+            "leave",
+            "team",
+            "sessions",
+            "profile",
+            "language",
+          ].map((screen) => (
+            <Link key={screen} href={`/${screen}` as never}>
+              {screen}
+            </Link>
+          ))}
         </View>
       </SafeAreaView>
     );
-  if (state === "workspace" || state === "mfa") return <SafeAreaView><View style={{padding:24,gap:12}}><Text style={{fontSize:28,fontWeight:'700'}}>{state === "workspace" ? "Select workspace" : "Additional verification"}</Text><Text>Your primary identity is verified. Continue without storing an incomplete session.</Text><Link href={state === "workspace" ? "/workspace" : "/mfa"}>Continue</Link></View></SafeAreaView>;
+  if (state === "workspace" || state === "mfa")
+    return (
+      <SafeAreaView>
+        <View style={{ padding: 24, gap: 12 }}>
+          <Text style={{ fontSize: 28, fontWeight: "700" }}>
+            {state === "workspace"
+              ? "Select workspace"
+              : "Additional verification"}
+          </Text>
+          <Text>
+            Your primary identity is verified. Continue without storing an
+            incomplete session.
+          </Text>
+          <Link href={state === "workspace" ? "/workspace" : "/mfa"}>
+            Continue
+          </Link>
+        </View>
+      </SafeAreaView>
+    );
   return (
     <SafeAreaView>
       <View style={{ padding: 24, gap: 12 }}>

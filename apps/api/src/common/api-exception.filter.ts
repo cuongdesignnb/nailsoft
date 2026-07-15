@@ -22,7 +22,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
         ? String(exception.code)
         : undefined;
     const databaseConstraint =
-      typeof exception === "object" && exception !== null && "constraint" in exception
+      typeof exception === "object" &&
+      exception !== null &&
+      "constraint" in exception
         ? String(exception.constraint)
         : undefined;
     const databaseDomainCode: Record<string, string> = {
@@ -31,9 +33,14 @@ export class ApiExceptionFilter implements ExceptionFilter {
       staff_primary_assignment_no_overlap: "STAFF_PRIMARY_BRANCH_CONFLICT",
       shifts_published_no_overlap: "SHIFT_OVERLAP",
       service_addon_cycle: "SERVICE_ADDON_CYCLE",
+      staff_schedule_no_active_overlap: "STAFF_RESERVED",
+      appointments_tenant_reference_unique: "BOOKING_REFERENCE_CONFLICT",
+      appointment_item_one_primary_active: "APPOINTMENT_ASSIGNMENT_INVALID",
     };
     const status =
-      databaseCode === "23505" || databaseCode === "23P01" || databaseCode === "23514"
+      databaseCode === "23505" ||
+      databaseCode === "23P01" ||
+      databaseCode === "23514"
         ? HttpStatus.CONFLICT
         : exception instanceof ZodError
           ? HttpStatus.BAD_REQUEST
@@ -52,7 +59,9 @@ export class ApiExceptionFilter implements ExceptionFilter {
             : "Internal server error";
     const code =
       databaseDomainCode[databaseConstraint ?? ""] ??
-      (databaseCode === "23505" || databaseCode === "23P01" || databaseCode === "23514"
+      (databaseCode === "23505" ||
+      databaseCode === "23P01" ||
+      databaseCode === "23514"
         ? "DUPLICATE_RESOURCE"
         : exception instanceof ZodError
           ? "VALIDATION_ERROR"

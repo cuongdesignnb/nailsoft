@@ -12,11 +12,15 @@ describe("PostgreSQL foundation", () => {
   afterAll(async () => client.end());
 
   it("contains deterministic SRS fixture counts", async () => {
+    // Count only deterministic seed identifiers. Other integration suites intentionally
+    // retain append-only booking/audit evidence and may execute before this assertion.
     const result =
-      await client.query(`SELECT (SELECT count(*)::int FROM tenants) tenants,
-      (SELECT count(*)::int FROM branches) branches, (SELECT count(*)::int FROM users) users,
-      (SELECT count(*)::int FROM services) services, (SELECT count(*)::int FROM customers) customers,
-      (SELECT count(*)::int FROM appointments) appointments`);
+      await client.query(`SELECT (SELECT count(*)::int FROM tenants WHERE id::text LIKE '10000000-0000-4000-8000-%') tenants,
+      (SELECT count(*)::int FROM branches WHERE id::text LIKE '20000000-0000-4000-8000-%') branches,
+      (SELECT count(*)::int FROM users WHERE id::text LIKE '30000000-0000-4000-8000-%') users,
+      (SELECT count(*)::int FROM services WHERE id::text LIKE '50000000-0000-4000-8000-%') services,
+      (SELECT count(*)::int FROM customers WHERE id::text LIKE '60000000-0000-4000-8000-%') customers,
+      (SELECT count(*)::int FROM appointments WHERE id::text LIKE '70000000-0000-4000-8000-%') appointments`);
     expect(result.rows[0]).toEqual({
       tenants: 1,
       branches: 3,

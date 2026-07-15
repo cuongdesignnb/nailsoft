@@ -5,6 +5,7 @@ import { OutboxMetrics } from "./outbox.metrics.js";
 import { OutboxRepository } from "./outbox.repository.js";
 import { CrossTenantEventError, type OutboxEvent } from "./outbox.types.js";
 import { RealtimeEmitter } from "./realtime-emitter.js";
+import { BookingNotificationRouter } from "./booking-notification.router.js";
 
 const retrySeconds = [5, 15, 60, 300];
 
@@ -20,6 +21,8 @@ export class OutboxProcessor {
     @Inject(OutboxEventRouter) private readonly router: OutboxEventRouter,
     @Inject(RealtimeEmitter) private readonly emitter: RealtimeEmitter,
     @Inject(OutboxMetrics) private readonly metrics: OutboxMetrics,
+    @Inject(BookingNotificationRouter)
+    private readonly notifications: BookingNotificationRouter,
   ) {}
 
   async processBatch() {
@@ -43,6 +46,7 @@ export class OutboxProcessor {
   private async process(event: OutboxEvent) {
     const started = performance.now();
     try {
+      await this.notifications.route(event);
       const route = await this.router.route(event);
       if (route.kind === "ignored") {
         this.metrics.increment("outbox_event_ignored_total");

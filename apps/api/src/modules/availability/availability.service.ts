@@ -222,6 +222,14 @@ export class AvailabilityService {
         [auth.tenantId, q.serviceId, q.branchId],
       ),
       this.db.query<any>(
+        "SELECT * FROM staff_schedule_reservations WHERE tenant_id=$1 AND branch_id=$2 AND status='ACTIVE' AND start_at<$4 AND end_at>$3 AND (reservation_type='APPOINTMENT' OR expires_at>now())",
+        [auth.tenantId, q.branchId, padFrom, padTo],
+      ),
+      this.db.query<any>(
+        "SELECT * FROM resource_schedule_reservations WHERE tenant_id=$1 AND branch_id=$2 AND status='ACTIVE' AND start_at<$4 AND end_at>$3 AND (reservation_type='APPOINTMENT' OR expires_at>now())",
+        [auth.tenantId, q.branchId, padFrom, padTo],
+      ),
+      this.db.query<any>(
         "SELECT version FROM availability_versions WHERE tenant_id=$1 AND branch_id=$2",
         [auth.tenantId, q.branchId],
       ),
@@ -256,7 +264,9 @@ export class AvailabilityService {
       resourceReq: results[7].rows,
       resources: results[8].rows,
       prices: results[9].rows,
-      dataVersion: Number(results[10].rows[0]?.version ?? 1),
+      staffReservations: results[10].rows,
+      resourceReservations: results[11].rows,
+      dataVersion: Number(results[12].rows[0]?.version ?? 1),
     };
   }
   private evaluate(
@@ -342,6 +352,20 @@ export class AvailabilityService {
         this.reason(staffReasons, "STAFF_BUSY");
         continue;
       }
+      const reservation = s.staffReservations.find(
+        (x: any) =>
+          x.staff_id === person.id &&
+          this.overlap(staffStart, staffEnd, x.start_at, x.end_at),
+      );
+      if (reservation) {
+        this.reason(
+          staffReasons,
+          reservation.reservation_type === "HOLD"
+            ? "SLOT_HELD"
+            : "STAFF_RESERVED",
+        );
+        continue;
+      }
       eligible.push({
         staffId: person.id,
         displayName: person.display_name,
@@ -373,15 +397,41 @@ export class AvailabilityService {
               this.overlap(resourceStart, resourceEnd, b.start_at, b.end_at),
           ),
       );
-      const available = active.reduce(
-        (n: number, r: any) => n + (req.is_exclusive ? 1 : r.capacity),
-        0,
+      const available = active.reduce((n: number, r: any) => {
+        const reservations = s.resourceReservations.filter(
+          (x: any) =>
+            x.resource_id === r.id &&
+            this.overlap(resourceStart, resourceEnd, x.start_at, x.end_at),
+        );
+        if (reservations.some((x: any) => x.is_exclusive)) return n;
+        const used = reservations.reduce(
+          (total: number, x: any) => total + Number(x.quantity),
+          0,
+        );
+        const remaining = Math.max(0, Number(r.capacity) - used);
+        return n + (req.is_exclusive ? (used === 0 ? 1 : 0) : remaining);
+      }, 0);
+      const overlappingReservations = active.flatMap((r: any) =>
+        s.resourceReservations.filter(
+          (x: any) =>
+            x.resource_id === r.id &&
+            this.overlap(resourceStart, resourceEnd, x.start_at, x.end_at),
+        ),
       );
       const hasMaintenance = matching.some(
         (r: any) => r.status === "MAINTENANCE",
       );
       resourceMaintenance ||= hasMaintenance;
       if (available < req.quantity) {
+        if (overlappingReservations.length)
+          this.reason(
+            reasons,
+            overlappingReservations.some(
+              (x: any) => x.reservation_type === "HOLD",
+            )
+              ? "SLOT_HELD"
+              : "RESOURCE_RESERVED",
+          );
         this.reason(reasons, "RESOURCE_CAPACITY_INSUFFICIENT");
         resourceOk = false;
         resourceMaintenanceBlocking ||= hasMaintenance;
@@ -412,6 +462,8 @@ export class AvailabilityService {
         ...s.resources.map((x: any) => x.version),
         ...s.blocks.map((x: any) => x.version),
         ...s.leaves.map((x: any) => x.version),
+        ...s.staffReservations.map((x: any) => x.id),
+        ...s.resourceReservations.map((x: any) => x.id),
       ],
     };
   }
@@ -597,9 +649,16 @@ export class AvailabilityService {
   async explain(auth: AccessClaims, input: unknown) {
     const b = explainSchema.parse(input);
     const at = DateTime.fromISO(b.startAt, { setZone: true });
-    const zone=(await this.db.query<any>("SELECT timezone FROM branches WHERE tenant_id=$1 AND id=$2",[auth.tenantId,b.branchId])).rows[0]?.timezone??"UTC";
-    const localAt=at.setZone(zone),localDate=localAt.toISODate()!;
-    const q=this.parse({
+    const zone =
+      (
+        await this.db.query<any>(
+          "SELECT timezone FROM branches WHERE tenant_id=$1 AND id=$2",
+          [auth.tenantId, b.branchId],
+        )
+      ).rows[0]?.timezone ?? "UTC";
+    const localAt = at.setZone(zone),
+      localDate = localAt.toISODate()!;
+    const q = this.parse({
       branchId: b.branchId,
       serviceId: b.serviceId,
       dateFrom: localDate,
@@ -607,26 +666,68 @@ export class AvailabilityService {
       staffId: b.staffId,
       slotIntervalMin: 5,
     });
-    const s=await this.sources(auth,q),reasonCounts=new Map<AvailabilityReasonCode,number>();
-    const day=DateTime.fromISO(localDate),hours=s.hours.find((h:any)=>h.day_of_week===day.weekday%7&&this.dateOnly(h.valid_from)<=localDate&&(!h.valid_to||this.dateOnly(h.valid_to)>=localDate));
-    let businessHours=false;
-    if(!hours||hours.is_closed)this.reason(reasonCounts,"BRANCH_CLOSED");else{const opened=this.localInstants(localDate,String(hours.open_time),zone),closed=this.localInstants(localDate,String(hours.close_time),zone);if(opened.gap||closed.gap)this.reason(reasonCounts,"DST_GAP");const open=opened.values[0],close=closed.values.at(-1),resourceStart=localAt.minus({minutes:s.service.prep_time_min+s.service.booking_buffer_before_min}),occupancyEnd=localAt.plus({minutes:s.service.default_duration_min+s.service.cleanup_time_min+s.service.booking_buffer_after_min});businessHours=!!open&&!!close&&resourceStart>=open&&occupancyEnd<=close;if(!businessHours)this.reason(reasonCounts,"OUTSIDE_BUSINESS_HOURS");}
-    const localCandidates=this.localInstants(localDate,localAt.toFormat("HH:mm"),zone);if(localCandidates.gap)this.reason(reasonCounts,"DST_GAP");if(localCandidates.ambiguous)this.reason(reasonCounts,"DST_AMBIGUOUS");
-    const evaluated=this.evaluate(s,localDate,localAt,reasonCounts),available=businessHours&&evaluated.ok;
-    const blockingReasons:Reason[]=[...reasonCounts]
-      .filter(([code])=>code!=="DST_AMBIGUOUS")
-      .map(([code,count])=>({code,count}));
-    if(evaluated.resourceMaintenanceBlocking)
-      blockingReasons.push({code:"RESOURCE_MAINTENANCE",count:1});
-    const warnings:Reason[]=[];
-    if(reasonCounts.has("DST_AMBIGUOUS"))warnings.push({code:"DST_AMBIGUOUS",count:reasonCounts.get("DST_AMBIGUOUS")!});
-    if(evaluated.resourceMaintenance&&!evaluated.resourceMaintenanceBlocking)
-      warnings.push({code:"RESOURCE_MAINTENANCE",count:1});
-    const reasons=blockingReasons;
+    const s = await this.sources(auth, q),
+      reasonCounts = new Map<AvailabilityReasonCode, number>();
+    const day = DateTime.fromISO(localDate),
+      hours = s.hours.find(
+        (h: any) =>
+          h.day_of_week === day.weekday % 7 &&
+          this.dateOnly(h.valid_from) <= localDate &&
+          (!h.valid_to || this.dateOnly(h.valid_to) >= localDate),
+      );
+    let businessHours = false;
+    if (!hours || hours.is_closed) this.reason(reasonCounts, "BRANCH_CLOSED");
+    else {
+      const opened = this.localInstants(
+          localDate,
+          String(hours.open_time),
+          zone,
+        ),
+        closed = this.localInstants(localDate, String(hours.close_time), zone);
+      if (opened.gap || closed.gap) this.reason(reasonCounts, "DST_GAP");
+      const open = opened.values[0],
+        close = closed.values.at(-1),
+        resourceStart = localAt.minus({
+          minutes:
+            s.service.prep_time_min + s.service.booking_buffer_before_min,
+        }),
+        occupancyEnd = localAt.plus({
+          minutes:
+            s.service.default_duration_min +
+            s.service.cleanup_time_min +
+            s.service.booking_buffer_after_min,
+        });
+      businessHours =
+        !!open && !!close && resourceStart >= open && occupancyEnd <= close;
+      if (!businessHours) this.reason(reasonCounts, "OUTSIDE_BUSINESS_HOURS");
+    }
+    const localCandidates = this.localInstants(
+      localDate,
+      localAt.toFormat("HH:mm"),
+      zone,
+    );
+    if (localCandidates.gap) this.reason(reasonCounts, "DST_GAP");
+    if (localCandidates.ambiguous) this.reason(reasonCounts, "DST_AMBIGUOUS");
+    const evaluated = this.evaluate(s, localDate, localAt, reasonCounts),
+      available = businessHours && evaluated.ok;
+    const blockingReasons: Reason[] = [...reasonCounts]
+      .filter(([code]) => code !== "DST_AMBIGUOUS")
+      .map(([code, count]) => ({ code, count }));
+    if (evaluated.resourceMaintenanceBlocking)
+      blockingReasons.push({ code: "RESOURCE_MAINTENANCE", count: 1 });
+    const warnings: Reason[] = [];
+    if (reasonCounts.has("DST_AMBIGUOUS"))
+      warnings.push({
+        code: "DST_AMBIGUOUS",
+        count: reasonCounts.get("DST_AMBIGUOUS")!,
+      });
+    if (evaluated.resourceMaintenance && !evaluated.resourceMaintenanceBlocking)
+      warnings.push({ code: "RESOURCE_MAINTENANCE", count: 1 });
+    const reasons = blockingReasons;
     return {
       available,
       startAt: at.toUTC().toISO(),
-      timezone:zone,
+      timezone: zone,
       reasons,
       blockingReasons,
       warnings,
@@ -640,10 +741,16 @@ export class AvailabilityService {
         ),
         resources: !blockingReasons.some((x) => x.code.startsWith("RESOURCE")),
         price: !reasons.some((x) => x.code === "NO_ACTIVE_PRICE"),
-        timezone:!reasons.some((x)=>["TIMEZONE_INVALID","DST_GAP"].includes(x.code)),
+        timezone: !reasons.some((x) =>
+          ["TIMEZONE_INVALID", "DST_GAP"].includes(x.code),
+        ),
       },
-      resourceSummary:evaluated.resourceSummary,
-      staffCandidates:evaluated.eligible.map((x:any)=>({staffId:x.staffId,displayName:x.displayName,qualificationScore:x.qualificationScore})),
+      resourceSummary: evaluated.resourceSummary,
+      staffCandidates: evaluated.eligible.map((x: any) => ({
+        staffId: x.staffId,
+        displayName: x.displayName,
+        qualificationScore: x.qualificationScore,
+      })),
     };
   }
 }
