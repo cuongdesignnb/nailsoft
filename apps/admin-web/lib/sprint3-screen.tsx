@@ -187,7 +187,20 @@ function Availability({ pathname }: { pathname: string }) {
   const explain = pathname.endsWith("/explain"),
     [state, setState] = useState<State>("empty"),
     [data, setData] = useState<any>(),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [branches, setBranches] = useState<any[]>([]);
+  async function loadBranches() {
+    const response = await authorizedFetch("/v1/branches");
+    if (!response.ok) return;
+    const body = await response.json();
+    const rows = Array.isArray(body.data)
+      ? body.data
+      : (body.data?.items ?? []);
+    setBranches(rows.filter((branch: any) => branch.status === "ACTIVE"));
+  }
+  useEffect(() => {
+    void loadBranches();
+  }, []);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
@@ -200,6 +213,7 @@ function Availability({ pathname }: { pathname: string }) {
         setData,
         setError,
       );
+    await loadBranches();
   }
   async function explainSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -226,14 +240,26 @@ function Availability({ pathname }: { pathname: string }) {
     } catch (x) {
       setError(x instanceof Error ? x.message : "Explain failed");
       setState("error");
+    } finally {
+      await loadBranches();
     }
   }
   return (
     <Shell title={explain ? "Availability explain" : "Availability search"}>
       <form className="form-grid" onSubmit={explain ? explainSubmit : submit}>
         <label>
-          Branch ID
-          <input name="branchId" defaultValue={defaults.branchId} required />
+          Active branch
+          <select name="branchId" defaultValue={defaults.branchId} required>
+            {branches.length ? (
+              branches.map((branch: any) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name} · {branch.code}
+                </option>
+              ))
+            ) : (
+              <option value={defaults.branchId}>Default active branch</option>
+            )}
+          </select>
         </label>
         <label>
           Service ID

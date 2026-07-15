@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -145,6 +146,11 @@ export class AvailabilityService {
         code: "AVAILABILITY_BRANCH_NOT_FOUND",
         message: "Branch not found",
       });
+    if (branch.status !== "ACTIVE")
+      throw new ConflictException({
+        code: "AVAILABILITY_BRANCH_INACTIVE",
+        message: "The branch is not available for scheduling.",
+      });
     if (!DateTime.local().setZone(branch.timezone).isValid)
       throw new BadRequestException({
         code: "AVAILABILITY_TIMEZONE_INVALID",
@@ -271,16 +277,17 @@ export class AvailabilityService {
       resourceStart = start.minus({ minutes: prep + before }).toMillis(),
       resourceEnd = staffEnd;
     const eligible: any[] = [];
+    const staffReasons = new Map<AvailabilityReasonCode, number>();
     for (const person of s.staff) {
       if (!person.can_be_booked) {
-        this.reason(reasons, "STAFF_NOT_BOOKABLE");
+        this.reason(staffReasons, "STAFF_NOT_BOOKABLE");
         continue;
       }
       if (
         date < this.dateOnly(person.effective_from) ||
         (person.effective_to && date > this.dateOnly(person.effective_to))
       ) {
-        this.reason(reasons, "STAFF_NOT_ASSIGNED");
+        this.reason(staffReasons, "STAFF_NOT_ASSIGNED");
         continue;
       }
       let skillFail = false,
@@ -290,17 +297,17 @@ export class AvailabilityService {
           (x: any) => x.staff_id === person.id && x.skill_id === req.skill_id,
         );
         if (!skill) {
-          this.reason(reasons, "STAFF_SKILL_MISSING");
+          this.reason(staffReasons, "STAFF_SKILL_MISSING");
           skillFail = true;
           break;
         }
         if (skill.proficiency_level < req.minimum_proficiency) {
-          this.reason(reasons, "STAFF_PROFICIENCY_TOO_LOW");
+          this.reason(staffReasons, "STAFF_PROFICIENCY_TOO_LOW");
           skillFail = true;
           break;
         }
         if (skill.expires_at && this.dateOnly(skill.expires_at) < date) {
-          this.reason(reasons, "STAFF_SKILL_EXPIRED");
+          this.reason(staffReasons, "STAFF_SKILL_EXPIRED");
           skillFail = true;
           break;
         }
@@ -314,7 +321,7 @@ export class AvailabilityService {
           new Date(x.end_at).getTime() >= staffEnd,
       );
       if (!shift) {
-        this.reason(reasons, "NO_PUBLISHED_SHIFT");
+        this.reason(staffReasons, "NO_PUBLISHED_SHIFT");
         continue;
       }
       const leave = s.leaves.find(
@@ -323,7 +330,7 @@ export class AvailabilityService {
           this.overlap(staffStart, staffEnd, x.start_at, x.end_at),
       );
       if (leave) {
-        this.reason(reasons, "STAFF_ON_APPROVED_LEAVE");
+        this.reason(staffReasons, "STAFF_ON_APPROVED_LEAVE");
         continue;
       }
       const block = s.blocks.find(
@@ -332,7 +339,7 @@ export class AvailabilityService {
           this.overlap(staffStart, staffEnd, x.start_at, x.end_at),
       );
       if (block) {
-        this.reason(reasons, "STAFF_BUSY");
+        this.reason(staffReasons, "STAFF_BUSY");
         continue;
       }
       eligible.push({
@@ -344,9 +351,15 @@ export class AvailabilityService {
         sourceVersions: [person.version, shift.version],
       });
     }
-    if (!eligible.length) this.reason(reasons, "NO_ELIGIBLE_STAFF");
+    if (!eligible.length) {
+      for (const [code, count] of staffReasons)
+        reasons.set(code, (reasons.get(code) ?? 0) + count);
+      this.reason(reasons, "NO_ELIGIBLE_STAFF");
+    }
     const resourceSummary: any[] = [];
     let resourceOk = true;
+    let resourceMaintenance = false;
+    let resourceMaintenanceBlocking = false;
     for (const req of s.resourceReq) {
       const matching = s.resources.filter(
         (r: any) => r.resource_type_id === req.resource_type_id,
@@ -364,11 +377,14 @@ export class AvailabilityService {
         (n: number, r: any) => n + (req.is_exclusive ? 1 : r.capacity),
         0,
       );
-      if (matching.some((r: any) => r.status === "MAINTENANCE"))
-        this.reason(reasons, "RESOURCE_MAINTENANCE");
+      const hasMaintenance = matching.some(
+        (r: any) => r.status === "MAINTENANCE",
+      );
+      resourceMaintenance ||= hasMaintenance;
       if (available < req.quantity) {
         this.reason(reasons, "RESOURCE_CAPACITY_INSUFFICIENT");
         resourceOk = false;
+        resourceMaintenanceBlocking ||= hasMaintenance;
       }
       resourceSummary.push({
         resourceTypeId: req.resource_type_id,
@@ -388,6 +404,8 @@ export class AvailabilityService {
       end: start.plus({ minutes: duration }),
       eligible,
       resourceSummary,
+      resourceMaintenance,
+      resourceMaintenanceBlocking,
       price,
       versions: [
         ...eligible.flatMap((x: any) => x.sourceVersions),
@@ -595,12 +613,23 @@ export class AvailabilityService {
     if(!hours||hours.is_closed)this.reason(reasonCounts,"BRANCH_CLOSED");else{const opened=this.localInstants(localDate,String(hours.open_time),zone),closed=this.localInstants(localDate,String(hours.close_time),zone);if(opened.gap||closed.gap)this.reason(reasonCounts,"DST_GAP");const open=opened.values[0],close=closed.values.at(-1),resourceStart=localAt.minus({minutes:s.service.prep_time_min+s.service.booking_buffer_before_min}),occupancyEnd=localAt.plus({minutes:s.service.default_duration_min+s.service.cleanup_time_min+s.service.booking_buffer_after_min});businessHours=!!open&&!!close&&resourceStart>=open&&occupancyEnd<=close;if(!businessHours)this.reason(reasonCounts,"OUTSIDE_BUSINESS_HOURS");}
     const localCandidates=this.localInstants(localDate,localAt.toFormat("HH:mm"),zone);if(localCandidates.gap)this.reason(reasonCounts,"DST_GAP");if(localCandidates.ambiguous)this.reason(reasonCounts,"DST_AMBIGUOUS");
     const evaluated=this.evaluate(s,localDate,localAt,reasonCounts),available=businessHours&&evaluated.ok;
-    const reasons:Reason[]=[...reasonCounts].filter(([code])=>code!=="DST_AMBIGUOUS"||!available).map(([code,count])=>({code,count}));
+    const blockingReasons:Reason[]=[...reasonCounts]
+      .filter(([code])=>code!=="DST_AMBIGUOUS")
+      .map(([code,count])=>({code,count}));
+    if(evaluated.resourceMaintenanceBlocking)
+      blockingReasons.push({code:"RESOURCE_MAINTENANCE",count:1});
+    const warnings:Reason[]=[];
+    if(reasonCounts.has("DST_AMBIGUOUS"))warnings.push({code:"DST_AMBIGUOUS",count:reasonCounts.get("DST_AMBIGUOUS")!});
+    if(evaluated.resourceMaintenance&&!evaluated.resourceMaintenanceBlocking)
+      warnings.push({code:"RESOURCE_MAINTENANCE",count:1});
+    const reasons=blockingReasons;
     return {
       available,
       startAt: at.toUTC().toISO(),
       timezone:zone,
       reasons,
+      blockingReasons,
+      warnings,
       rules: {
         businessHours,
         staff: !reasons.some(
@@ -609,7 +638,7 @@ export class AvailabilityService {
             x.code === "NO_ELIGIBLE_STAFF" ||
             x.code === "NO_PUBLISHED_SHIFT",
         ),
-        resources: !reasons.some((x) => x.code.startsWith("RESOURCE")),
+        resources: !blockingReasons.some((x) => x.code.startsWith("RESOURCE")),
         price: !reasons.some((x) => x.code === "NO_ACTIVE_PRICE"),
         timezone:!reasons.some((x)=>["TIMEZONE_INVALID","DST_GAP"].includes(x.code)),
       },

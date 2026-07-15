@@ -10,4 +10,5 @@
 
 - Extend the full Sprint 3 capacity benchmark from the current local/CI smoke window to a long-duration production-like soak before launch; the required p95 dataset targets pass locally, but long-run cache-hit and CPU trends still need staging evidence.
 - Replace the conservative tenant-wide PostgreSQL version bump with branch-specific event routing only after production cache-hit metrics justify the complexity.
-- Add durable consumer checkpoints for every upstream Sprint 2 event when the worker grows beyond the current transactional outbox/realtime path.
+- Add a production operations UI for failed outbox rows; Sprint 3 provides structured metrics/logs and the repository-level manual retry method.
+- Persist metrics in the selected production telemetry backend; the current implementation emits structured Nest logs and in-process counters.

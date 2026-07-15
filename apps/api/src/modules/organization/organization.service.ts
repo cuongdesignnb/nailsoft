@@ -156,6 +156,7 @@ export class OrganizationService {
         id,
         1,
         result.rows[0],
+        id,
       );
       return result.rows[0];
     });
@@ -213,6 +214,7 @@ export class OrganizationService {
         id,
         1,
         result.rows[0],
+        id,
       );
       return result.rows[0];
     });
@@ -263,6 +265,16 @@ export class OrganizationService {
         body,
         requestId,
       );
+      await this.event(
+        c,
+        auth,
+        "business_hours.updated",
+        "branch",
+        id,
+        1,
+        body,
+        id,
+      );
       return body;
     });
   }
@@ -298,6 +310,7 @@ export class OrganizationService {
     aggregateId: string,
     version: number,
     data: unknown,
+    branchId?: string,
   ) {
     await c.query(
       "INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,event_version,branch_id,aggregate_version,actor_json,correlation_id,metadata_json) VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,$9,$10)",
@@ -307,7 +320,7 @@ export class OrganizationService {
         aggregateType,
         aggregateId,
         JSON.stringify(data),
-        auth.branchIds[0] ?? null,
+        branchId ?? null,
         version,
         JSON.stringify({ type: "USER", id: auth.userId }),
         randomUUID(),

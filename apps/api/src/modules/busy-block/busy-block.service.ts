@@ -157,6 +157,22 @@ export class BusyBlockService {
         });
     }
   }
+  private async assertActiveBranch(c: Conn, a: AccessClaims, branchId: string) {
+    const branch = await c.query(
+      "SELECT status FROM branches WHERE tenant_id=$1 AND id=$2",
+      [a.tenantId, branchId],
+    );
+    if (!branch.rowCount)
+      throw new NotFoundException({
+        code: "AVAILABILITY_BRANCH_NOT_FOUND",
+        message: "Branch not found",
+      });
+    if (branch.rows[0].status !== "ACTIVE")
+      throw new ConflictException({
+        code: "AVAILABILITY_BRANCH_INACTIVE",
+        message: "The branch is not available for scheduling.",
+      });
+  }
   async list(a: AccessClaims, q: any) {
     this.guard(a, q.branchId);
     const tech = a.roles.includes("NAIL_TECHNICIAN"),
@@ -228,6 +244,7 @@ export class BusyBlockService {
       });
     this.range(b.startAt, b.endAt);
     const result = await this.db.transaction(async (c) => {
+      await this.assertActiveBranch(c, a, b.branchId);
       await this.validateTarget(c, a, b);
       if (b.blockType === "EXTERNAL") {
         await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
@@ -289,6 +306,7 @@ export class BusyBlockService {
           message: "Busy block not found",
         });
       this.guard(a, before.branch_id);
+      await this.assertActiveBranch(c, a, before.branch_id);
       if (before.status !== "ACTIVE")
         throw new ConflictException({
           code: "BUSY_BLOCK_STATUS_INVALID",

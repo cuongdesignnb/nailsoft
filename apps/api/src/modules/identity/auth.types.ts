@@ -7,6 +7,8 @@ export interface AccessClaims {
   sessionId: string;
   roles: Role[];
   branchIds: string[];
+  ownStaffId?: string;
+  accessTokenExpiresAt?: string;
 }
 export interface AuthenticatedRequest {
   headers: Record<string, string | string[] | undefined>;

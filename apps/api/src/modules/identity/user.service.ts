@@ -252,6 +252,27 @@ export class UserService {
           requestId,
         ],
       );
+      const controlEvent =
+        body.status === "SUSPENDED"
+          ? "membership.suspended"
+          : body.status === "REVOKED"
+            ? "membership.revoked"
+            : "authorization.changed";
+      await client.query(
+        "INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,metadata_json) VALUES($1,$2,'tenant_membership',$3,$4,$5,$6)",
+        [
+          auth.tenantId,
+          controlEvent,
+          membershipId,
+          JSON.stringify({
+            membershipId,
+            userId: target.rows[0].user_id,
+            authorizationVersion: updated.rows[0].authorizationVersion,
+          }),
+          JSON.stringify({ type: "USER", id: auth.userId }),
+          JSON.stringify({ schemaVersion: 1, control: true }),
+        ],
+      );
       return {
         membershipId,
         ...updated.rows[0],
@@ -289,6 +310,16 @@ export class UserService {
         requestId,
       ],
     );
+    await this.db.query(
+      "INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,metadata_json) VALUES($1,'session.revoked','device_session',$2,$3,$4,$5)",
+      [
+        auth.tenantId,
+        sessionId,
+        JSON.stringify({ sessionId, userId: target.userId, membershipId }),
+        JSON.stringify({ type: "USER", id: auth.userId }),
+        JSON.stringify({ schemaVersion: 1, control: true }),
+      ],
+    );
   }
   async revokeAllSessions(
     auth: AccessClaims,
@@ -311,6 +342,16 @@ export class UserService {
           revokedCount: result.rowCount,
         }),
         requestId,
+      ],
+    );
+    await this.db.query(
+      "INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,metadata_json) VALUES($1,'authorization.changed','tenant_membership',$2,$3,$4,$5)",
+      [
+        auth.tenantId,
+        membershipId,
+        JSON.stringify({ membershipId, userId: target.userId }),
+        JSON.stringify({ type: "USER", id: auth.userId }),
+        JSON.stringify({ schemaVersion: 1, control: true }),
       ],
     );
     return { revokedCount: result.rowCount };

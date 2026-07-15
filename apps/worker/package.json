@@ -9,17 +9,21 @@
     "start": "node dist/main.js",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --root ../.. apps/worker/src"
   },
   "dependencies": {
+    "@socket.io/redis-emitter": "^5.1.0",
     "@nestjs/common": "^11.1.3",
     "@nestjs/core": "^11.1.3",
+    "pg": "^8.16.0",
+    "redis": "^6.1.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.7",
     "@types/node": "^20.19.1",
+    "@types/pg": "^8.15.4",
     "eslint": "^9.29.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"

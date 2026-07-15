@@ -1,15 +1,18 @@
 # Sprint 3 Permission Matrix
 
-| Permission | Owner | Manager | Receptionist | Technician | Accountant | Marketing | Platform admin |
+| Permission / realtime scope | Owner | Manager | Receptionist | Technician | Accountant | Marketing | Platform admin |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `availability.read` | ✓ | branch | branch | branch | — | — | — |
-| `availability.explain` | ✓ | branch | — | — | — | — | — |
-| `calendar.read_branch` | ✓ | branch | branch | — | — | — | — |
+| `availability.read` | tenant | branch | branch | branch | — | — | — |
+| `availability.explain` | tenant | branch | — | — | — | — | — |
+| `calendar.read_branch` | tenant | branch | branch | — | — | — | — |
 | `calendar.read_own` | — | — | — | own | — | — | — |
-| `availability_block.read` | ✓ | branch | branch | own | — | — | — |
-| `availability_block.create` | ✓ | branch | branch | — | — | — | — |
-| `availability_block.update` | ✓ | branch | — | — | — | — | — |
-| `availability_block.cancel` | ✓ | branch | branch | — | — | — | — |
-| `resource_maintenance.manage` | ✓ | branch | — | — | — | — | — |
+| `availability_block.read` | tenant | branch | branch | own | — | — | — |
+| `availability_block.create` | tenant | branch | branch | — | — | — | — |
+| `availability_block.update` | tenant | branch | — | — | — | — | — |
+| `availability_block.cancel` | tenant | branch | branch | — | — | — | — |
+| `resource_maintenance.manage` | tenant | branch | — | — | — | — | — |
+| Realtime tenant room | yes | — | — | — | — | — | denied |
+| Realtime branch room | active tenant branches | assigned active | assigned active | — | — | — | denied |
+| Realtime staff room | optional through broader role | optional through broader role | — | linked own only | — | — | denied |
 
-“Branch” is enforced from membership claims and PostgreSQL tenant predicates. Technician calendar and block reads are forcibly filtered to the staff profile linked to the membership. Platform Super Admin receives no salon permissions without a future Support Access Grant.
+“Branch” is reloaded from `membership_branches` for every HTTP request and WebSocket connection, then limited to active branches for scheduling rooms. Technician scope is resolved from `staff_profiles(tenant_id, membership_id)`; a handshake `staffId` is ignored. Platform Super Admin receives no salon permission or scheduling room without a future Support Access Grant.

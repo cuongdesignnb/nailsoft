@@ -296,6 +296,16 @@ export class AuthService {
       "INSERT INTO audit_logs(tenant_id,actor_user_id,action,entity_type,entity_id,request_id) VALUES($1,$2,'session.revoke','device_session',$3,$4)",
       [tenantId, userId, sessionId, requestId],
     );
+    await this.db.query(
+      "INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,metadata_json) VALUES($1,'session.revoked','device_session',$2,$3,$4,$5)",
+      [
+        tenantId,
+        sessionId,
+        JSON.stringify({ sessionId, userId }),
+        JSON.stringify({ type: "USER", id: userId }),
+        JSON.stringify({ schemaVersion: 1, control: true }),
+      ],
+    );
   }
 
   async revokeAllOwn(tenantId: string, userId: string, requestId: string) {
@@ -306,6 +316,16 @@ export class AuthService {
     await this.db.query(
       "INSERT INTO audit_logs(tenant_id,actor_user_id,action,entity_type,entity_id,after_json,request_id) VALUES($1,$2,'session.revoke_all','user',$2,$3,$4)",
       [tenantId, userId, JSON.stringify({ revokedCount: result.rowCount }), requestId],
+    );
+    await this.db.query(
+      "INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,metadata_json) VALUES($1,'session.logout_all','user',$2,$3,$4,$5)",
+      [
+        tenantId,
+        userId,
+        JSON.stringify({ userId }),
+        JSON.stringify({ type: "USER", id: userId }),
+        JSON.stringify({ schemaVersion: 1, control: true }),
+      ],
     );
     return { revokedCount: result.rowCount };
   }

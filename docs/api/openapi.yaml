@@ -413,13 +413,17 @@ paths:
         - { name: dateTo, in: query, required: true, schema: { type: string, format: date } }
         - { name: staffId, in: query, schema: { type: string, format: uuid } }
         - { name: slotIntervalMin, in: query, schema: { enum: [5, 10, 15, 30], default: 15 } }
-      responses: { "200": { description: Availability result }, "400": { description: Invalid range or interval }, "403": { description: Outside branch scope } }
+      responses: { "200": { description: Availability result }, "400": { description: Invalid range or interval }, "403": { description: Outside branch scope }, "409": { description: Branch exists but is inactive; AVAILABILITY_BRANCH_INACTIVE } }
   /availability/explain:
     post:
       tags: [availability]
       summary: Explain availability at an instant
       requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AvailabilityExplainRequest" } } } }
-      responses: { "200": { description: Rule-by-rule explanation } }
+      responses:
+        "200":
+          description: Rule-by-rule explanation; available=true implies no blockingReasons and every blocking rule is true
+          content: { application/json: { schema: { $ref: "#/components/schemas/AvailabilityExplainResponse" } } }
+        "409": { description: Branch exists but is inactive }
   /calendar/events:
     get:
       tags: [calendar]
@@ -459,6 +463,42 @@ components:
         serviceId: { type: string, format: uuid }
         startAt: { type: string, format: date-time }
         staffId: { type: string, format: uuid }
+    AvailabilityReason:
+      type: object
+      required: [code, count]
+      properties:
+        code: { type: string }
+        count: { type: integer, minimum: 1 }
+    AvailabilityExplainResponse:
+      type: object
+      required: [available, startAt, timezone, blockingReasons, warnings, rules, resourceSummary, staffCandidates]
+      properties:
+        available: { type: boolean }
+        startAt: { type: string, format: date-time }
+        timezone: { type: string }
+        reasons:
+          type: array
+          deprecated: true
+          description: Backward-compatible alias of blockingReasons.
+          items: { $ref: "#/components/schemas/AvailabilityReason" }
+        blockingReasons:
+          type: array
+          items: { $ref: "#/components/schemas/AvailabilityReason" }
+        warnings:
+          type: array
+          description: Non-blocking diagnostics such as partial RESOURCE_MAINTENANCE or offset-explicit DST_AMBIGUOUS.
+          items: { $ref: "#/components/schemas/AvailabilityReason" }
+        rules:
+          type: object
+          required: [businessHours, staff, resources, price, timezone]
+          properties:
+            businessHours: { type: boolean }
+            staff: { type: boolean }
+            resources: { type: boolean }
+            price: { type: boolean }
+            timezone: { type: boolean }
+        resourceSummary: { type: array, items: { type: object } }
+        staffCandidates: { type: array, items: { type: object } }
     AvailabilityBlockInput:
       type: object
       required: [branchId, blockType, title, startAt, endAt]

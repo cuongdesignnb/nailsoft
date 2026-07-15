@@ -1,84 +1,88 @@
-# Sprint 3 Completion Report
+# Sprint 3 Closure Report
 
 ## Status
 
-Implementation and all local exit checks are complete. Final acceptance remains gated by GitHub Actions for the final commit; this document must not be interpreted as `DONE` until that run succeeds.
+Sprint 3 implementation and closure hardening are complete locally. `DONE` remains gated by GitHub Actions for the final pushed commit. The immutable final commit and run ID are recorded in the delivery handoff after that run completes.
 
 ## Git
 
 - Branch: `main`
-- Start checkpoint: `2584562f9b836bb9672f04a8c351c436ece406e4`
-- Final commit: pending
-- Working tree: pending final commit
+- Sprint 3 start checkpoint: `2584562f9b836bb9672f04a8c351c436ece406e4`
+- Closure start checkpoint: `f708fc8850283f42b009a886fd09a2e13669d630`
+- Closure commit: the immutable Git object containing this report; the exact SHA is recorded in the delivery handoff and successful GitHub Actions run
+- Commit message: `feat: close sprint 3 realtime security and outbox`
+- `origin/main`: updated only after the complete local pipeline passed
+- Working tree target: clean
+
+## GitHub Actions
+
+- Run ID / URL / commit: pending final push
+- Required steps: WebSocket authorization integration, durable outbox Worker integration, Sprint 3 closure authenticated E2E
+- Acceptance rule: only the successful run for the final closure commit qualifies
 
 ## Migration
 
-- `0007_availability_calendar.up.sql` / `.down.sql`
-- Fresh migrate: passed
-- Rollback to `0006_sprint2_hardening`: passed; Sprint 2 service/staff data preserved
-- Re-migrate: passed
-- Deterministic seed: passed, including Ho Chi Minh/New York, DST, manual/external/maintenance blocks and eligibility fixtures
+- Migration required: yes
+- Migration: `0008_realtime_outbox_delivery`
+- Reason: existing outbox lacked delivery status, schedule, lease, processing/failure timestamps and redacted error
+- Existing migrations modified: no (`0001–0007` unchanged)
+- Backfill: legacy pending/published/failed state and attempt count preserved
+- Fresh migrate, rollback to `0007`, re-migrate and existing Sprint 1–3 data preservation: passed locally
+- Data preservation verification: 30 services, 15 staff records and 3 availability blocks remained after rollback/re-migrate
 
-## Availability Engine
+## Shared Authorization
 
-- Branch-local business hours and IANA timezone conversion
-- Duration, prep, cleanup and before/after occupancy semantics
-- Any/specific staff, effective assignment, bookable flag, skills/proficiency/expiry, published shift, approved leave and active staff blocks
-- Active resource capacity, exclusive requirements and maintenance/block filtering
-- Effective branch/default price reference, stable reason codes and SHA-256 calculation fingerprint
-- Maximum 31 days and 5/10/15/30-minute validation
-- PostgreSQL data version plus Redis versioned-key cache, 45-second TTL and database fallback
+- HTTP and WebSocket call `SessionAuthorizationService.authorize()`.
+- JWT signature/expiry, active device session, membership, authorization version, user and tenant are checked.
+- Roles and branches are reloaded from PostgreSQL; JWT lists are not final authority.
+- Own staff is resolved by tenant plus membership.
 
-## Timezone
+## WebSocket Security
 
-- `Asia/Ho_Chi_Minh`: passed
-- New York DST spring gap: passed
-- New York DST fall ambiguity with distinct instants: passed
-- Offset-bearing calendar and slot DTOs: passed
+- Handshake authorization fields other than token are ignored.
+- Control rooms: session, membership and user; salon data is never emitted there.
+- Business rooms: Owner tenant/active branches, Manager/Receptionist assigned active branches, Technician linked own staff only.
+- Platform Admin is denied without Support Access Grant.
+- Token expiry timer and durable event-driven forced disconnect are active.
+- HTTP and Socket.IO share an explicit allowlist; Engine.IO rejects unknown origins and production config fails closed.
 
-## Calendar
+## Durable Outbox
 
-- Direct normalized read of published shifts, approved leave, active busy blocks and resource maintenance
-- Day/week bounded queries, staff/resource/event filters and daily summary
-- Technician query forced to linked own staff profile
+- Claim: PostgreSQL `FOR UPDATE SKIP LOCKED`, default batch 50.
+- Lease: default 60 seconds with stale processing recovery.
+- Delivery: at-least-once; `eventId` makes duplicate refetch signals safe.
+- Retry: 5s, 15s, 60s, 5m; fifth failure becomes visible `FAILED`; manual repository retry is available.
+- `PROCESSED` is written only after Redis emitter/control publish succeeds.
+- Redis outage retries without data loss; Worker restart recovers the lease; two-worker claim is integration tested.
+- Unknown events are acknowledged and counted; cross-tenant targets are failed before emit.
 
-## Busy Blocks, Audit and Realtime
+## Event Invalidation
 
-- List/read/create/update/cancel; no hard delete
-- Database range/target/tenant/branch constraints and optimistic version conflict
-- External `(tenant, source, source_reference)` idempotency with advisory serialization
-- Transactional audit log and outbox events
-- Authenticated Socket.IO rooms and Redis adapter fan-out emit invalidation only; clients refetch PostgreSQL-backed APIs
+- Covered sources: branch/business hours, service/price/skill/resource requirements, staff/assignment/skill, shift, leave, resource and availability blocks.
+- Worker resolves affected branches/staff and reads the latest PostgreSQL availability data version per branch.
+- Authenticated E2E proves shift publish to Manager branch room and leave approval to Technician own staff room, followed by PostgreSQL API refetch.
 
-## Authorization
+## Functional Corrections
 
-- Owner tenant scope; Manager/Receptionist branch scope; Technician own-calendar/own-block scope
-- Accountant, Marketing and Platform Super Admin denied by default
-- Matrix: `docs/security/permission-matrix-sprint3.md`
+- Inactive branch returns `409 AVAILABILITY_BRANCH_INACTIVE` and rejects new/updated busy blocks; authorized historical calendar reads remain available; cancellation cleanup remains allowed.
+- Explain separates `blockingReasons` and `warnings` while retaining `reasons` as a backward-compatible blocking alias.
+- Partial resource maintenance with enough capacity is a warning and keeps `available=true` / `rules.resources=true`.
+- Insufficient capacity is blocking and can identify maintenance as the cause.
+- Invariant enforced: `available=true` has no blocking reasons and all blocking rules are true.
 
-## UI
+## Tests and Quality Gates
 
-- Admin: calendar day/week, availability search/explain and busy-block create/list/cancel with loading, empty, error/retry, denied, offline, timezone, stale-cache and conflict feedback
-- Owner Mobile: calendar day/week summary, availability, explain preparation and busy-block routes backed by real APIs
-- Staff Mobile: own calendar, own blocks and availability summary backed by own-scoped APIs
-
-## Tests
-
-- Unit: 24 passed
-- Integration: 36 passed
-- Contract: 1 passed
-- Authenticated E2E: 17 passed, including exact explain reason and authenticated realtime invalidation
-- Mobile smoke/API: included in unit and authenticated E2E suites
-- Migration rollback/re-migrate: passed
-- Lint: 13/13 packages passed
-- Typecheck: 13/13 packages passed
-- Build: 13/13 packages passed
-
-## Performance
-
-Full specified fixture reached 10 branches, 500 staff, 2,000 services, 100,000 shifts, 50,000 leave records, 100,000 blocks and 5,000 resources. All p95 targets passed; details and query plan evidence are in `docs/quality/performance-sprint3.md`.
+- New unit: shared HTTP authorization wiring, production CORS fail-closed, Worker Redis retry/max-attempt/ignored behavior.
+- New PostgreSQL integration: active authorization state matrix, two-worker claim, stale lease recovery, retry scheduling, processed timestamp, routing and cross-tenant prevention.
+- New authenticated E2E: session revoke, fake staff isolation, origin/Platform denial, shift and leave durable invalidation, inactive branch, resource warning/blocking.
+- Unit: 13 files / 28 tests passed.
+- PostgreSQL integration: 11 files / 45 tests passed.
+- API contract: 1 test passed.
+- Authenticated browser E2E: 24 tests passed, including all 7 Sprint 3 closure scenarios.
+- Lint, TypeScript strict typecheck and build: 13/13 workspaces passed.
+- Migration fresh/rollback/re-migrate: passed with Sprint 1–3 seed data preserved.
+- Load smoke: all 9 scenarios passed with 0% errors and 0 timeouts; representative p95 was 0.52 ms for health, 154.65 ms for login and 7.88 ms for service list at concurrency 2.
 
 ## Scope Confirmation
 
-- No Booking command, appointment creation, Slot Hold, Walk-in, POS, Payment or other later-sprint write flow was implemented.
-- Existing foundation `appointments` data is not queried by Availability or Calendar.
+- Booking command, appointment creation, Slot Hold, confirmation, reschedule/cancellation, Walk-in, service execution, POS, Payment, Refund, Commission, Inventory, Voucher, Membership, Marketing and AI were not implemented.

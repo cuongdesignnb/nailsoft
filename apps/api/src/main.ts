@@ -9,6 +9,7 @@ import { AppModule } from "./app.module.js";
 import { ApiExceptionFilter } from "./common/api-exception.filter.js";
 import fastifyCookie from "@fastify/cookie";
 import { RedisIoAdapter } from "./infrastructure/redis-io.adapter.js";
+import { allowedOrigins } from "./common/cors-origins.js";
 
 export async function createApp() {
   const app = await NestFactory.create<NestFastifyApplication>(
@@ -27,10 +28,7 @@ export async function createApp() {
   app.setGlobalPrefix("v1");
   await app.register(fastifyCookie);
   app.enableCors({
-    origin: process.env.CORS_ORIGINS?.split(",") ?? [
-      "http://localhost:3000",
-      "http://localhost:3002",
-    ],
+    origin: allowedOrigins(),
     credentials: true,
   });
   app.enableShutdownHooks();

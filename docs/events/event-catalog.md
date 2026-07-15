@@ -47,3 +47,9 @@ Hardening failures are synchronous domain conflicts and do not emit events. Succ
 ## Sprint 3 events
 
 `availability.block_created`, `availability.block_updated`, and `availability.block_cancelled` are written transactionally with the block audit record. `availability.version_bumped`, `availability.cache_invalidated`, `calendar.projection_updated`, and `calendar.projection_removed` describe downstream processing and realtime fan-out. WebSocket clients receive `availability.invalidated` and `calendar.event_created|updated|removed`, then refetch PostgreSQL-backed APIs; realtime payloads are never final state.
+
+### Durable realtime routing
+
+The Worker routes organization (`branch.updated`, `business_hours.updated`), service and price, service skill/resource requirements, staff/assignment/skill, shift, leave, resource and availability-block events. Tenant-wide events resolve every active branch; branch-wide events resolve active staff rooms; staff-specific events resolve the authoritative branch assignment. Each delivery reads the latest `availability_versions` row and carries the outbox `eventId`.
+
+Security events `session.revoked`, `session.logout_all`, `membership.suspended`, `membership.revoked`, `user.suspended`, `user.disabled`, `authorization.changed`, `branch_scope.removed` and `role.changed` map to minimal Redis disconnect control messages. Unknown events are acknowledged and increment `outbox_event_ignored_total`. A branch or staff target that does not belong to the event tenant is failed without emit.

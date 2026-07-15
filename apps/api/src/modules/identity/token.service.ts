@@ -120,6 +120,7 @@ export class TokenService {
         sessionId: payload.sessionId,
         roles: payload.roles as AccessClaims["roles"],
         branchIds: payload.branchIds as string[],
+        accessTokenExpiresAt: new Date(Number(payload.exp) * 1000).toISOString(),
       };
     } catch {
       throw new UnauthorizedException({
