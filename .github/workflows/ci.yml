@@ -37,7 +37,7 @@ jobs:
       DATABASE_URL: postgresql://nailsoft:nailsoft@localhost:5432/nailsoft
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-only-high-entropy-secret-change-me-2026
-      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002
     steps:
       - uses: actions/checkout@v4
       # pnpm 11 requires Node >=22.13 (node:sqlite). Initialize Node first so
