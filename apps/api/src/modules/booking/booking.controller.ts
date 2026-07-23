@@ -104,6 +104,45 @@ export class SlotHoldController {
   }
 }
 
+@ApiTags("booking-customers")
+@ApiBearerAuth()
+@UseGuards(AuthGuard, PermissionGuard)
+@Controller("customers")
+export class BookingCustomerController {
+  constructor(
+    @Inject(BookingService) private readonly service: BookingService,
+  ) {}
+
+  @Get()
+  @RequirePermission("customer.booking_lookup")
+  async list(@Query() query: unknown, @Req() req: AuthenticatedRequest) {
+    return {
+      success: true,
+      data: await this.service.listBookingCustomers(req.auth, query),
+      meta: meta(req),
+    };
+  }
+
+  @Post()
+  @RequirePermission("customer.booking_create")
+  async create(
+    @Body() body: unknown,
+    @Headers("idempotency-key") key: string | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return {
+      success: true,
+      data: await this.service.createBookingCustomer(
+        req.auth,
+        body,
+        idempotency(key),
+        req.raw.requestId ?? "unknown",
+      ),
+      meta: meta(req),
+    };
+  }
+}
+
 @ApiTags("appointments")
 @ApiBearerAuth()
 @UseGuards(AuthGuard, PermissionGuard)

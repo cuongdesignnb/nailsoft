@@ -6,12 +6,6 @@ import { authorizedFetch } from "./auth";
 
 type ViewState =
   "loading" | "ready" | "empty" | "error" | "forbidden" | "offline";
-const defaults = {
-  branchId: "20000000-0000-4000-8000-000000000001",
-  serviceId: "50000000-0000-4000-8000-000000000001",
-  staffId: "47000000-0000-4000-8000-000000000003",
-  customerId: "60000000-0000-4000-8000-000000000001",
-};
 
 async function request(path: string, init?: RequestInit) {
   const response = await authorizedFetch(path, init);
@@ -56,6 +50,62 @@ function useLoad(path: string) {
     void load();
   }, [load]);
   return { state, data, error, load, setData, setState, setError };
+}
+
+function dateInZone(timeZone: string, offsetDays = 0) {
+  const date = new Date(Date.now() + offsetDays * 86_400_000),
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date),
+    value = (type: string) => parts.find((part) => part.type === type)?.value;
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function useBookingLookups() {
+  const [state, setState] = useState<ViewState>("loading"),
+    [error, setError] = useState(""),
+    [branches, setBranches] = useState<any[]>([]),
+    [services, setServices] = useState<any[]>([]),
+    [customers, setCustomers] = useState<any[]>([]),
+    [staff, setStaff] = useState<any[]>([]);
+  const load = useCallback(async () => {
+    setState("loading");
+    try {
+      const [branchRows, serviceRows, customerRows, staffRows] =
+        await Promise.all([
+          request("/v1/branches"),
+          request("/v1/services?status=ACTIVE&pageSize=100"),
+          request("/v1/customers?limit=100"),
+          request("/v1/staff?status=ACTIVE"),
+        ]);
+      setBranches(branchRows);
+      setServices(serviceRows);
+      setCustomers(customerRows);
+      setStaff(staffRows);
+      setState(branchRows.length && serviceRows.length ? "ready" : "empty");
+    } catch (cause: any) {
+      setError(cause.message);
+      setState(
+        cause.forbidden ? "forbidden" : !navigator.onLine ? "offline" : "error",
+      );
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  return {
+    state,
+    error,
+    branches,
+    services,
+    customers,
+    staff,
+    setCustomers,
+    load,
+  };
 }
 
 export default function Sprint4Screen({ pathname }: { pathname: string }) {
@@ -150,9 +200,15 @@ function States({
 }
 
 function AppointmentList() {
-  const [query, setQuery] = useState(
-    `branchId=${defaults.branchId}&from=2026-07-01T00:00:00%2B07:00&to=2026-09-01T00:00:00%2B07:00&limit=50`,
-  );
+  const branchView = useLoad("/v1/branches"),
+    [query, setQuery] = useState(() => {
+      const params = new URLSearchParams({
+        from: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+        to: new Date(Date.now() + 90 * 86_400_000).toISOString(),
+        limit: "50",
+      });
+      return params.toString();
+    });
   const view = useLoad(`/v1/appointments?${query}`),
     rows = Array.isArray(view.data) ? view.data : [];
   function filter(event: FormEvent<HTMLFormElement>) {
@@ -171,15 +227,26 @@ function AppointmentList() {
       <form className="toolbar" onSubmit={filter}>
         <label>
           Branch
-          <input name="branchId" defaultValue={defaults.branchId} />
+          <select name="branchId" defaultValue="">
+            <option value="">All authorized branches</option>
+            {(branchView.data ?? []).map((branch: any) => (
+              <option key={branch.id} value={branch.id}>
+                {branch.code} · {branch.name}
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           From
-          <input name="from" defaultValue="2026-07-01T00:00:00+07:00" />
+          <input
+            name="from"
+            type="date"
+            defaultValue={dateInZone("UTC", -30)}
+          />
         </label>
         <label>
           To
-          <input name="to" defaultValue="2026-09-01T00:00:00+07:00" />
+          <input name="to" type="date" defaultValue={dateInZone("UTC", 90)} />
         </label>
         <label>
           Status
@@ -198,6 +265,11 @@ function AppointmentList() {
         <button>Apply</button>
         <a href="/admin/appointments/new">Create appointment</a>
       </form>
+      <States
+        state={branchView.state}
+        error={branchView.error}
+        retry={branchView.load}
+      />
       <States state={view.state} error={view.error} retry={view.load} />
       {view.state === "ready" && (
         <div className="table-wrap">
@@ -242,33 +314,75 @@ function AppointmentList() {
 }
 
 function QuickCreate() {
-  const [step, setStep] = useState(1),
+  const lookups = useBookingLookups(),
+    [step, setStep] = useState(1),
     [slots, setSlots] = useState<any[]>([]),
     [version, setVersion] = useState(0),
     [selected, setSelected] = useState<any>(),
     [state, setState] = useState<ViewState>("ready"),
     [error, setError] = useState(""),
-    [result, setResult] = useState<any>();
+    [result, setResult] = useState<any>(),
+    [customerSearch, setCustomerSearch] = useState(""),
+    [customerId, setCustomerId] = useState(""),
+    [branchId, setBranchId] = useState(""),
+    [staffId, setStaffId] = useState("");
   const [draft, setDraft] = useState({
-    branchId: defaults.branchId,
-    customerId: defaults.customerId,
-    serviceIds: [defaults.serviceId],
+    branchId: "",
+    customerId: "",
+    serviceIds: [] as string[],
   });
+  const branch = lookups.branches.find((item) => item.id === branchId),
+    filteredCustomers = lookups.customers.filter((customer) =>
+      `${customer.displayName} ${customer.phone ?? ""} ${customer.email ?? ""}`
+        .toLowerCase()
+        .includes(customerSearch.toLowerCase()),
+    );
+  useEffect(() => {
+    if (!branchId && lookups.branches[0]?.id)
+      setBranchId(lookups.branches[0].id);
+    if (!customerId && lookups.customers[0]?.id)
+      setCustomerId(lookups.customers[0].id);
+  }, [branchId, customerId, lookups.branches, lookups.customers]);
+
+  async function createCustomer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setState("loading");
+    const form = new FormData(event.currentTarget);
+    try {
+      const customer = await command("/v1/customers", {
+        displayName: String(form.get("displayName")),
+        phone: String(form.get("phone") || "") || undefined,
+        email: String(form.get("email") || "") || undefined,
+        locale: String(form.get("locale") || "vi-VN"),
+      });
+      lookups.setCustomers((current) => [
+        customer,
+        ...current.filter((item) => item.id !== customer.id),
+      ]);
+      setCustomerId(customer.id);
+      setCustomerSearch(customer.displayName);
+      setState("ready");
+    } catch (cause: any) {
+      setError(cause.message);
+      setState(cause.forbidden ? "forbidden" : "error");
+    }
+  }
+
   async function find(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setState("loading");
     const form = new FormData(event.currentTarget),
-      serviceIds = String(form.get("serviceIds") ?? "")
-        .split(/[\s,]+/)
-        .filter(Boolean),
+      serviceIds = form.getAll("serviceIds").map(String).filter(Boolean),
       branchId = String(form.get("branchId")),
       customerId = String(form.get("customerId")),
       date = String(form.get("date"));
     try {
       if (!serviceIds.length) throw new Error("Select at least one service");
+      if (serviceIds.length > 5)
+        throw new Error("Select no more than five services");
       setDraft({ branchId, customerId, serviceIds });
       const data = await request(
-        `/v1/availability?branchId=${branchId}&serviceId=${serviceIds[0]}&dateFrom=${date}&dateTo=${date}&slotIntervalMin=15`,
+        `/v1/availability?branchId=${branchId}&serviceId=${serviceIds[0]}&dateFrom=${date}&dateTo=${date}&slotIntervalMin=15${staffId ? `&staffId=${staffId}` : ""}`,
       );
       const values = data.days.flatMap((day: any) => day.slots);
       setSlots(values);
@@ -289,7 +403,10 @@ function QuickCreate() {
     try {
       const items = draft.serviceIds.map((serviceId, index) => ({
         serviceId,
-        staffPreference: { type: "ANY" },
+        staffPreference:
+          index === 0 && staffId
+            ? { type: "SPECIFIC", staffId }
+            : { type: "ANY" },
         ...(index === 0
           ? { availabilityFingerprint: selected.fingerprint }
           : {}),
@@ -330,36 +447,129 @@ function QuickCreate() {
         <li>Review</li>
         <li>Create</li>
       </ol>
+      <States
+        state={lookups.state}
+        error={lookups.error}
+        retry={lookups.load}
+      />
+      {lookups.state === "ready" && step < 3 && (
+        <details className="state">
+          <summary>Create a new customer</summary>
+          <form className="form-grid" onSubmit={createCustomer}>
+            <label>
+              Display name
+              <input
+                name="displayName"
+                minLength={1}
+                maxLength={200}
+                required
+              />
+            </label>
+            <label>
+              Phone
+              <input name="phone" inputMode="tel" maxLength={32} />
+            </label>
+            <label>
+              Email
+              <input name="email" type="email" maxLength={254} />
+            </label>
+            <label>
+              Locale
+              <select name="locale" defaultValue="vi-VN">
+                <option value="vi-VN">vi-VN</option>
+                <option value="en-US">en-US</option>
+              </select>
+            </label>
+            <button>Create customer</button>
+          </form>
+        </details>
+      )}
       {step < 3 && (
         <form className="form-grid" onSubmit={find}>
           <label>
-            Existing customer ID
+            Search customer
             <input
-              name="customerId"
-              defaultValue={defaults.customerId}
-              required
+              type="search"
+              value={customerSearch}
+              onChange={(event) => setCustomerSearch(event.target.value)}
+              placeholder="Name, phone or email"
             />
           </label>
           <label>
-            Service IDs in sequence
-            <input
-              name="serviceIds"
-              defaultValue={defaults.serviceId}
-              placeholder="UUID, UUID, UUID"
+            Existing customer
+            <select
+              name="customerId"
+              value={customerId}
+              onChange={(event) => setCustomerId(event.target.value)}
               required
-            />
+            >
+              <option value="">Select customer</option>
+              {filteredCustomers.map((customer) => (
+                <option key={customer.id} value={customer.id}>
+                  {customer.displayName} · {customer.phone ?? customer.email}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Services in sequence
+            <select
+              name="serviceIds"
+              multiple
+              size={Math.min(6, lookups.services.length)}
+              required
+            >
+              {lookups.services.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.code} ·{" "}
+                  {service.name?.["vi-VN"] ?? service.name?.["en-US"]}
+                </option>
+              ))}
+            </select>
             <small>
-              Up to five comma-separated services; each item receives a
-              qualified technician and concrete resources.
+              Select up to five services in their execution order; each item
+              receives a qualified technician and concrete resources.
             </small>
           </label>
           <label>
-            Branch ID
-            <input name="branchId" defaultValue={defaults.branchId} required />
+            Branch
+            <select
+              name="branchId"
+              value={branchId}
+              onChange={(event) => setBranchId(event.target.value)}
+              required
+            >
+              {lookups.branches.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.code} · {item.name} ({item.timezone})
+                </option>
+              ))}
+            </select>
           </label>
           <label>
-            Date
-            <input name="date" type="date" defaultValue="2026-08-10" required />
+            Date in branch timezone
+            <input
+              key={branch?.timezone}
+              name="date"
+              type="date"
+              defaultValue={dateInZone(branch?.timezone ?? "UTC", 1)}
+              required
+            />
+          </label>
+          <label>
+            Technician for the first service
+            <select
+              name="staffId"
+              value={staffId}
+              onChange={(event) => setStaffId(event.target.value)}
+            >
+              <option value="">Any qualified technician</option>
+              {lookups.staff.map((staff) => (
+                <option key={staff.id} value={staff.id}>
+                  {staff.displayName}
+                </option>
+              ))}
+            </select>
           </label>
           <button>Find availability</button>
         </form>
@@ -386,8 +596,13 @@ function QuickCreate() {
           <h2>Review appointment</h2>
           <p>
             {new Date(selected.startAt).toLocaleString("vi-VN")} ·{" "}
-            {draft.serviceIds.length} sequential service item(s) · Any qualified
-            technician per item
+            {draft.serviceIds.length} sequential service item(s)
+          </p>
+          <p>
+            Technician:{" "}
+            {staffId
+              ? selected.staffCandidates?.[0]?.displayName
+              : "Any qualified"}
           </p>
           <ol>
             {draft.serviceIds.map((serviceId, index) => (
@@ -619,13 +834,14 @@ function RescheduleForm({
   run: (action: string, payload: unknown) => Promise<void>;
 }) {
   const [replacement, setReplacement] = useState<any>(),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    branch = useLoad(`/v1/branches/${row.branchId}`);
   async function prepare(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     try {
       const availability = await request(
-          `/v1/availability?branchId=${row.branchId}&serviceId=${row.items[0].service.serviceId}&dateFrom=${form.get("date")}&dateTo=${form.get("date")}&slotIntervalMin=15`,
+          `/v1/availability?branchId=${row.branchId}&serviceId=${row.items[0].service.serviceId}&staffId=${row.items[0].staff.id}&dateFrom=${form.get("date")}&dateTo=${form.get("date")}&slotIntervalMin=15`,
         ),
         slot = availability.days.flatMap((d: any) => d.slots)[0];
       if (!slot) throw new Error("No replacement slot is available");
@@ -634,13 +850,11 @@ function RescheduleForm({
         desiredStartAt: slot.startAt,
         availabilityDataVersion: availability.dataVersion,
         source: "RECEPTION",
-        items: [
-          {
-            serviceId: row.items[0].service.serviceId,
-            staffPreference: { type: "ANY" },
-            availabilityFingerprint: slot.fingerprint,
-          },
-        ],
+        items: row.items.map((item: any, index: number) => ({
+          serviceId: item.service.serviceId,
+          staffPreference: { type: "SPECIFIC", staffId: item.staff.id },
+          ...(index === 0 ? { availabilityFingerprint: slot.fingerprint } : {}),
+        })),
       });
       setReplacement(hold);
     } catch (cause: any) {
@@ -654,9 +868,18 @@ function RescheduleForm({
         <p>Current: {new Date(row.startAt).toLocaleString("vi-VN")}</p>
         <label>
           New date
-          <input name="date" type="date" defaultValue="2026-08-10" />
+          <input
+            key={branch.data?.timezone}
+            name="date"
+            type="date"
+            defaultValue={dateInZone(branch.data?.timezone ?? "UTC", 1)}
+            disabled={branch.state !== "ready"}
+            required
+          />
         </label>
-        <button>Hold replacement slot</button>
+        <button disabled={branch.state !== "ready"}>
+          Hold replacement slot
+        </button>
       </form>
       {error && <p className="error">{error}</p>}
       {replacement && (

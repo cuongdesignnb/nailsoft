@@ -76,6 +76,41 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
     "x-tenant-id": tenantId,
   });
 
+  it("searches and creates tenant-scoped booking customers idempotently", async () => {
+    const search = await app.inject({
+      method: "GET",
+      url: "/v1/customers?search=Nguyen&limit=20",
+      headers: headers(),
+    });
+    expect(search.statusCode, search.body).toBe(200);
+    expect(
+      search.json().data.every((customer: { id: string }) => customer.id),
+    ).toBe(true);
+
+    const key = `${runKey}-customer-create`;
+    const payload = {
+      displayName: `E2E Customer ${runKey}`,
+      phone: `090${String(Date.now()).slice(-7)}`,
+      locale: "vi-VN",
+    };
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/customers",
+      headers: { ...headers(), "idempotency-key": key },
+      payload,
+    });
+    expect(created.statusCode).toBe(201);
+    const replay = await app.inject({
+      method: "POST",
+      url: "/v1/customers",
+      headers: { ...headers(), "idempotency-key": key },
+      payload,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json().data.id).toBe(created.json().data.id);
+    expect(replay.json().data.idempotencyReplayed).toBe(true);
+  });
+
   it("creates one durable hold, replays it idempotently, and rejects a conflicting hold", async () => {
     const availability = await app.inject({
       method: "GET",
@@ -418,7 +453,8 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
         contactVerificationToken: verified.json().data.verificationToken,
         customer: { displayName: "Public Sprint Four", phone, locale: "vi-VN" },
         marketingConsent: false,
-        confirm: true,
+        acceptedPolicyVersion: 1,
+        acceptedAt: new Date().toISOString(),
       },
     });
     expect(booking.statusCode).toBe(201);
@@ -427,13 +463,13 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
 
     const denied = await app.inject({
       method: "GET",
-      url: `/v1/public/bookings/${appointment.bookingReference}`,
+      url: `/v1/public/salons/nailsoft-demo/bookings/${appointment.bookingReference}`,
     });
     expect(denied.statusCode).toBe(401);
 
     const access = await app.inject({
       method: "POST",
-      url: "/v1/public/bookings/access/request",
+      url: "/v1/public/salons/nailsoft-demo/bookings/access/request",
       payload: {
         bookingReference: appointment.bookingReference,
         contact: phone,
@@ -446,7 +482,7 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
     );
     const accessVerified = await app.inject({
       method: "POST",
-      url: "/v1/public/bookings/access/verify",
+      url: "/v1/public/salons/nailsoft-demo/bookings/access/verify",
       payload: {
         challengeId: access.json().data.challengeId,
         code: access.json().data.testCode ?? "123456",
@@ -456,7 +492,7 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
     const managementToken = accessVerified.json().data.managementToken;
     const managed = await app.inject({
       method: "GET",
-      url: `/v1/public/bookings/${appointment.bookingReference}`,
+      url: `/v1/public/salons/nailsoft-demo/bookings/${appointment.bookingReference}`,
       headers: { authorization: `Bearer ${managementToken}` },
     });
     expect(managed.statusCode).toBe(200);
@@ -464,7 +500,7 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
 
     const cancelled = await app.inject({
       method: "POST",
-      url: `/v1/public/bookings/${appointment.bookingReference}/cancel`,
+      url: `/v1/public/salons/nailsoft-demo/bookings/${appointment.bookingReference}/cancel`,
       headers: {
         authorization: `Bearer ${managementToken}`,
         "idempotency-key": `${runKey}-public-cancel`,

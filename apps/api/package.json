@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @nailsoft/validation build && nest start --watch",
+    "dev": "pnpm --filter @nailsoft/domain-types build && pnpm --filter @nailsoft/validation build && nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
     "lint": "eslint src test",

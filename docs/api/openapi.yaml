@@ -904,6 +904,101 @@ paths:
             "409": { description: Hold state conflict },
           },
       }
+  /customers:
+    get:
+      {
+        tags: [appointments],
+        summary: Search active customers in the authenticated tenant for booking,
+        parameters:
+          [
+            {
+              name: search,
+              in: query,
+              schema: { type: string, maxLength: 200 },
+            },
+            {
+              name: limit,
+              in: query,
+              schema: { type: integer, minimum: 1, maximum: 100, default: 50 },
+            },
+          ],
+        responses:
+          {
+            "200":
+              {
+                description: Tenant-scoped customer summaries,
+                content:
+                  {
+                    application/json:
+                      {
+                        schema:
+                          {
+                            type: object,
+                            properties:
+                              {
+                                success: { const: true },
+                                data:
+                                  {
+                                    type: array,
+                                    items:
+                                      {
+                                        $ref: "#/components/schemas/BookingCustomer",
+                                      },
+                                  },
+                              },
+                          },
+                      },
+                  },
+              },
+            "403": { description: Customer lookup permission denied },
+          },
+      }
+    post:
+      {
+        tags: [appointments],
+        summary: Idempotently create or resolve a customer for an internal booking,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { $ref: "#/components/schemas/BookingCustomerInput" },
+                  },
+              },
+          },
+        responses:
+          {
+            "201":
+              {
+                description: Created,
+                matched or idempotently replayed customer,
+                content:
+                  {
+                    application/json:
+                      {
+                        schema:
+                          {
+                            type: object,
+                            properties:
+                              {
+                                success: { const: true },
+                                data:
+                                  {
+                                    $ref: "#/components/schemas/BookingCustomer",
+                                  },
+                              },
+                          },
+                      },
+                  },
+              },
+            "403": { description: Customer creation permission denied },
+            "409": { description: Idempotency key reused with different input },
+          },
+      }
   /appointments:
     get:
       {
@@ -1062,6 +1157,15 @@ paths:
         summary: List online-bookable services and effective prices,
         responses: { "200": { description: Services } },
       }
+  /public/salons/{salonSlug}/staff:
+    get:
+      {
+        tags: [public-booking],
+        security: [],
+        summary: List policy-visible bookable staff for a branch,
+        responses:
+          { "200": { description: Staff or an empty policy-shaped list } },
+      }
   /public/salons/{salonSlug}/availability:
     get:
       {
@@ -1115,13 +1219,27 @@ paths:
         security: [],
         summary: Create a verified public booking,
         parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        $ref: "#/components/schemas/PublicCreateAppointmentRequest",
+                      },
+                  },
+              },
+          },
         responses:
           {
             "201": { description: Booking reference and status },
             "403": { description: Hold/contact capability invalid },
           },
       }
-  /public/bookings/access/request:
+  /public/salons/{salonSlug}/bookings/access/request:
     post:
       {
         tags: [public-booking],
@@ -1130,7 +1248,7 @@ paths:
         responses:
           { "201": { description: Neutral response regardless of match } },
       }
-  /public/bookings/access/verify:
+  /public/salons/{salonSlug}/bookings/access/verify:
     post:
       {
         tags: [public-booking],
@@ -1142,7 +1260,7 @@ paths:
             "401": { description: Invalid or expired challenge },
           },
       }
-  /public/bookings/{bookingReference}:
+  /public/salons/{salonSlug}/bookings/{bookingReference}:
     get:
       {
         tags: [public-booking],
@@ -1155,7 +1273,7 @@ paths:
             "403": { description: Capability invalid or revoked },
           },
       }
-  /public/bookings/{bookingReference}/reschedule-holds:
+  /public/salons/{salonSlug}/bookings/{bookingReference}/reschedule-holds:
     post:
       {
         tags: [public-booking],
@@ -1164,7 +1282,7 @@ paths:
         parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
         responses: { "201": { description: Replacement hold } },
       }
-  /public/bookings/{bookingReference}/reschedule:
+  /public/salons/{salonSlug}/bookings/{bookingReference}/reschedule:
     post:
       {
         tags: [public-booking],
@@ -1177,7 +1295,7 @@ paths:
             "409": { description: Version or reservation conflict },
           },
       }
-  /public/bookings/{bookingReference}/cancel:
+  /public/salons/{salonSlug}/bookings/{bookingReference}/cancel:
     post:
       {
         tags: [public-booking],
@@ -1355,6 +1473,60 @@ components:
         internalNote: { type: string, maxLength: 4000 }
         marketingConsent: { type: boolean, default: false }
         confirm: { type: boolean, default: true }
+    BookingCustomerInput:
+      type: object
+      additionalProperties: false
+      required: [displayName, locale]
+      anyOf: [{ required: [phone] }, { required: [email] }]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 200 }
+        phone: { type: string, maxLength: 32 }
+        email: { type: string, format: email, maxLength: 254 }
+        locale: { enum: [vi-VN, en-US] }
+    BookingCustomer:
+      type: object
+      required: [id, displayName, locale, status, isGuest]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        phone: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+        locale: { enum: [vi-VN, en-US] }
+        status: { enum: [ACTIVE, INACTIVE, MERGED] }
+        isGuest: { type: boolean }
+        idempotencyReplayed: { type: boolean }
+    PublicCreateAppointmentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          holdId,
+          holdToken,
+          customer,
+          contactVerificationToken,
+          marketingConsent,
+          acceptedPolicyVersion,
+          acceptedAt,
+        ]
+      properties:
+        holdId: { type: string, format: uuid }
+        holdToken: { type: string, minLength: 1, writeOnly: true }
+        contactVerificationToken:
+          { type: string, minLength: 1, writeOnly: true }
+        customer:
+          type: object
+          additionalProperties: false
+          required: [displayName, locale]
+          anyOf: [{ required: [phone] }, { required: [email] }]
+          properties:
+            displayName: { type: string, minLength: 1, maxLength: 200 }
+            phone: { type: string, maxLength: 32 }
+            email: { type: string, format: email, maxLength: 254 }
+            locale: { enum: [vi-VN, en-US] }
+        customerNote: { type: string, maxLength: 2000 }
+        marketingConsent: { type: boolean }
+        acceptedPolicyVersion: { type: integer, minimum: 1 }
+        acceptedAt: { type: string, format: date-time }
     RescheduleRequest:
       type: object
       required: [version, replacementHoldId, reasonCode]

@@ -1,10 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
-const salonSlug = "nailsoft-demo";
 
 async function call(path: string, init?: RequestInit) {
   const response = await fetch(`${api}${path}`, init);
@@ -19,26 +18,39 @@ async function call(path: string, init?: RequestInit) {
 
 export default function ManageBooking() {
   const [step, setStep] = useState(1);
+  const [salonSlug, setSalonSlug] = useState("");
   const [reference, setReference] = useState("");
   const [contact, setContact] = useState("");
   const [challenge, setChallenge] = useState<any>();
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
   const [booking, setBooking] = useState<any>();
+  const [branch, setBranch] = useState<any>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
-  const [date, setDate] = useState("2026-08-10");
+  const [date, setDate] = useState("");
   const [availability, setAvailability] = useState<any>();
   const [selectedSlot, setSelectedSlot] = useState<any>();
   const [replacementHold, setReplacementHold] = useState<any>();
+  const keys = useRef({ hold: "", reschedule: "", cancel: "" });
+
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get("salon");
+    if (value) setSalonSlug(value);
+  }, []);
+
+  function path(suffix: string) {
+    return `/v1/public/salons/${encodeURIComponent(salonSlug)}/bookings${suffix}`;
+  }
 
   async function request(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
+    setNotice("");
     try {
-      const data = await call("/v1/public/bookings/access/request", {
+      const data = await call(path("/access/request"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -61,18 +73,26 @@ export default function ManageBooking() {
     setLoading(true);
     setError("");
     try {
-      const data = await call("/v1/public/bookings/access/verify", {
+      const data = await call(path("/access/verify"), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ challengeId: challenge.challengeId, code }),
       });
-      setToken(data.managementToken);
       const detail = await loadDetail(
         data.bookingReference,
         data.managementToken,
       );
+      const branches = await call(
+        `/v1/public/salons/${encodeURIComponent(salonSlug)}/branches`,
+      );
+      const selectedBranch = branches.find(
+        (item: any) => item.id === detail.branchId,
+      );
+      setToken(data.managementToken);
       setReference(data.bookingReference);
       setBooking(detail);
+      setBranch(selectedBranch);
+      setDate(selectedBranch?.bookingWindow?.earliestDate ?? "");
       setStep(3);
     } catch (cause: any) {
       setError(cause.message);
@@ -82,7 +102,7 @@ export default function ManageBooking() {
   }
 
   async function loadDetail(value = reference, capability = token) {
-    return call(`/v1/public/bookings/${value}`, {
+    return call(path(`/${encodeURIComponent(value)}`), {
       headers: { authorization: `Bearer ${capability}` },
     });
   }
@@ -93,8 +113,15 @@ export default function ManageBooking() {
     setLoading(true);
     setError("");
     try {
+      const params = new URLSearchParams({
+        branchId: booking.branchId,
+        serviceId,
+        dateFrom: date,
+        dateTo: date,
+        slotIntervalMin: "15",
+      });
       const data = await call(
-        `/v1/public/salons/${salonSlug}/availability?branchId=${booking.branchId}&serviceId=${serviceId}&dateFrom=${date}&dateTo=${date}&slotIntervalMin=15`,
+        `/v1/public/salons/${encodeURIComponent(salonSlug)}/availability?${params}`,
       );
       setAvailability(data);
       setSelectedSlot(undefined);
@@ -108,32 +135,31 @@ export default function ManageBooking() {
   }
 
   async function holdReplacement(slot: any) {
-    const serviceId = booking.items[0].service.serviceId;
     setLoading(true);
     setError("");
     try {
-      const data = await call(
-        `/v1/public/bookings/${reference}/reschedule-holds`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${token}`,
-            "content-type": "application/json",
-            "idempotency-key": crypto.randomUUID(),
-          },
-          body: JSON.stringify({
-            desiredStartAt: slot.startAt,
-            availabilityDataVersion: availability.dataVersion,
-            items: [
-              {
-                serviceId,
-                staffPreference: { type: "ANY" },
-                availabilityFingerprint: slot.fingerprint,
-              },
-            ],
-          }),
+      keys.current.hold ||= crypto.randomUUID();
+      const data = await call(path(`/${reference}/reschedule-holds`), {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          "idempotency-key": keys.current.hold,
         },
-      );
+        body: JSON.stringify({
+          desiredStartAt: slot.startAt,
+          availabilityDataVersion: availability.dataVersion,
+          items: booking.items.map((item: any, index: number) => ({
+            serviceId: item.service.serviceId,
+            staffPreference: branch?.policy?.allowAnyTechnician
+              ? { type: "ANY" }
+              : { type: "SPECIFIC", staffId: item.staff.id },
+            ...(index === 0
+              ? { availabilityFingerprint: slot.fingerprint }
+              : {}),
+          })),
+        }),
+      });
       setSelectedSlot(slot);
       setReplacementHold(data);
       setStep(5);
@@ -149,12 +175,13 @@ export default function ManageBooking() {
     setLoading(true);
     setError("");
     try {
-      await call(`/v1/public/bookings/${reference}/reschedule`, {
+      keys.current.reschedule ||= crypto.randomUUID();
+      await call(path(`/${reference}/reschedule`), {
         method: "POST",
         headers: {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
-          "idempotency-key": crypto.randomUUID(),
+          "idempotency-key": keys.current.reschedule,
         },
         body: JSON.stringify({
           version: booking.version,
@@ -185,12 +212,13 @@ export default function ManageBooking() {
     setLoading(true);
     setError("");
     try {
-      const data = await call(`/v1/public/bookings/${reference}/cancel`, {
+      keys.current.cancel ||= crypto.randomUUID();
+      const data = await call(path(`/${reference}/cancel`), {
         method: "POST",
         headers: {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
-          "idempotency-key": crypto.randomUUID(),
+          "idempotency-key": keys.current.cancel,
         },
         body: JSON.stringify({
           version: booking.version,
@@ -216,7 +244,9 @@ export default function ManageBooking() {
     <main className="booking-shell">
       <header className="brand">
         <a href="/">NAILSOFT</a>
-        <a href={`/book/${salonSlug}`}>Đặt lịch mới</a>
+        {salonSlug && (
+          <a href={`/book/${encodeURIComponent(salonSlug)}`}>Đặt lịch mới</a>
+        )}
       </header>
       <section className="hero">
         <p>BOOKING MANAGEMENT</p>
@@ -226,6 +256,9 @@ export default function ManageBooking() {
         {error && (
           <div className="error" role="alert">
             {error}
+            <button className="link-button" onClick={() => setError("")}>
+              Thử lại
+            </button>
           </div>
         )}
         {notice && (
@@ -238,8 +271,18 @@ export default function ManageBooking() {
             Đang xử lý…
           </div>
         )}
+
         {step === 1 && (
           <form className="grid" onSubmit={request}>
+            <label className="field">
+              Mã salon
+              <input
+                required
+                value={salonSlug}
+                onChange={(event) => setSalonSlug(event.target.value.trim())}
+                placeholder="nailsoft-demo"
+              />
+            </label>
             <label className="field">
               Mã lịch hẹn
               <input
@@ -258,12 +301,15 @@ export default function ManageBooking() {
                 onChange={(event) => setContact(event.target.value)}
               />
             </label>
-            <button className="primary">Gửi mã truy cập</button>
+            <button className="primary" disabled={loading}>
+              Gửi mã truy cập
+            </button>
             <p className="muted">
               Phản hồi luôn trung tính để bảo vệ dữ liệu khách hàng.
             </p>
           </form>
         )}
+
         {step === 2 && (
           <div className="grid">
             <label className="field">
@@ -271,64 +317,90 @@ export default function ManageBooking() {
               <input
                 autoFocus
                 inputMode="numeric"
+                pattern="[0-9]{6}"
                 value={code}
                 onChange={(event) => setCode(event.target.value)}
               />
             </label>
-            <button className="primary" onClick={() => void verify()}>
+            <button
+              className="primary"
+              disabled={!/^\d{6}$/.test(code) || loading}
+              onClick={() => void verify()}
+            >
               Mở lịch hẹn
             </button>
           </div>
         )}
+
         {step === 3 && booking && (
-          <div>
+          <div className="grid">
             <div className="summary">
               <h2>{booking.bookingReference}</h2>
               <strong>{booking.status}</strong>
-              <span>{new Date(booking.startAt).toLocaleString("vi-VN")}</span>
+              <span>
+                {new Date(booking.startAt).toLocaleString("vi-VN", {
+                  timeZone: branch?.timezone,
+                })}
+              </span>
               <span>{booking.contact?.displayName}</span>
+              {booking.items?.map((item: any) => (
+                <span key={item.id}>
+                  {item.sequenceNo}.{" "}
+                  {item.service?.name?.["vi-VN"] ?? item.service?.code}
+                </span>
+              ))}
               <span>Phiên truy cập hết hạn sau 15 phút.</span>
             </div>
-            <div className="actions">
-              <label className="field">
-                Ngày mới
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(event) => setDate(event.target.value)}
-                />
-              </label>
-              <button
-                className="secondary"
-                onClick={() => void findReplacementSlots()}
-              >
-                Chọn lịch mới
-              </button>
-              {!String(booking.status).startsWith("CANCELLED") && (
-                <button className="primary" onClick={() => void cancel()}>
+            {!String(booking.status).startsWith("CANCELLED") && (
+              <div className="actions">
+                <label className="field">
+                  Ngày mới
+                  <input
+                    type="date"
+                    required
+                    min={branch?.bookingWindow?.earliestDate}
+                    max={branch?.bookingWindow?.latestDate}
+                    value={date}
+                    onChange={(event) => setDate(event.target.value)}
+                  />
+                </label>
+                <button
+                  className="secondary"
+                  disabled={!date || loading}
+                  onClick={() => void findReplacementSlots()}
+                >
+                  Chọn lịch mới
+                </button>
+                <button
+                  className="danger"
+                  disabled={loading}
+                  onClick={() => void cancel()}
+                >
                   Hủy lịch hẹn
                 </button>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
+
         {step === 4 && (
-          <div>
+          <div className="grid">
             <h2>Chọn giờ mới</h2>
             {slots.length === 0 ? (
               <div className="state">Không còn giờ phù hợp trong ngày này.</div>
             ) : (
               <div className="slots">
-                {slots.map((slot: any) => (
+                {slots.map((item: any) => (
                   <button
                     className="choice"
-                    key={slot.fingerprint}
-                    onClick={() => void holdReplacement(slot)}
+                    key={item.fingerprint}
+                    onClick={() => void holdReplacement(item)}
                   >
                     <strong>
-                      {new Date(slot.startAt).toLocaleTimeString("vi-VN", {
+                      {new Date(item.startAt).toLocaleTimeString("vi-VN", {
                         hour: "2-digit",
                         minute: "2-digit",
+                        timeZone: branch?.timezone,
                       })}
                     </strong>
                     <small>Bất kỳ kỹ thuật viên phù hợp</small>
@@ -336,29 +408,33 @@ export default function ManageBooking() {
                 ))}
               </div>
             )}
-            <div className="actions">
-              <button className="secondary" onClick={() => setStep(3)}>
-                Quay lại
-              </button>
-            </div>
+            <button className="secondary" onClick={() => setStep(3)}>
+              Quay lại
+            </button>
           </div>
         )}
+
         {step === 5 && replacementHold && (
-          <div>
+          <div className="grid">
             <h2>Xác nhận đổi lịch</h2>
             <div className="summary">
               <span>
                 Lịch hiện tại:{" "}
-                {new Date(booking.startAt).toLocaleString("vi-VN")}
+                {new Date(booking.startAt).toLocaleString("vi-VN", {
+                  timeZone: branch?.timezone,
+                })}
               </span>
               <strong>
                 Lịch mới:{" "}
-                {new Date(selectedSlot.startAt).toLocaleString("vi-VN")}
+                {new Date(selectedSlot.startAt).toLocaleString("vi-VN", {
+                  timeZone: branch?.timezone,
+                })}
               </strong>
               <span>
                 Slot mới đang được giữ đến{" "}
                 {new Date(replacementHold.expiresAt).toLocaleTimeString(
                   "vi-VN",
+                  { timeZone: branch?.timezone },
                 )}
                 .
               </span>
@@ -369,6 +445,7 @@ export default function ManageBooking() {
               </button>
               <button
                 className="primary"
+                disabled={loading}
                 onClick={() => void confirmReschedule()}
               >
                 Xác nhận đổi lịch

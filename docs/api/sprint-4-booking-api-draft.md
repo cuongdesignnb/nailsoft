@@ -8,6 +8,8 @@ All internal commands require bearer authentication, tenant context, `X-Request-
 - `POST /v1/slot-holds`
 - `GET /v1/slot-holds/{holdId}`
 - `POST /v1/slot-holds/{holdId}/release`
+- `GET /v1/customers`
+- `POST /v1/customers`
 - `GET|POST /v1/appointments`
 - `GET /v1/appointments/{appointmentId}`
 - `GET /v1/appointments/{appointmentId}/history`
@@ -25,17 +27,20 @@ No generic status or timestamp `PATCH` is provided.
 - `GET /v1/public/salons/{salonSlug}`
 - `GET /v1/public/salons/{salonSlug}/branches`
 - `GET /v1/public/salons/{salonSlug}/services`
+- `GET /v1/public/salons/{salonSlug}/staff`
 - `GET /v1/public/salons/{salonSlug}/availability`
 - `POST /v1/public/salons/{salonSlug}/slot-holds`
+- `POST /v1/public/salons/{salonSlug}/contact-verification/request`
+- `POST /v1/public/salons/{salonSlug}/contact-verification/verify`
 - `POST /v1/public/salons/{salonSlug}/bookings`
-- `POST /v1/public/bookings/access/request`
-- `POST /v1/public/bookings/access/verify`
-- `GET /v1/public/bookings/{bookingReference}`
-- `POST /v1/public/bookings/{bookingReference}/reschedule-holds`
-- `POST /v1/public/bookings/{bookingReference}/reschedule`
-- `POST /v1/public/bookings/{bookingReference}/cancel`
+- `POST /v1/public/salons/{salonSlug}/bookings/access/request`
+- `POST /v1/public/salons/{salonSlug}/bookings/access/verify`
+- `GET /v1/public/salons/{salonSlug}/bookings/{bookingReference}`
+- `POST /v1/public/salons/{salonSlug}/bookings/{bookingReference}/reschedule-holds`
+- `POST /v1/public/salons/{salonSlug}/bookings/{bookingReference}/reschedule`
+- `POST /v1/public/salons/{salonSlug}/bookings/{bookingReference}/cancel`
 
-Management endpoints require a `booking-management` capability token. References are case-insensitive and never sufficient authority.
+Management endpoints require a `booking-management` capability token. The salon slug, token tenant, appointment tenant, reference and contact-verification version are revalidated before idempotency replay. References are case-insensitive and never sufficient authority. Public create accepts only the strict public customer contract, verified contact capability and the current accepted policy version; `customerId` and internal fields are rejected.
 
 ## Conflict mapping
 

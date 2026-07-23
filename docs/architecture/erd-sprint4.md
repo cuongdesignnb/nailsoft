@@ -24,7 +24,8 @@ erDiagram
   APPOINTMENTS ||--o{ APPOINTMENT_STATUS_HISTORY : audits
   APPOINTMENTS ||--o{ APPOINTMENT_SCHEDULE_REVISIONS : revises
   APPOINTMENTS ||--o{ BOOKING_ACCESS_CHALLENGES : authorizes
+  BOOKING_ACCESS_CHALLENGES ||--|| BOOKING_OTP_DELIVERY_JOBS : delivers
   APPOINTMENTS ||--o{ BOOKING_NOTIFICATION_JOBS : notifies
 ```
 
-Staff reservations use a PostgreSQL GiST exclusion constraint for active overlapping ranges. Shared resource capacity is checked while advisory-locking resource IDs in deterministic order. Holds are durable PostgreSQL rows; Redis never owns booking truth.
+Staff reservations use a PostgreSQL GiST exclusion constraint for active overlapping ranges. Shared resource capacity is checked while advisory-locking resource IDs in deterministic order. Holds, challenges, encrypted OTP delivery jobs and rate-limit counters are durable PostgreSQL rows; Redis never owns booking truth.

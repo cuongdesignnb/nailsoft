@@ -2,23 +2,34 @@
 
 ## Status
 
-Sprint 4 implementation is complete locally. Formal acceptance remains conditional on a successful GitHub Actions run for the exact final commit and BA/Product Owner review of the deferred production-scale performance benchmark.
+Sprint 4 closure hardening is complete locally. Formal `DONE` remains conditional only on a successful GitHub Actions run for the immutable closure implementation commit. The BA-approved 100k production-like benchmark remains a production release blocker, not a Sprint 4 acceptance blocker; it has an owner, staging environment and deadline in the technical-debt register.
+
+## Closure hardening
+
+- All public booking-management routes are tenant-scoped under `/public/salons/{salonSlug}/bookings`.
+- Public booking creation uses a strict request schema and rejects `customerId`, internal notes, missing policy acceptance/version and unknown fields.
+- Hold, contact and management capabilities are validated before idempotency replay; replay scopes derive from verified capability subjects and token digests participate in the request hash.
+- Public catalog, availability and holds enforce online-bookable services plus branch any/specific-staff and staff-name visibility policies.
+- Booking Web uses the branch timezone and live booking window, supports multi-service select/remove/reorder, policy-allowed staff selection and mandatory policy acceptance.
+- Contact data is normalized before lookup/hash. Fixed deposits use currency minor-unit rules, including zero-decimal VND.
+- Migration `0010_public_booking_security_hardening` adds the durable OTP delivery queue. OTP codes are encrypted at rest, delivered by the Worker with bounded retry, and production public booking fails fast without provider/pepper configuration.
+- Public challenge, verification, management detail and management commands use persisted rate limits. Cross-tenant capability use is rejected.
 
 ## Git
 
 - Branch: `main`
-- Start checkpoint: `99848b3f3e56e4c7fb256e99e8de6fa16593127c`
-- Final commit: immutable commit and matching CI run are reported in the release handoff; this report is included in that commit
+- Start checkpoint: `abee77f75b4079d6c2039de9516df172952904ee`
+- Closure implementation commit: pending the immutable implementation commit created from this verified tree
+- CI evidence: pending the GitHub Actions run for that implementation commit
 - Commit message: `feat: complete sprint 4 booking lifecycle`
 - Working tree target: clean
 
 ## Migration
 
-- Migration: `0009_booking_appointment_lifecycle`
+- Migrations: `0009_booking_appointment_lifecycle`, `0010_public_booking_security_hardening`
 - Existing appointment backfill: deterministic reference, status, source, versions and cancellation invariants
 - Fresh migrate: passed locally
-- Rollback: passed locally to `0008`
-- Re-migrate: passed locally
+- Rollback/re-migrate: passed locally from `0010` down to `0009` and back to `0010`
 - Existing Sprint 1-3 data preserved: passed
 - Seed: deterministic booking policies, appointments, items, reservations and holds
 
@@ -71,7 +82,7 @@ Sprint 4 implementation is complete locally. Formal acceptance remains condition
 
 ## UI
 
-- Admin Web: appointment list, filters, quick create, detail, confirm, reschedule, cancel and deposit waiver with loading/empty/error/retry/permission/conflict/success states
+- Admin Web: live branch/customer/service/staff lookup, idempotent audited customer create, appointment list/filter, multi-service-ready quick create, detail, confirm, resource-safe reschedule, cancel and deposit waiver with loading/empty/error/retry/permission/conflict/success states; production UI contains no fixture IDs or dates
 - Customer Booking Web: mobile-first discovery, service/staff/date/slot, hold countdown, contact verification, review/create, booking management, reschedule and cancel
 - Owner Mobile: today/upcoming/detail summaries and booking actions backed by the shared API client/types
 - Staff Mobile: own schedule/detail with privacy-safe customer data and offline read cache indicator
@@ -79,16 +90,19 @@ Sprint 4 implementation is complete locally. Formal acceptance remains condition
 
 ## Tests
 
-- Unit: booking state machine, token purpose/expiry, idempotency and Worker booking routing/maintenance
-- Integration: tenant/branch isolation, hold lifecycle, multi-item planning, version conflicts, idempotency, price snapshots, concurrency, reschedule/cancel and Worker expiry
-- Contract: OpenAPI contract suite
-- E2E: authenticated Sprint 1-4 regression, Admin booking UI, public mobile-first flow and WebSocket authorization
+- Unit: 48/48 passed; booking state machine, token purpose/expiry, idempotency, policy/schema enforcement and Worker booking routing/maintenance
+- Integration: full suite passed; tenant/branch isolation, hold lifecycle, multi-item planning, version conflicts, idempotency, price snapshots, concurrency, reschedule/cancel, durable OTP delivery and Worker expiry
+- Security: 16 focused public policy/capability/schema/token/normalization tests passed, plus tenant-scoped deep integration coverage
+- Contract: 1/1 OpenAPI contract test passed
+- E2E: 30/30 passed; includes four-step internal lifecycle UI, one public create/manage lifecycle, Sprint 1-3 regression and WebSocket authorization
+- Public deep E2E: 1 end-to-end scenario covering multi-service create, OTP, policy, management access, reschedule and cancel
+- Internal deep E2E: 4 role-separated lifecycle scenarios plus 1 live-filter surface scenario
 - Mobile: Owner/Staff route and API smoke
 - Migration: fresh/up/down/re-up
 
 ## Performance
 
-- Local deterministic-seed read smoke: appointment detail p95 10.76 ms, list p95 32.59 ms and calendar day p95 14.32 ms at concurrency 5
+- Local deterministic-seed release smoke at concurrency 2: appointment detail p95 7.82 ms, list p95 16.41 ms and calendar day p95 9.02 ms
 - Unexpected read-path error rate: 0%; timeouts: 0
 - Expected public `429 PUBLIC_RATE_LIMITED` responses were excluded from error evidence
 - Production-scale 100,000 appointment command/load benchmark: deferred to staging and requires BA acceptance; see `docs/quality/performance-sprint4.md`

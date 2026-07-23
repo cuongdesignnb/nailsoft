@@ -58,6 +58,17 @@ export class PublicSalonBookingController {
       meta: context(req),
     };
   }
+  @Get("staff") async staff(
+    @Param("salonSlug") slug: string,
+    @Query("branchId") branchId: string,
+    @Req() req: any,
+  ) {
+    return {
+      success: true,
+      data: await this.service.staff(slug, branchId),
+      meta: context(req),
+    };
+  }
   @Get("availability") async availability(
     @Param("salonSlug") slug: string,
     @Query() query: any,
@@ -99,12 +110,13 @@ export class PublicSalonBookingController {
     };
   }
   @Post("contact-verification/verify") async contactVerify(
+    @Param("salonSlug") slug: string,
     @Body() body: unknown,
     @Req() req: any,
   ) {
     return {
       success: true,
-      data: await this.service.verifyContact(body),
+      data: await this.service.verifyContact(slug, body, req.ip ?? "unknown"),
       meta: context(req),
     };
   }
@@ -129,41 +141,53 @@ export class PublicSalonBookingController {
 }
 
 @ApiTags("public-booking-management")
-@Controller("public/bookings")
+@Controller("public/salons/:salonSlug/bookings")
 export class PublicBookingManagementController {
   constructor(
     @Inject(PublicBookingService)
     private readonly service: PublicBookingService,
   ) {}
   @Post("access/request") async request(
+    @Param("salonSlug") slug: string,
     @Body() body: unknown,
     @Req() req: any,
   ) {
     return {
       success: true,
-      data: await this.service.requestAccess(body, req.ip ?? "unknown"),
+      data: await this.service.requestAccess(slug, body, req.ip ?? "unknown"),
       meta: context(req),
     };
   }
-  @Post("access/verify") async verify(@Body() body: unknown, @Req() req: any) {
+  @Post("access/verify") async verify(
+    @Param("salonSlug") slug: string,
+    @Body() body: unknown,
+    @Req() req: any,
+  ) {
     return {
       success: true,
-      data: await this.service.verifyAccess(body),
+      data: await this.service.verifyAccess(slug, body, req.ip ?? "unknown"),
       meta: context(req),
     };
   }
   @Get(":bookingReference") async get(
+    @Param("salonSlug") slug: string,
     @Param("bookingReference") reference: string,
     @Headers("authorization") authorization: string | undefined,
     @Req() req: any,
   ) {
     return {
       success: true,
-      data: await this.service.getManaged(reference, token(authorization)),
+      data: await this.service.getManaged(
+        slug,
+        reference,
+        token(authorization),
+        req.ip ?? "unknown",
+      ),
       meta: context(req),
     };
   }
   @Post(":bookingReference/reschedule-holds") async hold(
+    @Param("salonSlug") slug: string,
     @Param("bookingReference") reference: string,
     @Headers("authorization") authorization: string | undefined,
     @Headers("idempotency-key") key: string | undefined,
@@ -173,16 +197,19 @@ export class PublicBookingManagementController {
     return {
       success: true,
       data: await this.service.rescheduleHold(
+        slug,
         reference,
         token(authorization),
         body,
         key ?? "",
         req.raw?.requestId ?? "unknown",
+        req.ip ?? "unknown",
       ),
       meta: context(req),
     };
   }
   @Post(":bookingReference/reschedule") async reschedule(
+    @Param("salonSlug") slug: string,
     @Param("bookingReference") reference: string,
     @Headers("authorization") authorization: string | undefined,
     @Headers("idempotency-key") key: string | undefined,
@@ -192,16 +219,19 @@ export class PublicBookingManagementController {
     return {
       success: true,
       data: await this.service.reschedule(
+        slug,
         reference,
         token(authorization),
         body,
         key ?? "",
         req.raw?.requestId ?? "unknown",
+        req.ip ?? "unknown",
       ),
       meta: context(req),
     };
   }
   @Post(":bookingReference/cancel") async cancel(
+    @Param("salonSlug") slug: string,
     @Param("bookingReference") reference: string,
     @Headers("authorization") authorization: string | undefined,
     @Headers("idempotency-key") key: string | undefined,
@@ -211,11 +241,13 @@ export class PublicBookingManagementController {
     return {
       success: true,
       data: await this.service.cancel(
+        slug,
         reference,
         token(authorization),
         body,
         key ?? "",
         req.raw?.requestId ?? "unknown",
+        req.ip ?? "unknown",
       ),
       meta: context(req),
     };

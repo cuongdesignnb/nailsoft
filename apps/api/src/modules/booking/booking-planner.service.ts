@@ -11,6 +11,7 @@ import type {
   BookingPlanInput,
   BookingPlanItem,
 } from "@nailsoft/domain-types";
+import { currencyMinorUnit } from "@nailsoft/domain-types";
 import { bookingPlanSchema } from "@nailsoft/validation";
 import { DateTime } from "luxon";
 import { DatabaseService } from "../../infrastructure/database.service.js";
@@ -25,11 +26,15 @@ export class BookingPlannerService {
     private readonly availability: AvailabilityService,
   ) {}
 
-  async plan(auth: AccessClaims, input: unknown): Promise<BookingPlan> {
+  async plan(
+    auth: AccessClaims,
+    input: unknown,
+    options: { channel?: "PUBLIC" | "INTERNAL" } = {},
+  ): Promise<BookingPlan> {
     const body = bookingPlanSchema.parse(input) as BookingPlanInput;
     const branch = (
       await this.db.query<any>(
-        "SELECT b.id,b.timezone,b.status,bs.booking_policy_json,t.currency FROM branches b JOIN tenants t ON t.id=b.tenant_id LEFT JOIN branch_settings bs ON bs.tenant_id=b.tenant_id AND bs.branch_id=b.id WHERE b.tenant_id=$1 AND b.id=$2",
+        "SELECT b.id,b.timezone,b.status,(ts.booking_policy_json || COALESCE(bs.booking_policy_json,'{}'::jsonb)) booking_policy_json,t.currency FROM branches b JOIN tenants t ON t.id=b.tenant_id JOIN tenant_settings ts ON ts.tenant_id=b.tenant_id LEFT JOIN branch_settings bs ON bs.tenant_id=b.tenant_id AND bs.branch_id=b.id WHERE b.tenant_id=$1 AND b.id=$2",
         [auth.tenantId, body.branchId],
       )
     ).rows[0];
@@ -69,6 +74,32 @@ export class BookingPlannerService {
       ).rows[0];
       if (!service || service.status !== "ACTIVE")
         throw changed("Service configuration changed");
+      if (
+        options.channel === "PUBLIC" &&
+        service.online_booking_enabled !== true
+      )
+        throw new ConflictException({
+          code: "PUBLIC_SERVICE_NOT_BOOKABLE",
+          message: "Service is not available for public booking",
+        });
+      if (
+        options.channel === "PUBLIC" &&
+        request.staffPreference.type === "ANY" &&
+        branch.booking_policy_json?.allowAnyTechnician === false
+      )
+        throw new ConflictException({
+          code: "PUBLIC_ANY_TECHNICIAN_NOT_ALLOWED",
+          message: "A technician must be selected for this branch",
+        });
+      if (
+        options.channel === "PUBLIC" &&
+        request.staffPreference.type === "SPECIFIC" &&
+        branch.booking_policy_json?.allowCustomerSelectStaff === false
+      )
+        throw new ConflictException({
+          code: "PUBLIC_STAFF_SELECTION_NOT_ALLOWED",
+          message: "Customers cannot select a technician for this branch",
+        });
       // The previous cursor is the end of all prior occupancy. Move the next
       // service start far enough forward that its prep/buffer also starts after it.
       if (index > 0)
@@ -136,11 +167,7 @@ export class BookingPlannerService {
         resourceStart.toUTC().toISO()!,
         resourceEnd.toUTC().toISO()!,
       );
-      const fractionDigits = ["VND", "JPY", "KRW"].includes(
-        slot.priceReference.currency,
-      )
-        ? 0
-        : 2;
+      const fractionDigits = currencyMinorUnit(slot.priceReference.currency);
       const amountMinor = Math.round(
         Number(slot.priceReference.amount) * 10 ** fractionDigits,
       );

@@ -7,14 +7,17 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type { BookingPlan } from "@nailsoft/domain-types";
+import { currencyMinorUnit, type BookingPlan } from "@nailsoft/domain-types";
 import {
   appointmentCancelSchema,
   appointmentRescheduleSchema,
   appointmentVersionSchema,
+  bookingCustomerCreateSchema,
+  bookingCustomerSearchSchema,
   createAppointmentSchema,
   createSlotHoldSchema,
   depositWaiverSchema,
+  publicCreateAppointmentSchema,
 } from "@nailsoft/validation";
 import type { PoolClient } from "pg";
 import { DatabaseService } from "../../infrastructure/database.service.js";
@@ -47,6 +50,88 @@ export class BookingService {
     return this.planner.plan(auth, input);
   }
 
+  async listBookingCustomers(auth: AccessClaims, input: unknown) {
+    this.denyPlatform(auth);
+    const query = bookingCustomerSearchSchema.parse(input),
+      search = query.search || null,
+      normalizedEmail = search?.includes("@")
+        ? this.normalizeEmail(search)
+        : null,
+      normalizedPhone =
+        search && search.replace(/\D/g, "").length >= 6
+          ? this.normalizePhone(search)
+          : null;
+    const rows = await this.db.query<any>(
+      `SELECT id,display_name,phone_normalized,email_normalized,preferred_locale,status,is_guest,created_at
+       FROM customers
+       WHERE tenant_id=$1 AND status='ACTIVE'
+         AND ($2::text IS NULL OR lower(display_name) LIKE '%'||lower($2)||'%'
+           OR ($3::text IS NOT NULL AND phone_normalized LIKE '%'||$3)
+           OR ($4::text IS NOT NULL AND lower(email_normalized)=lower($4)))
+       ORDER BY display_name,id LIMIT $5`,
+      [auth.tenantId, search, normalizedPhone, normalizedEmail, query.limit],
+    );
+    return rows.rows.map((row) => this.customerView(row));
+  }
+
+  async createBookingCustomer(
+    auth: AccessClaims,
+    input: unknown,
+    key: string,
+    requestId: string,
+  ) {
+    this.denyPlatform(auth);
+    const body = bookingCustomerCreateSchema.parse(input),
+      phone = body.phone ? this.normalizePhone(body.phone) : null,
+      email = body.email ? this.normalizeEmail(body.email) : null;
+    const result = await this.db.transaction((client) =>
+      this.idempotency.execute(client, {
+        tenantId: auth.tenantId,
+        actorScope: `user:${auth.userId}`,
+        command: "customer.booking_create",
+        key,
+        request: { ...body, phone, email },
+        work: async () => {
+          const existing = (
+            await client.query<any>(
+              `SELECT * FROM customers WHERE tenant_id=$1 AND status='ACTIVE'
+               AND (($2::text IS NOT NULL AND phone_normalized=$2)
+                 OR ($3::text IS NOT NULL AND lower(email_normalized)=lower($3)))
+               ORDER BY created_at LIMIT 1`,
+              [auth.tenantId, phone, email],
+            )
+          ).rows[0];
+          if (existing) return this.customerView(existing);
+          const created = (
+            await client.query<any>(
+              `INSERT INTO customers(tenant_id,display_name,phone_normalized,email_normalized,preferred_locale,is_guest)
+               VALUES($1,$2,$3,$4,$5,false) RETURNING *`,
+              [auth.tenantId, body.displayName, phone, email, body.locale],
+            )
+          ).rows[0];
+          await client.query(
+            `INSERT INTO audit_logs(tenant_id,actor_user_id,action,entity_type,entity_id,after_json,request_id)
+             VALUES($1,$2,'customer.booking_created','customer',$3,$4,$5)`,
+            [
+              auth.tenantId,
+              auth.userId,
+              created.id,
+              JSON.stringify({
+                displayName: created.display_name,
+                phone: created.phone_normalized,
+                email: created.email_normalized,
+                locale: created.preferred_locale,
+              }),
+              requestId,
+            ],
+          );
+          return this.customerView(created);
+        },
+      }),
+    );
+    return { ...result.data, idempotencyReplayed: result.replayed };
+  }
+
   async createHold(
     auth: AccessClaims,
     input: unknown,
@@ -66,7 +151,9 @@ export class BookingService {
         key,
         request: body,
         work: async () => {
-          const plan = await this.planner.plan(auth, body);
+          const plan = await this.planner.plan(auth, body, {
+            channel: publicActor ? "PUBLIC" : "INTERNAL",
+          });
           await this.reservations.lockPlan(client, auth.tenantId, plan);
           await this.reservations.expireStale(
             client,
@@ -258,21 +345,67 @@ export class BookingService {
     options: { public?: boolean; actorScope?: string } = {},
   ) {
     this.denyPlatform(auth);
-    const body = createAppointmentSchema.parse(input);
+    const body: any = options.public
+      ? publicCreateAppointmentSchema.parse(input)
+      : createAppointmentSchema.parse(input);
+    if (options.public && "customerId" in body.customer)
+      throw new ForbiddenException({
+        code: "PUBLIC_CUSTOMER_ID_NOT_ALLOWED",
+        message: "Public booking cannot select an existing customer by ID",
+      });
+    let verifiedActorScope = options.actorScope ?? `user:${auth.userId}`;
+    if (options.public) {
+      const hold = (
+        await this.db.query<any>(
+          "SELECT id,tenant_id,public_token_version,status,expires_at,client_key_hash FROM slot_holds WHERE tenant_id=$1 AND id=$2",
+          [auth.tenantId, body.holdId],
+        )
+      ).rows[0];
+      if (!hold)
+        throw new NotFoundException({
+          code: "SLOT_HOLD_NOT_FOUND",
+          message: "Slot hold not found",
+        });
+      await this.tokens.verifyHold(body.holdToken, {
+        tenantId: auth.tenantId,
+        holdId: hold.id,
+        tokenVersion: hold.public_token_version,
+      });
+      const verified = await this.tokens.verifyContact(
+        body.contactVerificationToken,
+      );
+      const normalized = this.normalizeContact(
+        body.customer.phone ?? body.customer.email ?? "",
+      );
+      const contactHash = this.contactHash(normalized);
+      if (
+        verified.tenantId !== auth.tenantId ||
+        verified.contactHash !== contactHash
+      )
+        throw new ForbiddenException({
+          code: "BOOKING_CONTACT_NOT_VERIFIED",
+          message: "Verified contact does not match booking contact",
+        });
+      verifiedActorScope = `public-contact:${auth.tenantId}:${contactHash}:${hold.id}`;
+    }
     const result = await this.db.transaction((client) =>
       this.idempotency.execute(client, {
         tenantId: auth.tenantId,
-        actorScope: options.actorScope ?? `user:${auth.userId}`,
+        actorScope: verifiedActorScope,
         command: options.public
           ? "public.appointment.create"
           : "appointment.create",
         key,
         request: {
           ...body,
-          holdToken: body.holdToken ? "[capability]" : undefined,
-          contactVerificationToken: body.contactVerificationToken
-            ? "[capability]"
+          holdTokenDigest: body.holdToken
+            ? this.idempotency.subject(body.holdToken)
             : undefined,
+          contactVerificationTokenDigest: body.contactVerificationToken
+            ? this.idempotency.subject(body.contactVerificationToken)
+            : undefined,
+          holdToken: undefined,
+          contactVerificationToken: undefined,
         },
         work: async () => {
           await client.query(
@@ -319,11 +452,35 @@ export class BookingService {
             body.contactVerificationToken,
           );
           const plan = await this.loadHoldPlan(client, hold);
+          if (options.public) {
+            const bookable = await client.query(
+              "SELECT id FROM services WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND status='ACTIVE' AND online_booking_enabled=true",
+              [auth.tenantId, plan.items.map((item) => item.serviceId)],
+            );
+            if (
+              bookable.rowCount !==
+              new Set(plan.items.map((item) => item.serviceId)).size
+            )
+              throw new ConflictException({
+                code: "PUBLIC_SERVICE_NOT_BOOKABLE",
+                message:
+                  "A selected service is no longer available for public booking",
+              });
+          }
           const policy = await this.policy(
             client,
             auth.tenantId,
             hold.branch_id,
           );
+          if (
+            options.public &&
+            body.acceptedPolicyVersion !== Number(policy.snapshot.version)
+          )
+            throw new ConflictException({
+              code: "BOOKING_POLICY_CHANGED",
+              message: "Booking policy changed and must be accepted again",
+              details: { policy: policy.snapshot },
+            });
           const depositRequired = this.deposit(plan);
           const status =
             depositRequired > 0
@@ -338,12 +495,24 @@ export class BookingService {
             status === "CONFIRMED"
               ? null
               : new Date(Date.now() + policy.pendingExpiryMinutes * 60_000);
+          const acceptedAt = options.public
+            ? new Date(body.acceptedAt).toISOString()
+            : null;
           const contact = {
             displayName: customer.display_name,
             phone: customer.phone_normalized,
             email: customer.email_normalized,
             locale: customer.preferred_locale,
             verified: options.public,
+            bookingPolicyAccepted: options.public,
+            acceptedPolicyVersion: options.public
+              ? body.acceptedPolicyVersion
+              : null,
+            acceptedAt,
+            marketingConsent: options.public ? body.marketingConsent : false,
+            marketingConsentAt:
+              options.public && body.marketingConsent ? acceptedAt : null,
+            source: options.public ? "CUSTOMER_WEB" : "RECEPTION",
           };
           const root = (
             await client.query<any>(
@@ -385,6 +554,20 @@ export class BookingService {
               ],
             )
           ).rows[0];
+          if (options.public && body.marketingConsent)
+            await client.query(
+              "INSERT INTO audit_logs(tenant_id,action,entity_type,entity_id,after_json,reason) VALUES($1,'customer.marketing_consent_granted','customer',$2,$3,$4)",
+              [
+                auth.tenantId,
+                customer.id,
+                JSON.stringify({
+                  granted: true,
+                  grantedAt: acceptedAt,
+                  source: "CUSTOMER_WEB",
+                }),
+                `request:${requestId}`,
+              ],
+            );
           const holdItems = (
             await client.query<any>(
               "SELECT * FROM slot_hold_items WHERE tenant_id=$1 AND slot_hold_id=$2 ORDER BY sequence_no",
@@ -744,61 +927,70 @@ export class BookingService {
     input: unknown,
     key: string,
     requestId: string,
+    options: { public?: boolean; actorScope?: string } = {},
   ) {
     const body = appointmentCancelSchema.parse(input);
-    return this.command(auth, id, "cancel", key, body, async (client, root) => {
-      if (root.version !== body.version) throw version();
-      const to = cancellationStatus(body.actorType);
-      assertAppointmentTransition(root.status, to);
-      const outcome = this.cancellationOutcome(root);
-      const updated = (
-        await client.query<any>(
-          "UPDATE appointments SET status=$3,cancelled_at=now(),cancelled_by_user_id=$4,cancellation_reason_code=$5,cancellation_note=$6,cancellation_outcome=$7,version=version+1,updated_by_user_id=$4,updated_at=now(),expires_at=NULL WHERE tenant_id=$1 AND id=$2 RETURNING *",
-          [
-            auth.tenantId,
-            id,
-            to,
-            body.actorType === "USER" ? auth.userId : null,
-            body.reasonCode,
-            body.note ?? null,
-            outcome,
-          ],
-        )
-      ).rows[0];
-      await client.query(
-        "UPDATE staff_schedule_reservations SET status='RELEASED',released_at=now() WHERE tenant_id=$1 AND appointment_item_id IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$2) AND status='ACTIVE'",
-        [auth.tenantId, id],
-      );
-      await client.query(
-        "UPDATE resource_schedule_reservations SET status='RELEASED',released_at=now() WHERE tenant_id=$1 AND appointment_item_id IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$2) AND status='ACTIVE'",
-        [auth.tenantId, id],
-      );
-      await client.query(
-        "UPDATE appointment_items SET status='CANCELLED',version=version+1,updated_at=now() WHERE tenant_id=$1 AND appointment_id=$2",
-        [auth.tenantId, id],
-      );
-      await this.history(
-        client,
-        updated,
-        root.status,
-        to,
-        body.actorType,
-        body.actorType === "USER" ? auth.userId : null,
-        body.actorType === "CUSTOMER" ? root.customer_id : null,
-        body.reasonCode,
-        requestId,
-        body.note,
-      );
-      await this.event(
-        client,
-        updated,
-        "appointment.cancelled",
-        body.actorType === "USER" ? auth.userId : null,
-        requestId,
-        { outcome },
-      );
-      return this.summary(updated);
-    });
+    return this.command(
+      auth,
+      id,
+      "cancel",
+      key,
+      body,
+      async (client, root) => {
+        if (root.version !== body.version) throw version();
+        const to = cancellationStatus(body.actorType);
+        assertAppointmentTransition(root.status, to);
+        const outcome = this.cancellationOutcome(root);
+        const updated = (
+          await client.query<any>(
+            "UPDATE appointments SET status=$3,cancelled_at=now(),cancelled_by_user_id=$4,cancellation_reason_code=$5,cancellation_note=$6,cancellation_outcome=$7,version=version+1,updated_by_user_id=$4,updated_at=now(),expires_at=NULL WHERE tenant_id=$1 AND id=$2 RETURNING *",
+            [
+              auth.tenantId,
+              id,
+              to,
+              body.actorType === "USER" ? auth.userId : null,
+              body.reasonCode,
+              body.note ?? null,
+              outcome,
+            ],
+          )
+        ).rows[0];
+        await client.query(
+          "UPDATE staff_schedule_reservations SET status='RELEASED',released_at=now() WHERE tenant_id=$1 AND appointment_item_id IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$2) AND status='ACTIVE'",
+          [auth.tenantId, id],
+        );
+        await client.query(
+          "UPDATE resource_schedule_reservations SET status='RELEASED',released_at=now() WHERE tenant_id=$1 AND appointment_item_id IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$2) AND status='ACTIVE'",
+          [auth.tenantId, id],
+        );
+        await client.query(
+          "UPDATE appointment_items SET status='CANCELLED',version=version+1,updated_at=now() WHERE tenant_id=$1 AND appointment_id=$2",
+          [auth.tenantId, id],
+        );
+        await this.history(
+          client,
+          updated,
+          root.status,
+          to,
+          body.actorType,
+          body.actorType === "USER" ? auth.userId : null,
+          body.actorType === "CUSTOMER" ? root.customer_id : null,
+          body.reasonCode,
+          requestId,
+          body.note,
+        );
+        await this.event(
+          client,
+          updated,
+          "appointment.cancelled",
+          body.actorType === "USER" ? auth.userId : null,
+          requestId,
+          { outcome },
+        );
+        return this.summary(updated);
+      },
+      options,
+    );
   }
 
   async reschedule(
@@ -826,9 +1018,10 @@ export class BookingService {
         request: {
           id,
           ...body,
-          replacementHoldToken: body.replacementHoldToken
-            ? "[capability]"
+          replacementHoldTokenDigest: body.replacementHoldToken
+            ? this.idempotency.subject(body.replacementHoldToken)
             : undefined,
+          replacementHoldToken: undefined,
         },
         work: async () => {
           const initial = (
@@ -875,6 +1068,18 @@ export class BookingService {
             hold.id,
             true,
           );
+          if (options.public) {
+            if (!body.replacementHoldToken)
+              throw new ForbiddenException({
+                code: "SLOT_HOLD_TOKEN_INVALID",
+                message: "Replacement hold token is required",
+              });
+            await this.tokens.verifyHold(body.replacementHoldToken, {
+              tenantId: auth.tenantId,
+              holdId: lockedHold.id,
+              tokenVersion: lockedHold.public_token_version,
+            });
+          }
           if (root.version !== body.version) throw version();
           if (!["CONFIRMED", "PENDING_CONFIRMATION"].includes(root.status))
             throw new ConflictException({
@@ -957,7 +1162,11 @@ export class BookingService {
             );
             for (const allocation of source.resource_plan_json)
               await client.query(
-                "INSERT INTO appointment_item_resource_allocations(tenant_id,appointment_item_id,resource_id,quantity,is_exclusive,status) VALUES($1,$2,$3,$4,$5,'ACTIVE')",
+                `INSERT INTO appointment_item_resource_allocations(tenant_id,appointment_item_id,resource_id,quantity,is_exclusive,status)
+                 VALUES($1,$2,$3,$4,$5,'ACTIVE')
+                 ON CONFLICT(tenant_id,appointment_item_id,resource_id) DO UPDATE
+                 SET quantity=EXCLUDED.quantity,is_exclusive=EXCLUDED.is_exclusive,status='ACTIVE',
+                     allocated_at=now(),released_at=NULL,version=appointment_item_resource_allocations.version+1`,
                 [
                   auth.tenantId,
                   target.id,
@@ -1060,13 +1269,14 @@ export class BookingService {
     key: string,
     request: unknown,
     work: (client: PoolClient, root: any) => Promise<T>,
+    options: { public?: boolean; actorScope?: string } = {},
   ) {
     this.denyPlatform(auth);
     const result = await this.db.transaction((client) =>
       this.idempotency.execute(client, {
         tenantId: auth.tenantId,
-        actorScope: `user:${auth.userId}`,
-        command: `appointment.${name}`,
+        actorScope: options.actorScope ?? `user:${auth.userId}`,
+        command: `${options.public ? "public." : ""}appointment.${name}`,
         key,
         request: { id, ...(request as any) },
         work: async () => {
@@ -1180,6 +1390,18 @@ export class BookingService {
       version: row.version,
     };
   }
+  private customerView(row: any) {
+    return {
+      id: row.id,
+      displayName: row.display_name,
+      phone: row.phone_normalized,
+      email: row.email_normalized,
+      locale: row.preferred_locale,
+      status: row.status,
+      isGuest: row.is_guest,
+      createdAt: row.created_at,
+    };
+  }
   private async resolveCustomer(
     client: PoolClient,
     tenantId: string,
@@ -1187,17 +1409,23 @@ export class BookingService {
     isPublic = false,
     verificationToken?: string,
   ) {
-    let customer = input.customerId
-      ? (
-          await client.query<any>(
-            "SELECT * FROM customers WHERE tenant_id=$1 AND id=$2",
-            [tenantId, input.customerId],
-          )
-        ).rows[0]
-      : null;
+    if (isPublic && input.customerId)
+      throw new ForbiddenException({
+        code: "PUBLIC_CUSTOMER_ID_NOT_ALLOWED",
+        message: "Public booking cannot select an existing customer by ID",
+      });
+    let customer =
+      !isPublic && input.customerId
+        ? (
+            await client.query<any>(
+              "SELECT * FROM customers WHERE tenant_id=$1 AND id=$2",
+              [tenantId, input.customerId],
+            )
+          ).rows[0]
+        : null;
     if (customer) return customer;
-    const phone = input.phone?.replace(/[\s()-]/g, "") ?? null,
-      email = input.email?.toLowerCase() ?? null;
+    const phone = input.phone ? this.normalizePhone(input.phone) : null,
+      email = input.email ? this.normalizeEmail(input.email) : null;
     if (isPublic) {
       if (!verificationToken)
         throw new ForbiddenException({
@@ -1231,13 +1459,31 @@ export class BookingService {
     for (const item of plan.items) {
       const type = String(item.serviceSnapshot.depositType ?? "NONE"),
         value = Number(item.serviceSnapshot.depositValue ?? 0);
-      if (type === "FIXED") total += Math.round(value);
+      if (type === "FIXED")
+        total += Math.round(
+          value * 10 ** currencyMinorUnit(String(item.priceSnapshot.currency)),
+        );
       if (type === "PERCENT")
         total += Math.round(
           (Number(item.priceSnapshot.amountMinor ?? 0) * value) / 100,
         );
     }
     return total;
+  }
+  normalizeContact(value: string) {
+    return value.includes("@")
+      ? this.normalizeEmail(value)
+      : this.normalizePhone(value);
+  }
+  normalizeEmail(value: string) {
+    return value.trim().toLowerCase();
+  }
+  normalizePhone(value: string, countryCode = "84") {
+    const digits = value.trim().replace(/\D/g, "");
+    if (digits.startsWith(countryCode)) return `+${digits}`;
+    if (digits.startsWith("0")) return `+${countryCode}${digits.slice(1)}`;
+    if (value.trim().startsWith("+")) return `+${digits}`;
+    return `+${countryCode}${digits}`;
   }
   private async reference(client: PoolClient, tenantId: string) {
     const alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";

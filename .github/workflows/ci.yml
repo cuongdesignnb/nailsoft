@@ -73,14 +73,18 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 4 migration rollback and re-migrate
+      - name: Sprint 4 public hardening migration rollback and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
       - name: Unit tests
         run: pnpm test:unit
+      - name: Public booking policy and capability unit tests
+        run: pnpm exec vitest run apps/api/test/public-booking-policy.test.ts apps/api/test/booking-idempotency.test.ts apps/api/test/booking-token.test.ts packages/validation/src/index.test.ts
       - name: Integration tests
         run: pnpm test:integration
+      - name: Public booking tenant-scoped deep integration
+        run: pnpm exec vitest run tests/integration/sprint4-public-closure.test.ts
       - name: WebSocket authorization integration
         run: pnpm exec vitest run tests/integration/sprint3-closure-authorization.test.ts
       - name: Durable outbox worker integration
@@ -102,6 +106,8 @@ jobs:
           exit 1
       - name: Authenticated Sprint 1-4 E2E
         run: pnpm test:e2e
+      - name: Sprint 4 Booking Web policy and multi-service E2E
+        run: pnpm exec playwright test tests/e2e/sprint4-booking-ui.spec.ts
       - name: Sprint 3 closure authenticated E2E
         run: pnpm exec playwright test tests/e2e/sprint3-closure
       - name: Mobile Sprint 2-4 integration

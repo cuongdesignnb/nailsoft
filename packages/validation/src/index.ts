@@ -99,6 +99,36 @@ export const createAppointmentSchema = z.object({
   acceptedPolicyVersion: z.number().int().positive().optional(),
   confirm: z.boolean().default(true),
 });
+export const publicAppointmentCustomerSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(200),
+    phone: z.string().trim().max(32).optional(),
+    email: z.string().trim().email().max(254).optional(),
+    locale: z.enum(["vi-VN", "en-US"]),
+  })
+  .strict()
+  .refine((value) => Boolean(value.phone || value.email), {
+    message: "phone or email is required",
+  });
+export const publicCreateAppointmentSchema = z
+  .object({
+    holdId: uuidSchema,
+    holdToken: z.string().min(1),
+    customer: publicAppointmentCustomerSchema,
+    contactVerificationToken: z.string().min(1),
+    customerNote: z.string().max(2000).optional(),
+    marketingConsent: z.boolean(),
+    acceptedPolicyVersion: z.number().int().positive(),
+    acceptedAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export const bookingCustomerSearchSchema = z
+  .object({
+    search: z.string().trim().max(200).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .strict();
+export const bookingCustomerCreateSchema = publicAppointmentCustomerSchema;
 export const appointmentVersionSchema = z.object({
   version: z.number().int().positive(),
 });

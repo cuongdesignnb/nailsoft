@@ -4,6 +4,7 @@ import { AvailabilityModule } from "../availability/availability.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
 import {
   AppointmentController,
+  BookingCustomerController,
   BookingPlanController,
   SlotHoldController,
 } from "./booking.controller.js";
@@ -23,6 +24,7 @@ import { ReservationService } from "./reservation.service.js";
   controllers: [
     BookingPlanController,
     SlotHoldController,
+    BookingCustomerController,
     AppointmentController,
     PublicSalonBookingController,
     PublicBookingManagementController,

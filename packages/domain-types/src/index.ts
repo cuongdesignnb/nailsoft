@@ -11,6 +11,11 @@ export const roles = [
 ] as const;
 export type Role = (typeof roles)[number];
 export type Locale = "vi-VN" | "en-US";
+export function currencyMinorUnit(currency: string): number {
+  const normalized = currency.trim().toUpperCase();
+  if (["VND", "JPY", "KRW"].includes(normalized)) return 0;
+  return 2;
+}
 export interface TenantContext {
   tenantId: string;
   branchId?: string;
