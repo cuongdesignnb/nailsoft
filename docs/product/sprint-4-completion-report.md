@@ -2,7 +2,7 @@
 
 ## Status
 
-Sprint 4 closure hardening is complete locally. Formal `DONE` remains conditional only on a successful GitHub Actions run for the immutable closure implementation commit. The BA-approved 100k production-like benchmark remains a production release blocker, not a Sprint 4 acceptance blocker; it has an owner, staging environment and deadline in the technical-debt register.
+Sprint 4 is `DONE`. Closure hardening passed the complete local verification pipeline and GitHub Actions for the immutable closure implementation commit. The BA-approved 100k production-like benchmark remains a production release blocker, not a Sprint 4 acceptance blocker; it has an owner, staging environment and deadline in the technical-debt register.
 
 ## Closure hardening
 
@@ -19,10 +19,19 @@ Sprint 4 closure hardening is complete locally. Formal `DONE` remains conditiona
 
 - Branch: `main`
 - Start checkpoint: `abee77f75b4079d6c2039de9516df172952904ee`
-- Closure implementation commit: pending the immutable implementation commit created from this verified tree
-- CI evidence: pending the GitHub Actions run for that implementation commit
-- Commit message: `feat: complete sprint 4 booking lifecycle`
-- Working tree target: clean
+- Feature commit: `6bf449617e2528231ddefe60b4f26abb5ba8d4de`
+- Closure implementation commit: `f95ac9ff8353adbe19268f563023dec8dd8f5d11`
+- Commit messages: `feat: complete sprint 4 booking lifecycle`; `fix: build shared domain types before tests`
+- `origin/main` at closure CI: `f95ac9ff8353adbe19268f563023dec8dd8f5d11`
+- Working tree: clean after the evidence-only report commit
+
+## GitHub Actions
+
+- Run ID: `30033604088`
+- URL: `https://github.com/cuongdesignnb/nailsoft/actions/runs/30033604088`
+- Commit: `f95ac9ff8353adbe19268f563023dec8dd8f5d11`
+- Status: `SUCCESS`
+- Duration: 7m31s
 
 ## Migration
 
