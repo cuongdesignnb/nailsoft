@@ -83,6 +83,8 @@ jobs:
         run: pnpm exec vitest run apps/api/test/public-booking-policy.test.ts apps/api/test/booking-idempotency.test.ts apps/api/test/booking-token.test.ts packages/validation/src/index.test.ts
       - name: Sprint 1-5 PostgreSQL and concurrency integration
         run: pnpm test:integration
+      - name: Reset focused regression fixture
+        run: pnpm db:reset && pnpm db:seed
       - name: Public booking tenant-scoped deep integration
         run: pnpm exec vitest run tests/integration/sprint4-public-closure.test.ts
       - name: WebSocket authorization integration
