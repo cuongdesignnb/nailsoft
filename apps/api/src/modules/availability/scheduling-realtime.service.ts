@@ -7,8 +7,10 @@ import {
 } from "@nestjs/common";
 import {
   ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from "@nestjs/websockets";
@@ -220,13 +222,16 @@ export class SchedulingGateway
         socket.disconnect(true);
         return;
       }
-      socket.data.expiryTimer = setTimeout(() => {
-        socket.emit("session.revoked", {
-          reason: "ACCESS_TOKEN_EXPIRED",
-          reconnect: true,
-        });
-        socket.disconnect(true);
-      }, Math.min(expiresIn, 2_147_483_647));
+      socket.data.expiryTimer = setTimeout(
+        () => {
+          socket.emit("session.revoked", {
+            reason: "ACCESS_TOKEN_EXPIRED",
+            reconnect: true,
+          });
+          socket.disconnect(true);
+        },
+        Math.min(expiresIn, 2_147_483_647),
+      );
       this.realtime.connected(1);
       this.logger.log({
         event: "websocket.connected",
@@ -263,6 +268,44 @@ export class SchedulingGateway
     const timer = socket.data.expiryTimer as NodeJS.Timeout | undefined;
     if (timer) clearTimeout(timer);
     if (socket.data.auth) this.realtime.connected(-1);
+  }
+
+  @SubscribeMessage("appointment.join")
+  async joinAppointment(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: { appointmentId?: string },
+  ) {
+    const auth = socket.data.auth as ActiveAuthorizationContext | undefined;
+    if (!auth || typeof body?.appointmentId !== "string")
+      return { ok: false, code: "AUTH_REQUIRED" };
+    const allowed = await this.db.query(
+      `SELECT 1 FROM appointments a
+       WHERE a.tenant_id=$1 AND a.id=$2
+         AND (
+           $3::boolean
+           OR a.branch_id=ANY($4::uuid[])
+           OR EXISTS (
+             SELECT 1 FROM appointment_items ai
+             JOIN appointment_item_staff_assignments asa
+               ON asa.tenant_id=ai.tenant_id AND asa.appointment_item_id=ai.id
+             WHERE ai.tenant_id=a.tenant_id AND ai.appointment_id=a.id
+               AND asa.staff_id=$5 AND asa.status='ACTIVE'
+           )
+         )`,
+      [
+        auth.tenantId,
+        body.appointmentId,
+        auth.roles.includes("SALON_OWNER"),
+        auth.branchIds,
+        auth.ownStaffId ?? null,
+      ],
+    );
+    if (!allowed.rowCount) {
+      await this.recordDenied("websocket.appointment_room_denied", auth);
+      return { ok: false, code: "APPOINTMENT_ROOM_DENIED" };
+    }
+    await socket.join(`appointment:${body.appointmentId}`);
+    return { ok: true, refetch: true };
   }
 
   private async businessRooms(auth: ActiveAuthorizationContext) {

@@ -342,7 +342,14 @@ export class BookingService {
     input: unknown,
     key: string,
     requestId: string,
-    options: { public?: boolean; actorScope?: string } = {},
+    options: {
+      public?: boolean;
+      actorScope?: string;
+      transactionHook?: {
+        before: (client: PoolClient) => Promise<void>;
+        after: (client: PoolClient, appointment: any) => Promise<void>;
+      };
+    } = {},
   ) {
     this.denyPlatform(auth);
     const body: any = options.public
@@ -408,6 +415,7 @@ export class BookingService {
           contactVerificationToken: undefined,
         },
         work: async () => {
+          await options.transactionHook?.before(client);
           await client.query(
             "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
             [`${auth.tenantId}:hold:${body.holdId}`],
@@ -700,6 +708,7 @@ export class BookingService {
               "appointment.confirmed",
               eventActor,
             );
+          await options.transactionHook?.after(client, this.summary(root));
           return this.summary(root);
         },
       }),
@@ -729,6 +738,274 @@ export class BookingService {
       ],
     );
     return rows.rows.map((x) => this.summary(x));
+  }
+
+  /** Sprint 5 add-service boundary: consumes a Reservation Engine hold into an existing aggregate. */
+  async appendServiceFromHold(
+    auth: AccessClaims,
+    appointmentId: string,
+    body: {
+      holdId: string;
+      version: number;
+      parentItemId?: string | null | undefined;
+      customerApprovalMethod: "VERBAL" | "DIGITAL" | "WRITTEN";
+      approvalNote?: string | undefined;
+    },
+    key: string,
+    requestId: string,
+  ) {
+    this.denyPlatform(auth);
+    const executed = await this.db.transaction((client) =>
+      this.idempotency.execute(client, {
+        tenantId: auth.tenantId,
+        actorScope: `user:${auth.userId}`,
+        command: "appointment.add_service",
+        key,
+        request: { appointmentId, ...body },
+        work: async () => {
+          const appointment = (
+            await client.query<any>(
+              "SELECT * FROM appointments WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+              [auth.tenantId, appointmentId],
+            )
+          ).rows[0];
+          if (!appointment)
+            throw new NotFoundException({
+              code: "BOOKING_NOT_FOUND",
+              message: "Appointment not found",
+            });
+          this.guardBranch(auth, appointment.branch_id);
+          if (
+            !["CHECKED_IN", "IN_SERVICE", "PARTIALLY_COMPLETED"].includes(
+              appointment.status,
+            )
+          )
+            throw new ConflictException({
+              code: "ADD_SERVICE_NOT_AVAILABLE",
+              message: "Appointment is not active for add-service",
+            });
+          if (Number(appointment.version) !== body.version)
+            throw new ConflictException({
+              code: "ADD_SERVICE_VERSION_CONFLICT",
+              message: "Appointment changed; refresh and re-plan",
+            });
+          await client.query(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+            [`${auth.tenantId}:hold:${body.holdId}`],
+          );
+          const hold = await this.loadHold(
+            client,
+            auth.tenantId,
+            body.holdId,
+            true,
+          );
+          if (
+            hold.branch_id !== appointment.branch_id ||
+            hold.status !== "ACTIVE" ||
+            new Date(hold.expires_at) <= new Date()
+          )
+            throw new ConflictException({
+              code: "ADD_SERVICE_NOT_AVAILABLE",
+              message: "Extension hold is unavailable or expired",
+            });
+          const source = (
+            await client.query<any>(
+              "SELECT * FROM slot_hold_items WHERE tenant_id=$1 AND slot_hold_id=$2 ORDER BY sequence_no",
+              [auth.tenantId, body.holdId],
+            )
+          ).rows;
+          if (source.length !== 1)
+            throw new ConflictException({
+              code: "ADD_SERVICE_NOT_AVAILABLE",
+              message: "Add-service hold must contain exactly one service",
+            });
+          if (body.parentItemId) {
+            const related = await client.query(
+              "SELECT 1 FROM appointment_items p JOIN service_addons sa ON sa.tenant_id=p.tenant_id AND sa.service_id=p.service_id WHERE p.tenant_id=$1 AND p.appointment_id=$2 AND p.id=$3 AND sa.addon_service_id=$4",
+              [
+                auth.tenantId,
+                appointmentId,
+                body.parentItemId,
+                source[0].service_id,
+              ],
+            );
+            if (!related.rowCount)
+              throw new ConflictException({
+                code: "ADD_SERVICE_INVALID_RELATION",
+                message: "Service is not an allowed add-on",
+              });
+          }
+          const participant = (
+            await client.query<any>(
+              "SELECT id FROM appointment_participants WHERE tenant_id=$1 AND appointment_id=$2 AND is_booking_owner ORDER BY participant_order LIMIT 1",
+              [auth.tenantId, appointmentId],
+            )
+          ).rows[0];
+          const next = Number(
+            (
+              await client.query<any>(
+                "SELECT COALESCE(max(sequence_no),0)+1 n FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$2",
+                [auth.tenantId, appointmentId],
+              )
+            ).rows[0].n,
+          );
+          const itemId = randomUUID(),
+            item = source[0];
+          await client.query(
+            "INSERT INTO appointment_items(id,tenant_id,appointment_id,participant_id,service_id,sequence_no,status,service_start_at,service_end_at,staff_occupancy_start_at,staff_occupancy_end_at,resource_occupancy_start_at,resource_occupancy_end_at,duration_min,prep_time_min,cleanup_time_min,buffer_before_min,buffer_after_min,service_snapshot_json,price_snapshot_json,tax_snapshot_json,item_source,parent_item_id,added_at,added_by_user_id,customer_approved_at,customer_approval_method) VALUES($1,$2,$3,$4,$5,$6,'CONFIRMED',$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,now(),$23,now(),$24)",
+            [
+              itemId,
+              auth.tenantId,
+              appointmentId,
+              participant?.id ?? null,
+              item.service_id,
+              next,
+              item.service_start_at,
+              item.service_end_at,
+              item.staff_occupancy_start_at,
+              item.staff_occupancy_end_at,
+              item.resource_occupancy_start_at,
+              item.resource_occupancy_end_at,
+              Number(item.service_snapshot_json.durationMin),
+              Number(item.service_snapshot_json.prepTimeMin),
+              Number(item.service_snapshot_json.cleanupTimeMin),
+              Number(item.service_snapshot_json.bufferBeforeMin),
+              Number(item.service_snapshot_json.bufferAfterMin),
+              JSON.stringify(item.service_snapshot_json),
+              JSON.stringify(item.price_snapshot_json),
+              JSON.stringify(item.tax_snapshot_json),
+              body.parentItemId ? "ADD_ON" : "MANUAL",
+              body.parentItemId ?? null,
+              auth.userId,
+              body.customerApprovalMethod,
+            ],
+          );
+          await client.query(
+            "INSERT INTO appointment_item_staff_assignments(tenant_id,appointment_item_id,staff_id,assignment_role,status) VALUES($1,$2,$3,'PRIMARY','ACTIVE')",
+            [auth.tenantId, itemId, item.selected_staff_id],
+          );
+          for (const allocation of item.resource_plan_json)
+            await client.query(
+              "INSERT INTO appointment_item_resource_allocations(tenant_id,appointment_item_id,resource_id,quantity,is_exclusive,status) VALUES($1,$2,$3,$4,$5,'ACTIVE')",
+              [
+                auth.tenantId,
+                itemId,
+                allocation.resourceId,
+                allocation.quantity,
+                allocation.isExclusive,
+              ],
+            );
+          await client.query(
+            "UPDATE staff_schedule_reservations SET appointment_item_id=$3,slot_hold_item_id=NULL,reservation_type='APPOINTMENT',expires_at=NULL WHERE tenant_id=$1 AND slot_hold_item_id=$2 AND status='ACTIVE'",
+            [auth.tenantId, item.id, itemId],
+          );
+          await client.query(
+            "UPDATE resource_schedule_reservations SET appointment_item_id=$3,slot_hold_item_id=NULL,reservation_type='APPOINTMENT',expires_at=NULL WHERE tenant_id=$1 AND slot_hold_item_id=$2 AND status='ACTIVE'",
+            [auth.tenantId, item.id, itemId],
+          );
+          await client.query(
+            "UPDATE slot_holds SET status='CONSUMED',consumed_by_appointment_id=$3,consumed_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+            [auth.tenantId, body.holdId, appointmentId],
+          );
+          await client.query(
+            "INSERT INTO service_sessions(tenant_id,branch_id,appointment_id,appointment_item_id,scheduled_start_at,scheduled_end_at) VALUES($1,$2,$3,$4,$5,$6)",
+            [
+              auth.tenantId,
+              appointment.branch_id,
+              appointmentId,
+              itemId,
+              item.service_start_at,
+              item.service_end_at,
+            ],
+          );
+          const previousSchedule = await this.scheduleJson(
+            client,
+            auth.tenantId,
+            appointmentId,
+          );
+          const previousEnd = appointment.end_at,
+            newEnd = new Date(
+              Math.max(
+                new Date(previousEnd).getTime(),
+                new Date(item.service_end_at).getTime(),
+              ),
+            );
+          const subtotal =
+            Number(appointment.pricing_summary_json?.amountMinor ?? 0) +
+            Number(item.price_snapshot_json?.amountMinor ?? 0);
+          const updated = (
+            await client.query<any>(
+              "UPDATE appointments SET end_at=$3,schedule_version=schedule_version+1,pricing_summary_json=jsonb_set(pricing_summary_json,'{amountMinor}',to_jsonb($4::bigint),true),status=CASE WHEN status='PARTIALLY_COMPLETED' THEN status ELSE status END,checkout_ready=false,version=version+1,updated_by_user_id=$5,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",
+              [auth.tenantId, appointmentId, newEnd, subtotal, auth.userId],
+            )
+          ).rows[0];
+          const newSchedule = await this.scheduleJson(
+            client,
+            auth.tenantId,
+            appointmentId,
+          );
+          await client.query(
+            "INSERT INTO appointment_schedule_revisions(tenant_id,appointment_id,schedule_version,previous_start_at,previous_end_at,new_start_at,new_end_at,previous_schedule_json,new_schedule_json,actor_type,actor_user_id,reason_code,note) VALUES($1,$2,$3,$4,$5,$4,$6,$7,$8,'USER',$9,'ADD_SERVICE',$10)",
+            [
+              auth.tenantId,
+              appointmentId,
+              updated.schedule_version,
+              appointment.start_at,
+              previousEnd,
+              newEnd,
+              JSON.stringify(
+                previousSchedule.filter((x: any) => x.id !== itemId),
+              ),
+              JSON.stringify(newSchedule),
+              auth.userId,
+              body.approvalNote ?? null,
+            ],
+          );
+          await this.reservations.record(client, {
+            tenantId: auth.tenantId,
+            branchId: appointment.branch_id,
+            actorUserId: auth.userId,
+            action: "appointment.item_added",
+            aggregateType: "appointment",
+            aggregateId: appointmentId,
+            aggregateVersion: updated.version,
+            requestId,
+            payload: {
+              appointmentId,
+              itemId,
+              branchId: appointment.branch_id,
+              scheduleVersion: updated.schedule_version,
+              refetch: true,
+            },
+          });
+          await this.reservations.record(client, {
+            tenantId: auth.tenantId,
+            branchId: appointment.branch_id,
+            actorUserId: auth.userId,
+            action: "service_session.created",
+            aggregateType: "service_session",
+            aggregateId: itemId,
+            aggregateVersion: 1,
+            requestId,
+            payload: {
+              appointmentId,
+              appointmentItemId: itemId,
+              branchId: appointment.branch_id,
+              refetch: true,
+            },
+          });
+          return {
+            appointmentId,
+            appointmentItemId: itemId,
+            scheduleVersion: Number(updated.schedule_version),
+            version: Number(updated.version),
+            endAt: updated.end_at,
+            checkoutReady: false,
+          };
+        },
+      }),
+    );
+    return { ...executed.data, idempotencyReplayed: executed.replayed };
   }
 
   async detail(auth: AccessClaims, id: string) {
@@ -1530,6 +1807,19 @@ export class BookingService {
       },
     };
   }
+
+  private async scheduleJson(
+    client: PoolClient,
+    tenantId: string,
+    appointmentId: string,
+  ) {
+    return (
+      await client.query<any>(
+        "SELECT id,sequence_no,service_id,service_start_at,service_end_at,staff_occupancy_start_at,staff_occupancy_end_at,resource_occupancy_start_at,resource_occupancy_end_at,status,item_source FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$2 ORDER BY sequence_no",
+        [tenantId, appointmentId],
+      )
+    ).rows;
+  }
   private cancellationOutcome(root: any) {
     const hours = (new Date(root.start_at).getTime() - Date.now()) / 3_600_000;
     const window = Number(
@@ -1644,6 +1934,7 @@ export class BookingService {
       depositStatus: row.deposit_status,
       depositRequiredMinor: Number(row.deposit_required_minor),
       pricingSummary: row.pricing_summary_json,
+      checkoutReady: row.checkout_ready ?? false,
       expiresAt: row.expires_at,
       cancellationOutcome: row.cancellation_outcome,
     };

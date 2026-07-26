@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Link, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
+import { io } from "socket.io-client";
 import {
   ActivityIndicator,
   Button,
@@ -9,7 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { apiFetch } from "../lib/session";
+import { api, apiFetch, getSession } from "../lib/session";
 
 const branch = "20000000-0000-4000-8000-000000000001",
   service = "50000000-0000-4000-8000-000000000001";
@@ -35,8 +36,13 @@ const titles: Record<string, string> = {
   explain: "Availability explain",
   blocks: "Busy blocks",
   createBlock: "Create manual block",
+  operationalSummary: "Operational summary",
+  walkInQueue: "Walk-in queue",
 };
 function endpoint(screen: string, id?: string) {
+  if (screen === "operationalSummary")
+    return `/v1/operations/summary?branchId=${branch}`;
+  if (screen === "walkInQueue") return `/v1/walk-ins?branchId=${branch}`;
   if (screen === "appointmentsToday")
     return `/v1/appointments?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-11T00:00:00%2B07:00`;
   if (screen === "appointments")
@@ -101,6 +107,21 @@ export default function OwnerScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+  useEffect(() => {
+    if (!["operationalSummary", "walkInQueue"].includes(screen)) return;
+    const token = getSession().accessToken;
+    if (!token) return;
+    const socket = io(`${api}/scheduling`, {
+      auth: { token },
+      transports: ["websocket"],
+    });
+    ["operations.invalidated", "walkin.updated", "appointment.updated"].forEach(
+      (event) => socket.on(event, () => void load()),
+    );
+    return () => {
+      socket.disconnect();
+    };
+  }, [load, screen]);
   async function review(action: "approve" | "reject") {
     if (!params.id) return;
     const response = await apiFetch(
@@ -264,6 +285,23 @@ export default function OwnerScreen() {
             <Text>
               Reschedule uses a review flow; the old schedule remains until the
               server confirms.
+            </Text>
+          </View>
+        )}
+        {screen === "operationalSummary" && data[0] && (
+          <View style={{ gap: 12 }}>
+            <Text style={{ fontSize: 22, fontWeight: "700" }}>Today now</Text>
+            <Text>Waiting: {data[0].waitingCount}</Text>
+            <Text>In service: {data[0].inServiceCount}</Text>
+            <Text>Ready checkout: {data[0].readyCheckoutCount}</Text>
+            <Text>Current delays: {data[0].currentDelayCount}</Text>
+            <Text>
+              Active staff:{" "}
+              {data[0].staffUtilization?.activeStaffIds?.length ?? 0}
+            </Text>
+            <Text>
+              Live updates are refetch signals; server data remains
+              authoritative.
             </Text>
           </View>
         )}

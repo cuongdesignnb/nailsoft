@@ -37,6 +37,6 @@ import { ReservationService } from "./reservation.service.js";
     BookingService,
     PublicBookingService,
   ],
-  exports: [BookingService, ReservationService],
+  exports: [BookingService, BookingIdempotencyService, ReservationService],
 })
 export class BookingModule {}

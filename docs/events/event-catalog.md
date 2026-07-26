@@ -61,3 +61,13 @@ Security events `session.revoked`, `session.logout_all`, `membership.suspended`,
 Booking events contain identifiers, status, aggregate version, schedule boundaries and `refetch: true`; they never contain raw capability tokens, OTP values, customer contact details, notes or the full booking aggregate. The Worker routes tenant/branch/assigned-staff rooms and emits availability invalidation plus calendar create/update/remove hints. Notification jobs are created idempotently by appointment/event and are delivered by provider adapters.
 
 Public contact and booking-access OTP delivery uses the durable `booking_otp_delivery_jobs` lifecycle (`PENDING -> PROCESSING -> DELIVERED | FAILED`) rather than a domain event carrying the code. The challenge and encrypted delivery job are committed in one PostgreSQL transaction. Worker claims use `FOR UPDATE SKIP LOCKED`, recover expired leases and retry with a bounded schedule. Provider calls receive the decrypted code only in memory; OTP values, capabilities and provider credentials are forbidden from outbox payloads and logs.
+
+## Sprint 5 events
+
+Walk-in events: `walkin.created`, `walkin.status_changed`, `walkin.estimate_updated`, `walkin.converted`.
+
+Appointment operations: `appointment.arrived`, `appointment.checked_in`, `appointment.check_in_reverted`, `appointment.operational_status_changed`, `appointment.item_added`, `appointment.item_cancelled`, `appointment.checkout_ready`.
+
+Execution events: `service_session.created`, `service_session.started`, `service_session.paused`, `service_session.resumed`, `service_session.completed`, `service_session.cancelled`, `service_session.staff_transferred`, `service_session.note_added`, `service_session.media_added`.
+
+All are committed with the authoritative transaction. Payloads contain identifiers, status/version and `refetch: true`, never customer contact, notes or media URLs. The Worker resolves tenant, branch, assigned-staff and authorized appointment rooms, reads `branch_operational_versions`, then emits `operations.invalidated` plus `walkin.updated`, `appointment.updated` or `service_session.updated`. Realtime is an invalidation signal only.

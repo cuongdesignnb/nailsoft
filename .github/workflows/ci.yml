@@ -73,7 +73,7 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 4 public hardening migration rollback and re-migrate
+      - name: Sprint 5 migration rollback and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
@@ -81,7 +81,7 @@ jobs:
         run: pnpm test:unit
       - name: Public booking policy and capability unit tests
         run: pnpm exec vitest run apps/api/test/public-booking-policy.test.ts apps/api/test/booking-idempotency.test.ts apps/api/test/booking-token.test.ts packages/validation/src/index.test.ts
-      - name: Integration tests
+      - name: Sprint 1-5 PostgreSQL and concurrency integration
         run: pnpm test:integration
       - name: Public booking tenant-scoped deep integration
         run: pnpm exec vitest run tests/integration/sprint4-public-closure.test.ts
@@ -91,6 +91,8 @@ jobs:
         run: pnpm exec vitest run tests/integration/sprint3-closure-outbox.test.ts
       - name: API contract tests
         run: pnpm test:contract
+      - name: Reset deterministic E2E fixture
+        run: pnpm db:reset && pnpm db:seed
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Start API and durable Worker for authenticated E2E
@@ -112,12 +114,21 @@ jobs:
         run: pnpm exec playwright test tests/e2e/sprint3-closure
       - name: Mobile Sprint 2-4 integration
         run: pnpm exec playwright test tests/e2e/sprint2-mobile-api.spec.ts tests/e2e/sprint3-availability-calendar.spec.ts tests/e2e/sprint4-booking-ui.spec.ts
+      - name: Sprint 5 authenticated operational and mobile E2E
+        run: pnpm exec playwright test tests/e2e/sprint5-operations.spec.ts tests/e2e/sprint5-mobile.spec.ts
       - name: Scheduling and booking load smoke
         env:
           LOAD_DURATION_SECONDS: 2
           LOAD_WARMUP_SECONDS: 1
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: calendar-day,appointment-list,appointment-detail
+        run: pnpm load:smoke
+      - name: Sprint 5 operations load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: operations-board,walkin-queue,checkout-summary
         run: pnpm load:smoke
       - name: Build API
         run: pnpm --filter @nailsoft/api build

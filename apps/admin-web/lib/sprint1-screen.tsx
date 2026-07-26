@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { authorizedFetch } from "./auth";
 import Sprint3Screen from "./sprint3-screen";
 import Sprint4Screen from "./sprint4-screen";
+import Sprint5Screen from "./sprint5-screen";
 
 type Resource = {
   title: string;
@@ -181,6 +182,15 @@ function unwrap(body: any): any[] {
 
 export default function Sprint1Screen() {
   const pathname = usePathname();
+  if (
+    pathname.startsWith("/admin/operations") ||
+    pathname.startsWith("/admin/service-sessions") ||
+    (pathname.startsWith("/admin/appointments/") &&
+      ["check-in", "execution", "add-service", "checkout-summary"].some(
+        (part) => pathname.endsWith(`/${part}`),
+      ))
+  )
+    return <Sprint5Screen pathname={pathname} />;
   if (pathname.startsWith("/admin/appointments"))
     return <Sprint4Screen pathname={pathname} />;
   if (

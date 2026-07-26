@@ -148,3 +148,119 @@ export const appointmentRescheduleSchema = appointmentVersionSchema.extend({
 export const depositWaiverSchema = appointmentVersionSchema.extend({
   reason: z.string().trim().min(3).max(1000),
 });
+
+const optionalNote = z.string().trim().max(2000).optional();
+export const walkInCreateSchema = z.object({
+  branchId: uuidSchema,
+  customerId: uuidSchema.optional(),
+  displayName: z.string().trim().min(1).max(200),
+  phone: z.string().trim().max(32).optional(),
+  email: z.string().trim().email().max(254).optional(),
+  source: z.enum(["RECEPTION", "KIOSK", "QR", "MOBILE"]).default("RECEPTION"),
+  note: optionalNote,
+  items: z
+    .array(
+      z.object({
+        serviceId: uuidSchema,
+        staffPreference: staffPreferenceSchema.default({ type: "ANY" }),
+      }),
+    )
+    .min(1)
+    .max(5),
+});
+export const versionedCommandSchema = z.object({
+  version: z.number().int().positive(),
+});
+export const walkInStatusCommandSchema = versionedCommandSchema.extend({
+  reasonCode: z.string().trim().max(80).optional(),
+  note: optionalNote,
+});
+export const walkInUpdateSchema = versionedCommandSchema.extend({
+  displayName: z.string().trim().min(1).max(120).optional(),
+  phone: z.string().trim().max(40).optional().nullable(),
+  email: z.string().trim().email().max(254).optional().nullable(),
+  note: z.string().trim().max(1000).optional().nullable(),
+});
+export const walkInPrioritySchema = versionedCommandSchema.extend({
+  priority: z.enum(["NORMAL", "RECOVERY", "MANAGER_OVERRIDE"]),
+  reason: z.string().trim().min(3).max(1000),
+});
+export const walkInConversionPlanSchema = z.object({
+  desiredStartAt: z.string().datetime({ offset: true }).optional(),
+});
+export const walkInConversionHoldSchema = walkInConversionPlanSchema.extend({
+  availabilityDataVersion: z.number().int().positive().optional(),
+});
+export const walkInConvertSchema = versionedCommandSchema.extend({
+  holdId: uuidSchema,
+  customerId: uuidSchema.optional(),
+});
+export const appointmentArrivalSchema = z.object({
+  arrivalMethod: z
+    .enum(["RECEPTION", "QR", "KIOSK", "MOBILE"])
+    .default("RECEPTION"),
+  partySize: z.number().int().min(1).max(50).default(1),
+  note: optionalNote,
+});
+export const appointmentCheckInSchema = z.object({
+  version: z.number().int().positive(),
+  overrideReason: z.string().trim().min(3).max(1000).optional(),
+});
+export const appointmentRevertCheckInSchema = appointmentCheckInSchema.extend({
+  reason: z.string().trim().min(3).max(1000),
+});
+export const sessionStartSchema = versionedCommandSchema.extend({
+  staffId: uuidSchema,
+  overrideReason: z.string().trim().max(1000).optional().nullable(),
+});
+export const sessionPauseSchema = versionedCommandSchema.extend({
+  reasonCode: z.string().trim().min(1).max(80),
+  note: optionalNote,
+});
+export const sessionResumeSchema = versionedCommandSchema.extend({
+  staffId: uuidSchema,
+});
+export const sessionCompleteSchema = versionedCommandSchema.extend({
+  completionNote: optionalNote,
+});
+export const sessionCancelSchema = versionedCommandSchema.extend({
+  reasonCode: z.string().trim().min(1).max(80),
+  note: optionalNote,
+});
+export const sessionTransferSchema = versionedCommandSchema.extend({
+  targetStaffId: uuidSchema,
+  reasonCode: z.string().trim().min(1).max(80),
+  note: optionalNote,
+});
+export const serviceSessionNoteSchema = z.object({
+  visibility: z.enum(["INTERNAL", "TECHNICIAN"]).default("TECHNICIAN"),
+  note: z.string().trim().min(1).max(4000),
+});
+export const serviceSessionNoteUpdateSchema = serviceSessionNoteSchema.extend({
+  version: z.number().int().positive(),
+});
+export const mediaPresignSchema = z.object({
+  mediaType: z.enum(["BEFORE", "AFTER", "REFERENCE"]),
+  mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  sizeBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(15 * 1024 * 1024),
+  checksum: z.string().regex(/^[a-fA-F0-9]{64}$/),
+});
+export const mediaCompleteSchema = z.object({
+  checksum: z.string().regex(/^[a-fA-F0-9]{64}$/),
+});
+export const addServicePlanSchema = z.object({
+  serviceId: uuidSchema,
+  parentItemId: uuidSchema.nullable().optional(),
+  staffPreference: staffPreferenceSchema.default({ type: "ANY" }),
+});
+export const addServiceCommitSchema = z.object({
+  holdId: uuidSchema,
+  version: z.number().int().positive(),
+  parentItemId: uuidSchema.nullable().optional(),
+  customerApprovalMethod: z.enum(["VERBAL", "DIGITAL", "WRITTEN"]),
+  approvalNote: optionalNote,
+});

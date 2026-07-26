@@ -2,8 +2,9 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.6.0,
-    description: Sprint 4 booking lifecycle,
+    version: 0.7.0,
+    description: Sprint 5 walk-in,
+    check-in and service execution plus Sprint 4 booking lifecycle,
     public booking,
     availability and calendar API,
   }
@@ -1309,6 +1310,304 @@ paths:
           },
       }
 
+  /walk-ins:
+    get:
+      {
+        tags: [walk-ins],
+        summary: List branch walk-in queue,
+        responses: { "200": { description: Queue with derived positions } },
+      }
+    post:
+      tags: [walk-ins]
+      summary: Register a walk-in with a concurrency-safe queue number
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/WalkInCreate" } },
+            },
+        }
+      responses:
+        {
+          "200": { description: Walk-in created },
+          "409": { description: Queue conflict },
+        }
+  /walk-ins/queue-summary:
+    get:
+      {
+        tags: [walk-ins],
+        summary: Queue counts and ordered entries,
+        responses: { "200": { description: Queue summary } },
+      }
+  /walk-ins/{walkInId}:
+    get:
+      {
+        tags: [walk-ins],
+        summary: Walk-in detail and history,
+        responses:
+          {
+            "200": { description: Walk-in detail },
+            "404": { description: Not found },
+          },
+      }
+    patch:
+      {
+        tags: [walk-ins],
+        summary: Update versioned walk-in metadata,
+        responses:
+          {
+            "200": { description: Updated },
+            "409": { description: Version conflict },
+          },
+      }
+  /walk-ins/{walkInId}/ready:
+    post:
+      {
+        tags: [walk-ins],
+        summary: Mark ready,
+        responses: { "200": { description: Ready } },
+      }
+  /walk-ins/{walkInId}/call:
+    post:
+      {
+        tags: [walk-ins],
+        summary: Call walk-in,
+        responses: { "200": { description: Called } },
+      }
+  /walk-ins/{walkInId}/return-to-waiting:
+    post:
+      {
+        tags: [walk-ins],
+        summary: Return to waiting,
+        responses: { "200": { description: Waiting } },
+      }
+  /walk-ins/{walkInId}/cancel:
+    post:
+      {
+        tags: [walk-ins],
+        summary: Cancel queue entry,
+        responses: { "200": { description: Cancelled } },
+      }
+  /walk-ins/{walkInId}/mark-left:
+    post:
+      {
+        tags: [walk-ins],
+        summary: Record that customer left,
+        responses: { "200": { description: Left } },
+      }
+  /walk-ins/{walkInId}/priority:
+    post:
+      {
+        tags: [walk-ins],
+        summary: Audited manager priority override,
+        responses:
+          {
+            "200": { description: Priority changed },
+            "403": { description: Permission denied },
+          },
+      }
+  /walk-ins/{walkInId}/conversion-plans:
+    post:
+      {
+        tags: [walk-ins],
+        summary: Preview conversion through Booking Planner,
+        responses: { "200": { description: Booking plan } },
+      }
+  /walk-ins/{walkInId}/conversion-holds:
+    post:
+      {
+        tags: [walk-ins],
+        summary: Reserve conversion through Reservation Engine,
+        responses: { "200": { description: Slot hold } },
+      }
+  /walk-ins/{walkInId}/convert:
+    post:
+      {
+        tags: [walk-ins],
+        summary: Idempotently consume hold and link one appointment,
+        responses:
+          {
+            "200": { description: Converted },
+            "409": { description: Conversion conflict },
+          },
+      }
+  /appointments/{appointmentId}/arrive:
+    post:
+      {
+        tags: [appointment-operations],
+        summary: Record an arrival,
+        responses: { "200": { description: Arrival recorded } },
+      }
+  /appointments/{appointmentId}/check-in:
+    post:
+      {
+        tags: [appointment-operations],
+        summary: Check in and create pending sessions,
+        responses:
+          {
+            "200": { description: Checked in },
+            "409": { description: Policy or version conflict },
+          },
+      }
+  /appointments/{appointmentId}/revert-check-in:
+    post:
+      {
+        tags: [appointment-operations],
+        summary: Manager-only audited check-in revert,
+        responses: { "200": { description: Reverted } },
+      }
+  /appointments/{appointmentId}/arrival:
+    get:
+      {
+        tags: [appointment-operations],
+        summary: Read active arrival,
+        responses: { "200": { description: Arrival } },
+      }
+  /appointments/{appointmentId}/add-service-plans:
+    post:
+      {
+        tags: [appointment-operations],
+        summary: Preview add-service scheduling impact,
+        responses:
+          {
+            "200": { description: Extension plan },
+            "409": { description: Not available },
+          },
+      }
+  /appointments/{appointmentId}/add-service-holds:
+    post:
+      {
+        tags: [appointment-operations],
+        summary: Hold extension reservations,
+        responses: { "200": { description: Extension hold } },
+      }
+  /appointments/{appointmentId}/add-service:
+    post:
+      {
+        tags: [appointment-operations],
+        summary: Commit approved service snapshot and reservation,
+        responses:
+          {
+            "200": { description: Item appended },
+            "409": { description: Revalidation conflict },
+          },
+      }
+  /appointments/{appointmentId}/checkout-summary:
+    get:
+      {
+        tags: [appointment-operations],
+        summary: Read non-financial checkout-ready preview,
+        responses: { "200": { description: Checkout summary } },
+      }
+  /service-sessions:
+    get:
+      {
+        tags: [service-sessions],
+        summary: List branch or own sessions,
+        responses: { "200": { description: Sessions } },
+      }
+  /service-sessions/{sessionId}:
+    get:
+      {
+        tags: [service-sessions],
+        summary: Read session with pause and contribution history,
+        responses: { "200": { description: Session detail } },
+      }
+  /service-sessions/{sessionId}/start:
+    post:
+      {
+        tags: [service-sessions],
+        summary: Start with qualified available staff,
+        responses:
+          {
+            "200": { description: Started },
+            "409": { description: Busy, invalid state, or version conflict },
+          },
+      }
+  /service-sessions/{sessionId}/pause:
+    post:
+      {
+        tags: [service-sessions],
+        summary: Pause and close active segment,
+        responses: { "200": { description: Paused } },
+      }
+  /service-sessions/{sessionId}/resume:
+    post:
+      {
+        tags: [service-sessions],
+        summary: Resume and open a contribution segment,
+        responses: { "200": { description: Resumed } },
+      }
+  /service-sessions/{sessionId}/complete:
+    post:
+      {
+        tags: [service-sessions],
+        summary: Complete and derive appointment checkout state,
+        responses: { "200": { description: Completed } },
+      }
+  /service-sessions/{sessionId}/cancel:
+    post:
+      {
+        tags: [service-sessions],
+        summary: Cancel authorized service item without refund,
+        responses: { "200": { description: Cancelled } },
+      }
+  /service-sessions/{sessionId}/transfer-staff:
+    post:
+      {
+        tags: [service-sessions],
+        summary: Atomically transfer remaining work,
+        responses:
+          {
+            "200": { description: Transferred },
+            "409": { description: Target unavailable },
+          },
+      }
+  /service-sessions/{sessionId}/notes:
+    get:
+      {
+        tags: [service-sessions],
+        summary: List sanitized notes,
+        responses: { "200": { description: Notes } },
+      }
+    post:
+      {
+        tags: [service-sessions],
+        summary: Add sanitized note,
+        responses: { "200": { description: Note added } },
+      }
+  /service-sessions/{sessionId}/media/presign:
+    post:
+      {
+        tags: [service-sessions],
+        summary: Create tenant-prefixed short-lived upload metadata,
+        responses:
+          { "200": { description: Presign or disabled feature state } },
+      }
+  /operations/board:
+    get:
+      {
+        tags: [operations],
+        summary: Read branch/day operational board,
+        responses: { "200": { description: Board and data version } },
+      }
+  /operations/summary:
+    get:
+      {
+        tags: [operations],
+        summary: Owner operational counters,
+        responses: { "200": { description: Summary } },
+      }
+  /staff/me/today:
+    get:
+      {
+        tags: [operations],
+        summary: Privacy-safe own Staff Today data,
+        responses: { "200": { description: Staff Today } },
+      }
 components:
   parameters:
     IdempotencyKey:
@@ -1329,6 +1628,31 @@ components:
         description: Requested tenant scope; always verified against the authenticated membership,
       }
   schemas:
+    WalkInCreate:
+      type: object
+      required: [branchId, displayName, items]
+      properties:
+        branchId: { type: string, format: uuid }
+        customerId: { type: string, format: uuid }
+        displayName: { type: string, minLength: 1, maxLength: 200 }
+        phone: { type: string, maxLength: 32 }
+        email: { type: string, format: email }
+        source: { enum: [RECEPTION, KIOSK, QR, MOBILE], default: RECEPTION }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            type: object
+            required: [serviceId, staffPreference]
+            properties:
+              serviceId: { type: string, format: uuid }
+              staffPreference:
+                type: object
+                required: [type]
+                properties:
+                  type: { enum: [ANY, SPECIFIC] }
+                  staffId: { type: string, format: uuid }
     AvailabilityExplainRequest:
       type: object
       required: [branchId, serviceId, startAt]

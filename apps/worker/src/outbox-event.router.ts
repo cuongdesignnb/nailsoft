@@ -64,6 +64,32 @@ const bookingEvents = new Set([
   "schedule.resource_reserved",
   "schedule.reservation_released",
 ]);
+const operationalEvents = new Set([
+  "walkin.created",
+  "walkin.ready",
+  "walkin.called",
+  "walkin.waiting",
+  "walkin.cancelled",
+  "walkin.left",
+  "walkin.priority_changed",
+  "walkin.converted",
+  "appointment.arrived",
+  "appointment.checked_in",
+  "appointment.check_in_reverted",
+  "appointment.operational_status_changed",
+  "appointment.checkout_ready",
+  "appointment.item_added",
+  "appointment.item_cancelled",
+  "service_session.created",
+  "service_session.started",
+  "service_session.paused",
+  "service_session.resumed",
+  "service_session.completed",
+  "service_session.cancelled",
+  "service_session.staff_transferred",
+  "service_session.note_added",
+  "service_session.media_added",
+]);
 
 @Injectable()
 export class OutboxEventRouter {
@@ -74,6 +100,7 @@ export class OutboxEventRouter {
   async route(event: OutboxEvent): Promise<RoutedEvent> {
     const control = this.control(event);
     if (control) return { kind: "control", message: control };
+    if (operationalEvents.has(event.event_type)) return this.operational(event);
     if (bookingEvents.has(event.event_type)) return this.booking(event);
     if (
       !tenantWide.has(event.event_type) &&
@@ -135,6 +162,71 @@ export class OutboxEventRouter {
       });
     }
     return { kind: "invalidation", deliveries };
+  }
+
+  private async operational(event: OutboxEvent): Promise<RoutedEvent> {
+    const branchId =
+      event.branch_id ?? stringValue(event.payload_json.branchId);
+    if (!branchId) return { kind: "ignored" };
+    await this.assertBranch(event.tenant_id, branchId);
+    const appointmentId =
+      stringValue(event.payload_json.appointmentId) ??
+      (event.aggregate_type === "appointment" ? event.aggregate_id : undefined);
+    const staffIds = new Set<string>();
+    const payloadStaff = stringValue(
+      event.payload_json.staffId ?? event.payload_json.targetStaffId,
+    );
+    if (payloadStaff) staffIds.add(payloadStaff);
+    if (appointmentId) {
+      const rows = await this.repo.query<{ staff_id: string }>(
+        `SELECT DISTINCT asa.staff_id FROM appointment_items ai
+         JOIN appointment_item_staff_assignments asa
+           ON asa.tenant_id=ai.tenant_id AND asa.appointment_item_id=ai.id
+         WHERE ai.tenant_id=$1 AND ai.appointment_id=$2 AND asa.status='ACTIVE'`,
+        [event.tenant_id, appointmentId],
+      );
+      rows.rows.forEach((row) => staffIds.add(row.staff_id));
+    }
+    for (const staffId of staffIds)
+      await this.assertStaff(event.tenant_id, branchId, staffId);
+    const version = await this.repo.query<{ version: string }>(
+      `SELECT version FROM branch_operational_versions
+       WHERE tenant_id=$1 AND branch_id=$2`,
+      [event.tenant_id, branchId],
+    );
+    const realtimeEvent = stringValue(event.metadata_json.realtimeEvent);
+    return {
+      kind: "invalidation",
+      deliveries: [
+        {
+          payload: {
+            eventId: event.id,
+            tenantId: event.tenant_id,
+            branchId,
+            ...(appointmentId ? { appointmentId } : {}),
+            dataVersion: Number(version.rows[0]?.version ?? 1),
+            sourceEventType: event.event_type,
+            realtimeEvent:
+              realtimeEvent ??
+              (event.aggregate_type === "walk_in"
+                ? "walkin.updated"
+                : event.aggregate_type === "appointment"
+                  ? "appointment.updated"
+                  : "service_session.updated"),
+            refetch: true,
+            occurredAt: event.created_at.toISOString(),
+          },
+          rooms: [
+            ...new Set([
+              `tenant:${event.tenant_id}`,
+              `branch:${branchId}`,
+              ...[...staffIds].map((id) => `staff:${id}`),
+              ...(appointmentId ? [`appointment:${appointmentId}`] : []),
+            ]),
+          ],
+        },
+      ],
+    };
   }
 
   private async booking(event: OutboxEvent): Promise<RoutedEvent> {

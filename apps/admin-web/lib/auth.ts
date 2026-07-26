@@ -95,4 +95,7 @@ export function clearMemory() {
   accessToken = undefined;
   tenantId = undefined;
 }
+export function activeSession() {
+  return { accessToken, tenantId, api };
+}
 import { createRefreshSingleFlight } from "@nailsoft/api-client";

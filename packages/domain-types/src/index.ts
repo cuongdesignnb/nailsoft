@@ -178,6 +178,10 @@ export type AppointmentStatus =
   | "PENDING_CONFIRMATION"
   | "PENDING_DEPOSIT"
   | "CONFIRMED"
+  | "CHECKED_IN"
+  | "IN_SERVICE"
+  | "PARTIALLY_COMPLETED"
+  | "COMPLETED"
   | "EXPIRED"
   | "CANCELLED_BY_CUSTOMER"
   | "CANCELLED_BY_SALON";
@@ -242,4 +246,35 @@ export interface AppointmentSummary {
   version: number;
   depositStatus: "NOT_REQUIRED" | "REQUIRED" | "PENDING" | "WAIVED";
   pricingSummary: Record<string, unknown>;
+  checkoutReady?: boolean;
+}
+
+export type WalkInStatus =
+  "WAITING" | "READY" | "CALLED" | "CONVERTED" | "CANCELLED" | "LEFT";
+export type ServiceSessionStatus =
+  "PENDING" | "IN_PROGRESS" | "PAUSED" | "COMPLETED" | "CANCELLED";
+export interface WalkInSummary {
+  id: string;
+  branchId: string;
+  queueNumber: number;
+  localQueueDate: string;
+  status: WalkInStatus;
+  priority: "NORMAL" | "RECOVERY" | "MANAGER_OVERRIDE";
+  estimatedStartAt?: string;
+  estimatedWaitMinutes?: number;
+  estimateGeneratedAt?: string;
+  estimateDisclaimer: "ESTIMATED_NOT_GUARANTEED";
+  version: number;
+}
+export interface ServiceSessionSummary {
+  id: string;
+  appointmentId: string;
+  appointmentItemId: string;
+  branchId: string;
+  status: ServiceSessionStatus;
+  actualStartedAt?: string;
+  actualEndedAt?: string;
+  totalPauseSeconds: number;
+  actualWorkSeconds: number;
+  version: number;
 }

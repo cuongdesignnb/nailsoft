@@ -114,6 +114,8 @@ export default function Home() {
               : "Session unavailable."}
           </Text>
           {[
+            "operationalSummary",
+            "walkInQueue",
             "appointmentsToday",
             "appointments",
             "calendarDay",

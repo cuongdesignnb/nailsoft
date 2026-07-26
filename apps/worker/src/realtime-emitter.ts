@@ -16,6 +16,10 @@ export class RealtimeEmitter implements OnModuleDestroy {
     await this.ensureConnected();
     const target = this.emitter!.of("/scheduling").to(rooms);
     target.emit("availability.invalidated", payload);
+    if (payload.realtimeEvent) {
+      target.emit(payload.realtimeEvent, payload);
+      target.emit("operations.invalidated", payload);
+    }
     if (
       payload.sourceEventType.startsWith("appointment.") ||
       payload.sourceEventType.startsWith("slot_hold.")

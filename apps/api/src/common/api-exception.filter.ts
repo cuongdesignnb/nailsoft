@@ -36,6 +36,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
       staff_schedule_no_active_overlap: "STAFF_RESERVED",
       appointments_tenant_reference_unique: "BOOKING_REFERENCE_CONFLICT",
       appointment_item_one_primary_active: "APPOINTMENT_ASSIGNMENT_INVALID",
+      service_segment_one_open_per_staff: "SERVICE_SESSION_STAFF_BUSY",
+      service_segment_one_open_primary: "SERVICE_SESSION_VERSION_CONFLICT",
+      service_pause_one_open: "SERVICE_SESSION_OPEN_PAUSE_EXISTS",
+      appointment_arrivals_tenant_id_appointment_id_key:
+        "APPOINTMENT_ALREADY_ARRIVED",
+      walk_in_entries_tenant_id_branch_id_local_queue_date_queue_number_key:
+        "WALK_IN_QUEUE_CONFLICT",
     };
     const status =
       databaseCode === "23505" ||

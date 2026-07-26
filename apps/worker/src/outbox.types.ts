@@ -16,6 +16,8 @@ export type AvailabilityInvalidatedEvent = {
   tenantId: string;
   branchId: string;
   staffId?: string;
+  appointmentId?: string;
+  realtimeEvent?: string;
   dataVersion: number;
   sourceEventType: string;
   refetch: true;

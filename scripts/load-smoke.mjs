@@ -225,6 +225,48 @@ const scenarios = [
       }),
   },
   {
+    name: "operations-board",
+    setup: async (worker) => auth(`load-operations-${worker}`),
+    run: (state) =>
+      request(
+        "/v1/operations/board?branchId=20000000-0000-4000-8000-000000000001",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
+    name: "walkin-queue",
+    setup: async (worker) => auth(`load-walkin-${worker}`),
+    run: (state) =>
+      request(
+        "/v1/walk-ins/queue-summary?branchId=20000000-0000-4000-8000-000000000001",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
+    name: "checkout-summary",
+    setup: async (worker) => auth(`load-checkout-${worker}`),
+    run: (state) =>
+      request(
+        "/v1/appointments/70000000-0000-4000-8000-000000000001/checkout-summary",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
     name: "public-booking-availability",
     run: () =>
       request(
