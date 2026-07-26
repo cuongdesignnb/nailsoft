@@ -2,16 +2,17 @@
 
 ## Status
 
-Sprint 5 implementation and local verification are complete. Formal `DONE` requires the GitHub Actions run for the immutable final Sprint 5 commit to succeed; the exact commit and run are recorded in the final handoff because a Git commit cannot contain its own hash.
+Sprint 5 closure hardening is implemented and locally verified. Formal `DONE` still requires the GitHub Actions run for the immutable closure commit to succeed; the exact commit and run are recorded in the final handoff because a Git commit cannot contain its own hash.
 
 ## Git
 
 - Branch: `main`
-- Start checkpoint: `d6df218b24021bfe303300980a73ce493ea18097`
+- Sprint start checkpoint: `d6df218b24021bfe303300980a73ce493ea18097`
+- Closure checkpoint: `b435758612861e29a0aa079993374562227b538d`
 - Final commit: recorded in the final handoff
 - Commit message: `feat: complete sprint 5 salon operations`
 - Start state: `HEAD = origin/main`, clean
-- Migrations 0001-0010: unchanged
+- Migrations 0001-0011: unchanged by closure hardening
 
 ## Migration
 
@@ -26,7 +27,7 @@ Sprint 5 implementation and local verification are complete. Formal `DONE` requi
 
 - Registration: customer reference or contact snapshot with one or more active branch services
 - Queue number: PostgreSQL counter row locked by tenant, branch and local date; concurrent test produced unique numbers
-- ETA: current Booking Planner/Availability result with generated timestamp and `ESTIMATED_NOT_GUARANTEED`; unavailable estimates remain explicit
+- ETA: combines current Availability/Booking Planner slots, service duration and buffers, eligible parallel staff capacity, active queue workload and branch queue buffer; results include generated timestamp, confidence, reason codes and `ESTIMATED_NOT_GUARANTEED`
 - Status machine: command-specific WAITING/READY/CALLED/CONVERTED/CANCELLED/LEFT transitions
 - Priority: Owner/Manager permission and mandatory reason; no destructive reorder or delete
 - Conversion: preview and hold call the Booking/Reservation Engine; conversion consumes that hold and links the one idempotently-created appointment
@@ -51,12 +52,14 @@ Sprint 5 implementation and local verification are complete. Formal `DONE` requi
 
 - Every staff contribution is an append-only segment
 - Transfer closes the old segment, changes the active assignment/reservation and opens the target segment atomically
+- Technician execution authorization is recalculated per command from the current active PRIMARY assignment; while in progress it also requires ownership of the one open PRIMARY segment. Historical segments grant read history only.
 - Partial unique indexes prevent two open staff segments and two open primaries per session
 - Checkout summary aggregates contribution seconds; no commission calculation exists
 
 ## Add Service
 
-- Plan revalidates active service, add-on relation, qualification, resources and future conflicts
+- Plan revalidates active branch/service, add-on relation, qualification, resources and future conflicts
+- Earliest extension start is the latest of branch-local rounded current time, appointment end and estimated completion of active work; past reservations are rejected at the Booking boundary
 - Hold is created by the existing Reservation Engine
 - Commit requires current appointment version and customer approval method
 - New item/session/snapshots and schedule revision are appended; existing snapshots are unchanged
@@ -64,9 +67,11 @@ Sprint 5 implementation and local verification are complete. Formal `DONE` requi
 
 ## Notes & Media
 
-- Notes are assignment/branch scoped, versioned and sanitized; delete is not exposed
+- Notes are current-assignment/branch scoped, versioned, sanitized and audited; update emits an outbox refetch signal and delete is not exposed
 - Media is private metadata with MIME, size, checksum, tenant prefix and soft deletion
 - Presigned-upload foundation uses a short-lived HMAC URL only when object-storage environment is configured
+- Client completion can only report an upload and leaves metadata `PENDING_UPLOAD`; only a trusted provider callback or Worker verification may promote it to `READY`
+- Media completion and soft deletion enforce current session scope and record audit/outbox evidence
 - Media returns an explicit disabled state when the provider is not configured; service execution remains available
 
 ## Realtime
@@ -86,6 +91,7 @@ Sprint 5 implementation and local verification are complete. Formal `DONE` requi
 - Accountant/Marketing: no operational grants
 - Platform Admin: denied without Support Access Grant
 - Tenant, branch and staff isolation: service query checks plus composite database constraints and tests
+- Branch operational commands reject inactive branches; add-service commit repeats that validation inside its locking transaction
 
 ## UI
 
@@ -105,14 +111,15 @@ Sprint 5 implementation and local verification are complete. Formal `DONE` requi
 - Appointments: arrive, check-in, revert, arrival, add-service plan/hold/commit, checkout summary
 - Service sessions: list/detail, lifecycle commands, transfer, notes and media metadata
 - Operations: board, summary and Staff Today
-- OpenAPI: Sprint 5 paths plus request/response schema foundation, version `0.7.0`
+- Operational Board uses a half-open branch-local day range; Staff Today calculates and groups each assigned branch by its own IANA timezone, including DST days
+- OpenAPI: Sprint 5 paths plus explicit ETA, note update and trusted media-verification contracts, version `0.7.0`
 
 ## Tests
 
 - Unit: 55/55 passed, including queue/session/appointment derivation and realtime routing
-- Integration: 63/63 passed across Sprint 1-5; 10 Sprint 5 tests cover lifecycle, tenant/branch/staff scope, idempotency and database races
+- Integration: 67/67 passed across Sprint 1-5; 14 Sprint 5 tests cover lifecycle, tenant/branch/staff scope, assignment/reservation consistency, ETA, timezone, idempotency and database races
 - Contract: 1/1 passed
-- E2E: 34/34 passed after deterministic reset, including authenticated Reception board/walk-in and Owner/Staff Mobile scenarios
+- Deep E2E: dedicated scheduled execution, walk-in conversion, staff transfer, timezone boundary and add-service specs pass after deterministic reset
 - Migration: fresh/down/up and existing-data count passed
 - Security: Platform denial, technician own scope, cross-tenant opacity, note sanitization and tenant-bound media tested
 - Local lint: 13/13 packages passed
@@ -144,7 +151,9 @@ Sprint 5 implementation and local verification are complete. Formal `DONE` requi
 ## Local Run
 
 ```bash
-docker compose up -d
+# Infrastructure is started only for the QA window and is always stopped after it.
+docker compose start
+trap 'docker compose stop' EXIT
 pnpm install
 pnpm db:reset
 pnpm db:seed
@@ -155,7 +164,6 @@ pnpm test:integration
 pnpm test:contract
 pnpm test:e2e
 pnpm build
-pnpm dev
 ```
 
 ## Scope Confirmation

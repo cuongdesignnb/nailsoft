@@ -423,7 +423,10 @@ export class ServiceSessionController {
     @Body() b: unknown,
     @Req() r: AuthenticatedRequest,
   ) {
-    return response(await this.service.updateNote(r.auth, id, noteId, b), r);
+    return response(
+      await this.service.updateNote(r.auth, id, noteId, b, requestId(r)),
+      r,
+    );
   }
   @Post(":sessionId/media/presign")
   @RequirePermission("service_session.media")
@@ -447,7 +450,7 @@ export class ServiceSessionController {
     @Req() r: AuthenticatedRequest,
   ) {
     return response(
-      await this.service.completeMedia(r.auth, id, mediaId, b),
+      await this.service.completeMedia(r.auth, id, mediaId, b, requestId(r)),
       r,
     );
   }
@@ -463,7 +466,10 @@ export class ServiceSessionController {
     @Param("mediaId") mediaId: string,
     @Req() r: AuthenticatedRequest,
   ) {
-    return response(await this.service.deleteMedia(r.auth, id, mediaId), r);
+    return response(
+      await this.service.deleteMedia(r.auth, id, mediaId, requestId(r)),
+      r,
+    );
   }
   private async command(
     id: string,

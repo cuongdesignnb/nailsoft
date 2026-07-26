@@ -83,6 +83,10 @@ jobs:
         run: pnpm exec vitest run apps/api/test/public-booking-policy.test.ts apps/api/test/booking-idempotency.test.ts apps/api/test/booking-token.test.ts packages/validation/src/index.test.ts
       - name: Sprint 1-5 PostgreSQL and concurrency integration
         run: pnpm test:integration
+      - name: Sprint 5 operational authorization integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint5-closure-authorization.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 5 ETA and timezone integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint5-eta-timezone.test.ts --maxWorkers=1 --minWorkers=1
       - name: Reset focused regression fixture
         run: pnpm db:reset && pnpm db:seed
       - name: Public booking tenant-scoped deep integration
@@ -109,7 +113,20 @@ jobs:
           cat api-e2e.log
           exit 1
       - name: Authenticated Sprint 1-4 E2E
-        run: pnpm test:e2e
+        run: >-
+          pnpm exec playwright test
+          tests/e2e/sprint1-smoke.spec.ts
+          tests/e2e/sprint2-authenticated-catalog.spec.ts
+          tests/e2e/sprint2-authenticated-leave.spec.ts
+          tests/e2e/sprint2-authenticated-shifts.spec.ts
+          tests/e2e/sprint2-authenticated-staff.spec.ts
+          tests/e2e/sprint2-authorization.spec.ts
+          tests/e2e/sprint2-conflicts.spec.ts
+          tests/e2e/sprint3-availability-calendar.spec.ts
+          tests/e2e/sprint3-closure-functional.spec.ts
+          tests/e2e/sprint3-closure-outbox-realtime.spec.ts
+          tests/e2e/sprint3-closure-websocket-security.spec.ts
+          tests/e2e/sprint4-booking-ui.spec.ts
       - name: Sprint 4 Booking Web policy and multi-service E2E
         run: pnpm exec playwright test tests/e2e/sprint4-booking-ui.spec.ts
       - name: Sprint 3 closure authenticated E2E
@@ -118,6 +135,21 @@ jobs:
         run: pnpm exec playwright test tests/e2e/sprint2-mobile-api.spec.ts tests/e2e/sprint3-availability-calendar.spec.ts tests/e2e/sprint4-booking-ui.spec.ts
       - name: Sprint 5 authenticated operational and mobile E2E
         run: pnpm exec playwright test tests/e2e/sprint5-operations.spec.ts tests/e2e/sprint5-mobile.spec.ts
+      - name: Sprint 5 authenticated deep E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/e2e/sprint5-scheduled-execution.spec.ts \
+            tests/e2e/sprint5-walkin-conversion.spec.ts \
+            tests/e2e/sprint5-transfer-deep.spec.ts \
+            tests/e2e/sprint5-timezone-deep.spec.ts \
+            tests/e2e/sprint5-add-service-deep.spec.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec playwright test "$spec"
+          done
       - name: Scheduling and booking load smoke
         env:
           LOAD_DURATION_SECONDS: 2

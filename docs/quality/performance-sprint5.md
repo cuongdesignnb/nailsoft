@@ -29,4 +29,14 @@ Date: 2026-07-26. Warm-up: 1 second. Measurement: 3 seconds per scenario. This i
 | Walk-in queue     |           5 |    1,898 | 632.67 rps | 9.55 ms | 13.26 ms |         0% |        0 |
 | Checkout summary  |           5 |    1,861 | 620.33 rps | 9.21 ms | 10.92 ms |         0% |        0 |
 
+## Closure hardening regression smoke
+
+Date: 2026-07-27. Deterministic reset, concurrency 5, one-second warm-up and two-second measurement per scenario. Docker infrastructure and QA services were stopped immediately afterward.
+
+| Scenario          | Requests | Throughput |      p95 |      p99 | Error rate | Timeouts |
+| ----------------- | -------: | ---------: | -------: | -------: | ---------: | -------: |
+| Operational board |      692 |  346.0 rps | 19.95 ms | 30.42 ms |         0% |        0 |
+| Walk-in queue     |    1,257 |  628.5 rps |  9.31 ms | 10.29 ms |         0% |        0 |
+| Checkout summary  |    1,025 |  512.5 rps | 11.45 ms | 12.18 ms |         0% |        0 |
+
 All measured read paths are below their Sprint 5 local targets. Realtime delivery is tested functionally through authenticated Socket.IO/outbox tests; a production-like end-to-end latency percentile remains part of the staging benchmark debt.

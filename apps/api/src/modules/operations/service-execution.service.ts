@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { createHmac, randomUUID } from "node:crypto";
+import { DateTime } from "luxon";
 import {
   addServiceCommitSchema,
   addServicePlanSchema,
@@ -35,6 +36,12 @@ import {
   durationSeconds,
   sanitizeNote,
 } from "./operations-domain.js";
+import {
+  branchLocalDate,
+  branchLocalDayRange,
+  roundUpBranchTime,
+} from "./operational-time.js";
+import { WalkInEtaService } from "./walk-in-eta.service.js";
 
 @Injectable()
 export class ServiceExecutionService {
@@ -43,6 +50,7 @@ export class ServiceExecutionService {
     @Inject(BookingIdempotencyService)
     private readonly idem: BookingIdempotencyService,
     @Inject(BookingService) private readonly booking: BookingService,
+    @Inject(WalkInEtaService) private readonly eta: WalkInEtaService,
   ) {}
   private deny(auth: AccessClaims) {
     if (auth.roles.includes("PLATFORM_SUPER_ADMIN"))
@@ -72,7 +80,7 @@ export class ServiceExecutionService {
     requestId: string,
   ) {
     const body = appointmentArrivalSchema.parse(input);
-    return (
+    const result = (
       await this.db.transaction((c) =>
         this.idem.execute(c, {
           tenantId: auth.tenantId,
@@ -82,6 +90,7 @@ export class ServiceExecutionService {
           request: { id, ...body },
           work: async () => {
             const a = await this.appointment(c, auth, id, true);
+            await this.assertBranchActive(c, auth.tenantId, a.branch_id);
             if (!["CONFIRMED", "CHECKED_IN"].includes(a.status))
               throw new ConflictException({
                 code: "APPOINTMENT_CHECK_IN_NOT_ALLOWED",
@@ -157,6 +166,7 @@ export class ServiceExecutionService {
         }),
       )
     ).data;
+    return result;
   }
   async checkIn(
     auth: AccessClaims,
@@ -166,7 +176,7 @@ export class ServiceExecutionService {
     requestId: string,
   ) {
     const body = appointmentCheckInSchema.parse(input);
-    return (
+    const result = (
       await this.db.transaction((c) =>
         this.idem.execute(c, {
           tenantId: auth.tenantId,
@@ -176,6 +186,7 @@ export class ServiceExecutionService {
           request: { id, ...body },
           work: async () => {
             const a = await this.appointment(c, auth, id, true);
+            await this.assertBranchActive(c, auth.tenantId, a.branch_id);
             if (a.status === "CHECKED_IN")
               throw new ConflictException({
                 code: "APPOINTMENT_ALREADY_CHECKED_IN",
@@ -276,6 +287,7 @@ export class ServiceExecutionService {
         }),
       )
     ).data;
+    return result;
   }
   async revertCheckIn(
     auth: AccessClaims,
@@ -431,7 +443,7 @@ export class ServiceExecutionService {
         cancel: sessionCancelSchema,
       },
       body: any = schemas[action].parse(input);
-    return (
+    const result = (
       await this.db.transaction((c) =>
         this.idem.execute(c, {
           tenantId: auth.tenantId,
@@ -443,10 +455,13 @@ export class ServiceExecutionService {
             const s = await this.lockSession(c, auth, id);
             if (Number(s.version) !== body.version)
               throw version("SERVICE_SESSION_VERSION_CONFLICT");
+            await this.assertSessionExecutionAccess(c, auth, s);
             const now = new Date();
             if (action === "start") {
+              await this.assertBranchActive(c, auth.tenantId, s.branch_id);
               assertSessionTransition(s.status, "IN_PROGRESS");
               await this.qualify(c, auth, s, body.staffId);
+              await this.assertPrimaryAssignment(c, auth, s, body.staffId);
               await c.query(
                 "INSERT INTO service_session_staff_segments(tenant_id,service_session_id,staff_id,segment_role,started_at,created_by_user_id) VALUES($1,$2,$3,'PRIMARY',$4,$5)",
                 [auth.tenantId, id, body.staffId, now, auth.userId],
@@ -479,8 +494,10 @@ export class ServiceExecutionService {
               );
             }
             if (action === "resume") {
+              await this.assertBranchActive(c, auth.tenantId, s.branch_id);
               assertSessionTransition(s.status, "IN_PROGRESS");
               await this.qualify(c, auth, s, body.staffId);
+              await this.assertPrimaryAssignment(c, auth, s, body.staffId);
               await c.query(
                 "UPDATE service_session_pauses SET ended_at=$3,ended_by_user_id=$4 WHERE tenant_id=$1 AND service_session_id=$2 AND ended_at IS NULL",
                 [auth.tenantId, id, now, auth.userId],
@@ -600,6 +617,9 @@ export class ServiceExecutionService {
         }),
       )
     ).data;
+    if (action === "complete")
+      await this.eta.refreshBranch(auth, result.branchId);
+    return result;
   }
 
   async transfer(
@@ -615,7 +635,7 @@ export class ServiceExecutionService {
         code: "SERVICE_SESSION_TRANSFER_NOT_ALLOWED",
         message: "Transfer permission is required",
       });
-    return (
+    const result = (
       await this.db.transaction((c) =>
         this.idem.execute(c, {
           tenantId: auth.tenantId,
@@ -625,6 +645,7 @@ export class ServiceExecutionService {
           request: { id, ...body },
           work: async () => {
             const s = await this.lockSession(c, auth, id);
+            await this.assertBranchActive(c, auth.tenantId, s.branch_id);
             if (Number(s.version) !== body.version)
               throw version("SERVICE_SESSION_VERSION_CONFLICT");
             if (!["IN_PROGRESS", "PAUSED"].includes(s.status))
@@ -697,6 +718,8 @@ export class ServiceExecutionService {
         }),
       )
     ).data;
+    await this.eta.refreshBranch(auth, result.branchId);
+    return result;
   }
 
   async addPlan(auth: AccessClaims, appointmentId: string, input: unknown) {
@@ -706,6 +729,17 @@ export class ServiceExecutionService {
       throw new ConflictException({
         code: "ADD_SERVICE_NOT_AVAILABLE",
         message: "Appointment is not active for add-service",
+      });
+    const branch = (
+      await this.db.query<any>(
+        "SELECT timezone,status FROM branches WHERE tenant_id=$1 AND id=$2",
+        [auth.tenantId, a.branch_id],
+      )
+    ).rows[0];
+    if (!branch || branch.status !== "ACTIVE")
+      throw new ConflictException({
+        code: "BRANCH_INACTIVE",
+        message: "Branch is not active for add-service",
       });
     if (body.parentItemId) {
       const relation = await this.db.query(
@@ -718,15 +752,30 @@ export class ServiceExecutionService {
           message: "Service is not an allowed add-on",
         });
     }
+    const activeCompletion = (
+        await this.db.query<any>(
+          `SELECT max(GREATEST(s.scheduled_end_at,
+             now()+make_interval(secs=>GREATEST(0,extract(epoch FROM (s.scheduled_end_at-s.scheduled_start_at))::int-s.actual_work_seconds)))) estimated_end
+           FROM service_sessions s WHERE s.tenant_id=$1 AND s.appointment_id=$2
+             AND s.status IN ('IN_PROGRESS','PAUSED')`,
+          [auth.tenantId, appointmentId],
+        )
+      ).rows[0]?.estimated_end,
+      roundedNow = roundUpBranchTime(new Date(), branch.timezone, 5),
+      earliest = DateTime.max(
+        roundedNow,
+        DateTime.fromJSDate(new Date(a.end_at), { zone: "utc" }),
+        activeCompletion
+          ? DateTime.fromJSDate(new Date(activeCompletion), { zone: "utc" })
+          : roundedNow,
+      );
     let plan: any;
     let lastError: unknown;
     for (let offset = 0; offset <= 360; offset += 5) {
       try {
         plan = await this.booking.plan(auth, {
           branchId: a.branch_id,
-          desiredStartAt: new Date(
-            new Date(a.end_at).getTime() + offset * 60_000,
-          ).toISOString(),
+          desiredStartAt: earliest.plus({ minutes: offset }).toISO()!,
           items: [
             {
               serviceId: body.serviceId,
@@ -750,6 +799,7 @@ export class ServiceExecutionService {
       parentItemId: body.parentItemId ?? null,
       scheduleImpact: {
         previousEndAt: a.end_at,
+        earliestStartAt: earliest.toISO(),
         newEndAt: plan.endAt,
         extendsMinutes: Math.ceil(
           (new Date(plan.endAt).getTime() - new Date(a.end_at).getTime()) /
@@ -827,6 +877,7 @@ export class ServiceExecutionService {
           request: { id, ...body },
           work: async () => {
             const s = await this.lockSession(c, auth, id);
+            await this.assertSessionExecutionAccess(c, auth, s);
             const row = (
               await c.query<any>(
                 "INSERT INTO service_session_notes(tenant_id,service_session_id,author_user_id,visibility,note) VALUES($1,$2,$3,$4,$5) RETURNING *",
@@ -866,24 +917,62 @@ export class ServiceExecutionService {
     id: string,
     noteId: string,
     input: unknown,
+    requestId: string,
   ) {
     const body = serviceSessionNoteUpdateSchema.parse(input);
-    await this.sessionQuery(auth, id);
-    const row = (
-      await this.db.query<any>(
-        "UPDATE service_session_notes SET visibility=$4,note=$5,version=version+1,updated_at=now() WHERE tenant_id=$1 AND service_session_id=$2 AND id=$3 AND version=$6 AND archived_at IS NULL RETURNING *",
-        [
-          auth.tenantId,
-          id,
-          noteId,
-          body.visibility,
-          sanitizeNote(body.note),
-          body.version,
-        ],
+    return this.db.transaction(async (c) => {
+      const session = await this.lockSession(c, auth, id);
+      await this.assertSessionExecutionAccess(c, auth, session);
+      const existing = (
+        await c.query<any>(
+          "SELECT * FROM service_session_notes WHERE tenant_id=$1 AND service_session_id=$2 AND id=$3 AND archived_at IS NULL FOR UPDATE",
+          [auth.tenantId, id, noteId],
+        )
+      ).rows[0];
+      if (!existing)
+        throw new NotFoundException({
+          code: "SERVICE_SESSION_NOTE_NOT_FOUND",
+          message: "Note not found",
+        });
+      if (
+        auth.roles.includes("NAIL_TECHNICIAN") &&
+        existing.author_user_id !== auth.userId
       )
-    ).rows[0];
-    if (!row) throw version("VERSION_CONFLICT");
-    return row;
+        throw new ForbiddenException({
+          code: "SERVICE_SESSION_SCOPE_DENIED",
+          message: "Technician can only edit an own note",
+        });
+      if (Number(existing.version) !== body.version)
+        throw version("VERSION_CONFLICT");
+      const row = (
+        await c.query<any>(
+          "UPDATE service_session_notes SET visibility=$4,note=$5,version=version+1,updated_at=now() WHERE tenant_id=$1 AND service_session_id=$2 AND id=$3 RETURNING *",
+          [auth.tenantId, id, noteId, body.visibility, sanitizeNote(body.note)],
+        )
+      ).rows[0];
+      await this.record(
+        c,
+        auth,
+        session.branch_id,
+        "service_session.note_updated",
+        "service_session",
+        id,
+        row.version,
+        requestId,
+        {
+          sessionId: id,
+          noteId,
+          branchId: session.branch_id,
+          before: {
+            visibility: existing.visibility,
+            version: existing.version,
+          },
+          after: { visibility: row.visibility, version: row.version },
+          refetch: true,
+        },
+      );
+      return row;
+    });
   }
   async presign(
     auth: AccessClaims,
@@ -907,8 +996,9 @@ export class ServiceExecutionService {
           key,
           request: { id, ...body },
           work: async () => {
-            const s = await this.lockSession(c, auth, id),
-              mediaId = randomUUID(),
+            const s = await this.lockSession(c, auth, id);
+            await this.assertSessionExecutionAccess(c, auth, s);
+            const mediaId = randomUUID(),
               storageKey = `tenants/${auth.tenantId}/sessions/${id}/${mediaId}`,
               expiresAt = new Date(Date.now() + 5 * 60_000),
               signature = createHmac("sha256", secret)
@@ -960,21 +1050,45 @@ export class ServiceExecutionService {
     id: string,
     mediaId: string,
     input: unknown,
+    requestId: string,
   ) {
     const body = mediaCompleteSchema.parse(input);
-    await this.sessionQuery(auth, id);
-    const row = (
-      await this.db.query<any>(
-        "UPDATE service_session_media SET status='READY',ready_at=now() WHERE tenant_id=$1 AND service_session_id=$2 AND id=$3 AND status='PENDING_UPLOAD' AND checksum=$4 RETURNING id,status,ready_at",
-        [auth.tenantId, id, mediaId, body.checksum],
-      )
-    ).rows[0];
-    if (!row)
-      throw new ConflictException({
-        code: "MEDIA_CHECKSUM_MISMATCH",
-        message: "Upload metadata or checksum does not match",
-      });
-    return row;
+    return this.db.transaction(async (c) => {
+      const session = await this.lockSession(c, auth, id);
+      await this.assertSessionExecutionAccess(c, auth, session);
+      const media = (
+        await c.query<any>(
+          "SELECT * FROM service_session_media WHERE tenant_id=$1 AND service_session_id=$2 AND id=$3 FOR UPDATE",
+          [auth.tenantId, id, mediaId],
+        )
+      ).rows[0];
+      if (!media)
+        throw new NotFoundException({
+          code: "MEDIA_UPLOAD_NOT_FOUND",
+          message: "Media upload not found",
+        });
+      if (media.checksum !== body.checksum)
+        throw new ConflictException({
+          code: "MEDIA_CHECKSUM_MISMATCH",
+          message: "Upload checksum does not match presigned metadata",
+        });
+      await this.record(
+        c,
+        auth,
+        session.branch_id,
+        "service_session.media_upload_reported",
+        "service_session",
+        id,
+        session.version,
+        requestId,
+        { sessionId: id, mediaId, branchId: session.branch_id, refetch: true },
+      );
+      return {
+        id: media.id,
+        status: "PENDING_UPLOAD",
+        verificationRequired: "TRUSTED_PROVIDER_CALLBACK",
+      };
+    });
   }
   async media(auth: AccessClaims, id: string) {
     await this.sessionQuery(auth, id);
@@ -985,20 +1099,39 @@ export class ServiceExecutionService {
       )
     ).rows;
   }
-  async deleteMedia(auth: AccessClaims, id: string, mediaId: string) {
-    await this.sessionQuery(auth, id);
-    const row = (
-      await this.db.query<any>(
-        "UPDATE service_session_media SET status='DELETED',deleted_at=now() WHERE tenant_id=$1 AND service_session_id=$2 AND id=$3 AND status<>'DELETED' RETURNING id,status,deleted_at",
-        [auth.tenantId, id, mediaId],
-      )
-    ).rows[0];
-    if (!row)
-      throw new NotFoundException({
-        code: "MEDIA_UPLOAD_NOT_FOUND",
-        message: "Media not found",
-      });
-    return row;
+  async deleteMedia(
+    auth: AccessClaims,
+    id: string,
+    mediaId: string,
+    requestId: string,
+  ) {
+    return this.db.transaction(async (c) => {
+      const session = await this.lockSession(c, auth, id);
+      await this.assertSessionExecutionAccess(c, auth, session);
+      const row = (
+        await c.query<any>(
+          "UPDATE service_session_media SET status='DELETED',deleted_at=now() WHERE tenant_id=$1 AND service_session_id=$2 AND id=$3 AND status<>'DELETED' RETURNING id,status,deleted_at",
+          [auth.tenantId, id, mediaId],
+        )
+      ).rows[0];
+      if (!row)
+        throw new NotFoundException({
+          code: "MEDIA_UPLOAD_NOT_FOUND",
+          message: "Media not found",
+        });
+      await this.record(
+        c,
+        auth,
+        session.branch_id,
+        "service_session.media_deleted",
+        "service_session",
+        id,
+        session.version,
+        requestId,
+        { sessionId: id, mediaId, branchId: session.branch_id, refetch: true },
+      );
+      return row;
+    });
   }
 
   async checkout(auth: AccessClaims, id: string) {
@@ -1044,20 +1177,25 @@ export class ServiceExecutionService {
   async board(auth: AccessClaims, q: any) {
     this.deny(auth);
     this.branch(auth, q.branchId);
-    const from = q.date
-        ? `${q.date}T00:00:00Z`
-        : new Date(Date.now() - 12 * 3600000).toISOString(),
-      to = q.date
-        ? `${q.date}T23:59:59Z`
-        : new Date(Date.now() + 36 * 3600000).toISOString();
+    const branch = (
+        await this.db.query<any>(
+          "SELECT timezone FROM branches WHERE tenant_id=$1 AND id=$2",
+          [auth.tenantId, q.branchId],
+        )
+      ).rows[0],
+      localDate = q.date ?? branchLocalDate(new Date(), branch.timezone),
+      { startUtc: from, endUtc: to } = branchLocalDayRange(
+        localDate,
+        branch.timezone,
+      );
     const [appointments, walkins, versionRow] = await Promise.all([
       this.db.query<any>(
         `SELECT a.id,a.booking_reference,a.status,a.start_at,a.end_at,a.checkout_ready,a.contact_snapshot_json,ar.arrived_at,ar.late_minutes,ar.early_minutes,COALESCE(jsonb_agg(jsonb_build_object('sessionId',s.id,'status',s.status,'service',ai.service_snapshot_json,'staffId',seg.staff_id)) FILTER(WHERE ai.id IS NOT NULL),'[]') items FROM appointments a LEFT JOIN appointment_arrivals ar ON ar.tenant_id=a.tenant_id AND ar.appointment_id=a.id AND ar.reverted_at IS NULL LEFT JOIN appointment_items ai ON ai.tenant_id=a.tenant_id AND ai.appointment_id=a.id LEFT JOIN service_sessions s ON s.tenant_id=ai.tenant_id AND s.appointment_item_id=ai.id LEFT JOIN service_session_staff_segments seg ON seg.tenant_id=s.tenant_id AND seg.service_session_id=s.id AND seg.ended_at IS NULL WHERE a.tenant_id=$1 AND a.branch_id=$2 AND a.end_at>$3 AND a.start_at<$4 AND a.status NOT IN ('CANCELLED_BY_CUSTOMER','CANCELLED_BY_SALON','EXPIRED') GROUP BY a.id,ar.id ORDER BY a.start_at`,
         [auth.tenantId, q.branchId, from, to],
       ),
       this.db.query<any>(
-        "SELECT * FROM walk_in_entries WHERE tenant_id=$1 AND branch_id=$2 AND local_queue_date=(now() AT TIME ZONE (SELECT timezone FROM branches WHERE tenant_id=$1 AND id=$2))::date AND status IN ('WAITING','READY','CALLED') ORDER BY CASE priority WHEN 'MANAGER_OVERRIDE' THEN 0 WHEN 'RECOVERY' THEN 1 ELSE 2 END,created_at,queue_number",
-        [auth.tenantId, q.branchId],
+        "SELECT * FROM walk_in_entries WHERE tenant_id=$1 AND branch_id=$2 AND local_queue_date=$3::date AND status IN ('WAITING','READY','CALLED') ORDER BY CASE priority WHEN 'MANAGER_OVERRIDE' THEN 0 WHEN 'RECOVERY' THEN 1 ELSE 2 END,created_at,queue_number",
+        [auth.tenantId, q.branchId, localDate],
       ),
       this.db.query<any>(
         "SELECT version,updated_at FROM branch_operational_versions WHERE tenant_id=$1 AND branch_id=$2",
@@ -1066,6 +1204,8 @@ export class ServiceExecutionService {
     ]);
     return {
       branchId: q.branchId,
+      localDate,
+      timezone: branch.timezone,
       dataVersion: Number(versionRow.rows[0]?.version ?? 1),
       generatedAt: new Date().toISOString(),
       columns: this.columns(appointments.rows),
@@ -1102,25 +1242,90 @@ export class ServiceExecutionService {
     };
   }
   async today(auth: AccessClaims) {
-    const staff = await this.ownStaff(auth);
-    const sessions = await this.db.query<any>(
-      `SELECT s.*,a.booking_reference,a.contact_snapshot_json,ai.service_snapshot_json,b.name branch_name FROM service_sessions s JOIN appointments a ON a.tenant_id=s.tenant_id AND a.id=s.appointment_id JOIN appointment_items ai ON ai.tenant_id=s.tenant_id AND ai.id=s.appointment_item_id JOIN branches b ON b.tenant_id=s.tenant_id AND b.id=s.branch_id JOIN appointment_item_staff_assignments asa ON asa.tenant_id=ai.tenant_id AND asa.appointment_item_id=ai.id AND asa.status='ACTIVE' AND asa.staff_id=$2 WHERE s.tenant_id=$1 AND s.scheduled_start_at >= date_trunc('day',now())-interval '12 hours' AND s.scheduled_start_at < date_trunc('day',now())+interval '36 hours' ORDER BY s.scheduled_start_at`,
-      [auth.tenantId, staff],
-    );
+    const staff = await this.ownStaff(auth),
+      now = new Date(),
+      branches = (
+        await this.db.query<any>(
+          `SELECT DISTINCT b.id branch_id,b.name branch_name,b.timezone
+           FROM branches b JOIN staff_branch_assignments sba ON sba.tenant_id=b.tenant_id AND sba.branch_id=b.id
+           WHERE b.tenant_id=$1 AND sba.staff_id=$2 AND sba.status='ACTIVE'
+             AND (now() AT TIME ZONE b.timezone)::date BETWEEN sba.effective_from AND COALESCE(sba.effective_to,'infinity'::date)`,
+          [auth.tenantId, staff],
+        )
+      ).rows.map((branch) => {
+        const localDate = branchLocalDate(now, branch.timezone),
+          range = branchLocalDayRange(localDate, branch.timezone);
+        return { ...branch, localDate, ...range };
+      });
+    if (!branches.length)
+      return {
+        staffId: staff,
+        localDate: branchLocalDate(now, "UTC"),
+        branches: [],
+        currentService: null,
+        nextAppointment: null,
+        upcomingServices: [],
+        completedToday: [],
+        offlinePolicy: {
+          commandsRequireInternet: true,
+          notesDraftAllowed: true,
+          mediaMetadataQueueAllowed: true,
+        },
+      };
+    const start = branches.reduce(
+        (value, branch) => (branch.startUtc < value ? branch.startUtc : value),
+        branches[0].startUtc,
+      ),
+      end = branches.reduce(
+        (value, branch) => (branch.endUtc > value ? branch.endUtc : value),
+        branches[0].endUtc,
+      ),
+      sessions = await this.db.query<any>(
+        `SELECT s.*,a.booking_reference,a.contact_snapshot_json,ai.service_snapshot_json,b.name branch_name,b.timezone
+         FROM service_sessions s
+         JOIN appointments a ON a.tenant_id=s.tenant_id AND a.id=s.appointment_id
+         JOIN appointment_items ai ON ai.tenant_id=s.tenant_id AND ai.id=s.appointment_item_id
+         JOIN branches b ON b.tenant_id=s.tenant_id AND b.id=s.branch_id
+         JOIN appointment_item_staff_assignments asa ON asa.tenant_id=ai.tenant_id AND asa.appointment_item_id=ai.id AND asa.status='ACTIVE' AND asa.assignment_role='PRIMARY' AND asa.staff_id=$2
+         WHERE s.tenant_id=$1 AND s.scheduled_start_at >= $3 AND s.scheduled_start_at < $4
+         ORDER BY s.scheduled_start_at`,
+        [auth.tenantId, staff, start, end],
+      );
+    const grouped = branches.map((branch) => {
+        const rows = sessions.rows.filter(
+          (session) =>
+            session.branch_id === branch.branch_id &&
+            branchLocalDate(session.scheduled_start_at, branch.timezone) ===
+              branch.localDate,
+        );
+        return {
+          branchId: branch.branch_id,
+          branchName: branch.branch_name,
+          timezone: branch.timezone,
+          localDate: branch.localDate,
+          currentService:
+            rows.find((x) => ["IN_PROGRESS", "PAUSED"].includes(x.status)) ??
+            null,
+          nextAppointment: rows.find((x) => x.status === "PENDING") ?? null,
+          upcomingServices: rows
+            .filter((x) => x.status === "PENDING")
+            .map((x) => this.sessionView(x, true)),
+          completedToday: rows
+            .filter((x) => x.status === "COMPLETED")
+            .map((x) => this.sessionView(x, true)),
+        };
+      }),
+      allUpcoming = grouped.flatMap((branch) => branch.upcomingServices),
+      allCompleted = grouped.flatMap((branch) => branch.completedToday);
     return {
       staffId: staff,
+      localDate: grouped[0]?.localDate,
+      branches: grouped,
       currentService:
-        sessions.rows.find((x) =>
-          ["IN_PROGRESS", "PAUSED"].includes(x.status),
-        ) ?? null,
-      nextAppointment:
-        sessions.rows.find((x) => x.status === "PENDING") ?? null,
-      upcomingServices: sessions.rows
-        .filter((x) => x.status === "PENDING")
-        .map((x) => this.sessionView(x, true)),
-      completedToday: sessions.rows
-        .filter((x) => x.status === "COMPLETED")
-        .map((x) => this.sessionView(x, true)),
+        grouped.find((branch) => branch.currentService)?.currentService ?? null,
+      nextAppointment: allUpcoming[0] ?? null,
+      upcomingServices: allUpcoming,
+      completedToday: allCompleted,
       offlinePolicy: {
         commandsRequireInternet: true,
         notesDraftAllowed: true,
@@ -1184,6 +1389,72 @@ export class ServiceExecutionService {
   private async sessionQuery(auth: AccessClaims, id: string) {
     return this.db.transaction((c) => this.lockSession(c, auth, id));
   }
+  private async assertSessionExecutionAccess(
+    c: PoolClient,
+    auth: AccessClaims,
+    session: any,
+  ) {
+    if (!auth.roles.includes("NAIL_TECHNICIAN")) return;
+    const own = await this.ownStaff(auth, c),
+      current = (
+        await c.query<any>(
+          `SELECT asa.staff_id assigned_staff_id,seg.staff_id open_staff_id
+           FROM appointment_item_staff_assignments asa
+           LEFT JOIN service_session_staff_segments seg ON seg.tenant_id=asa.tenant_id
+             AND seg.service_session_id=$4 AND seg.segment_role='PRIMARY' AND seg.ended_at IS NULL
+           WHERE asa.tenant_id=$1 AND asa.appointment_item_id=$2
+             AND asa.assignment_role='PRIMARY' AND asa.status='ACTIVE' AND asa.staff_id=$3`,
+          [auth.tenantId, session.appointment_item_id, own, session.id],
+        )
+      ).rows[0];
+    const ownsAssignment = current?.assigned_staff_id === own,
+      ownsOpenWork = current?.open_staff_id === own;
+    if (!ownsAssignment || (session.status === "IN_PROGRESS" && !ownsOpenWork))
+      throw new ForbiddenException({
+        code: "SERVICE_SESSION_SCOPE_DENIED",
+        message: "Only the current primary technician may execute this session",
+      });
+  }
+  private async assertPrimaryAssignment(
+    c: PoolClient,
+    auth: AccessClaims,
+    session: any,
+    staffId: string,
+  ) {
+    const row = (
+      await c.query<any>(
+        `SELECT asa.staff_id,
+           EXISTS(SELECT 1 FROM staff_schedule_reservations ssr
+             WHERE ssr.tenant_id=asa.tenant_id AND ssr.appointment_item_id=asa.appointment_item_id
+               AND ssr.staff_id=asa.staff_id AND ssr.status='ACTIVE') reservation_matches
+         FROM appointment_item_staff_assignments asa
+         WHERE asa.tenant_id=$1 AND asa.appointment_item_id=$2
+           AND asa.assignment_role='PRIMARY' AND asa.status='ACTIVE' FOR UPDATE`,
+        [auth.tenantId, session.appointment_item_id],
+      )
+    ).rows[0];
+    if (!row || row.staff_id !== staffId || row.reservation_matches !== true)
+      throw new ConflictException({
+        code: "SERVICE_SESSION_STAFF_NOT_ASSIGNED",
+        message:
+          "Start/resume requires the active primary assignment and matching reservation; reassign first",
+      });
+  }
+  private async assertBranchActive(
+    c: PoolClient,
+    tenantId: string,
+    branchId: string,
+  ) {
+    const row = await c.query(
+      "SELECT 1 FROM branches WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'",
+      [tenantId, branchId],
+    );
+    if (!row.rowCount)
+      throw new ConflictException({
+        code: "BRANCH_INACTIVE",
+        message: "Branch is not active for operational writes",
+      });
+  }
   private async ownStaff(auth: AccessClaims, c?: PoolClient) {
     if (auth.ownStaffId) return auth.ownStaffId;
     const row = (
@@ -1219,7 +1490,12 @@ export class ServiceExecutionService {
         message: "Technician can only act as self",
       });
     const ok = await c.query(
-      `SELECT 1 FROM staff_profiles sp JOIN staff_branch_assignments sba ON sba.tenant_id=sp.tenant_id AND sba.staff_id=sp.id AND sba.branch_id=$3 AND sba.status='ACTIVE' AND CURRENT_DATE BETWEEN sba.effective_from AND COALESCE(sba.effective_to,'infinity'::date) WHERE sp.tenant_id=$1 AND sp.id=$2 AND sp.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM appointment_items ai JOIN service_skill_requirements req ON req.tenant_id=ai.tenant_id AND req.service_id=ai.service_id AND req.is_required LEFT JOIN staff_skills ss ON ss.tenant_id=req.tenant_id AND ss.staff_id=sp.id AND ss.skill_id=req.skill_id AND ss.status='ACTIVE' AND (ss.expires_at IS NULL OR ss.expires_at>=CURRENT_DATE) WHERE ai.tenant_id=$1 AND ai.id=$4 AND (ss.skill_id IS NULL OR ss.proficiency_level<req.minimum_proficiency))`,
+      `SELECT 1 FROM staff_profiles sp
+       JOIN staff_branch_assignments sba ON sba.tenant_id=sp.tenant_id AND sba.staff_id=sp.id AND sba.branch_id=$3 AND sba.status='ACTIVE'
+       JOIN branches b ON b.tenant_id=sp.tenant_id AND b.id=sba.branch_id
+       WHERE sp.tenant_id=$1 AND sp.id=$2 AND sp.status='ACTIVE'
+         AND (now() AT TIME ZONE b.timezone)::date BETWEEN sba.effective_from AND COALESCE(sba.effective_to,'infinity'::date)
+         AND NOT EXISTS (SELECT 1 FROM appointment_items ai JOIN service_skill_requirements req ON req.tenant_id=ai.tenant_id AND req.service_id=ai.service_id AND req.is_required LEFT JOIN staff_skills ss ON ss.tenant_id=req.tenant_id AND ss.staff_id=sp.id AND ss.skill_id=req.skill_id AND ss.status='ACTIVE' AND (ss.expires_at IS NULL OR ss.expires_at>=(now() AT TIME ZONE b.timezone)::date) WHERE ai.tenant_id=$1 AND ai.id=$4 AND (ss.skill_id IS NULL OR ss.proficiency_level<req.minimum_proficiency))`,
       [auth.tenantId, staffId, s.branch_id, s.appointment_item_id],
     );
     if (!ok.rowCount)

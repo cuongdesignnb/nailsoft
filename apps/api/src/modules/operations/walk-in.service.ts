@@ -21,6 +21,8 @@ import type { AccessClaims } from "../identity/auth.types.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
 import { BookingService } from "../booking/booking.service.js";
 import { assertWalkInTransition } from "./operations-domain.js";
+import { roundUpBranchTime } from "./operational-time.js";
+import { WalkInEtaService } from "./walk-in-eta.service.js";
 
 @Injectable()
 export class WalkInService {
@@ -29,6 +31,7 @@ export class WalkInService {
     @Inject(BookingIdempotencyService)
     private readonly idem: BookingIdempotencyService,
     @Inject(BookingService) private readonly booking: BookingService,
+    @Inject(WalkInEtaService) private readonly eta: WalkInEtaService,
   ) {}
   private deny(auth: AccessClaims) {
     if (auth.roles.includes("PLATFORM_SUPER_ADMIN"))
@@ -112,17 +115,11 @@ export class WalkInService {
     this.deny(auth);
     const body = walkInCreateSchema.parse(input);
     this.branch(auth, body.branchId);
-    const planInput = {
+    const estimate = await this.eta.estimate(auth, {
       branchId: body.branchId,
-      desiredStartAt: new Date(Date.now() + 60_000).toISOString(),
       items: body.items,
-    };
-    let plan: any = null;
-    try {
-      plan = await this.booking.plan(auth, planInput);
-    } catch {
-      /* ETA remains explicitly unavailable */
-    }
+      priority: "NORMAL",
+    });
     return (
       await this.db.transaction((client) =>
         this.idem.execute(client, {
@@ -181,17 +178,9 @@ export class WalkInService {
                   JSON.stringify(
                     body.items[0]?.staffPreference ?? { type: "ANY" },
                   ),
-                  plan?.startAt ?? null,
-                  plan
-                    ? Math.max(
-                        0,
-                        Math.ceil(
-                          (new Date(plan.startAt).getTime() - Date.now()) /
-                            60000,
-                        ),
-                      )
-                    : null,
-                  plan ? new Date() : null,
+                  estimate.estimatedStartAt ?? null,
+                  estimate.estimatedWaitMinutes ?? null,
+                  estimate.estimateGeneratedAt,
                   body.note ?? null,
                   body.source,
                   auth.userId,
@@ -225,7 +214,7 @@ export class WalkInService {
               requestId,
               "walkin.created",
             );
-            return this.view(created);
+            return { ...this.view(created), ...estimate };
           },
         }),
       )
@@ -240,7 +229,7 @@ export class WalkInService {
     requestId: string,
   ) {
     const body = walkInStatusCommandSchema.parse(input);
-    return (
+    const result = (
       await this.db.transaction((client) =>
         this.idem.execute(client, {
           tenantId: auth.tenantId,
@@ -274,6 +263,8 @@ export class WalkInService {
         }),
       )
     ).data;
+    await this.eta.refreshBranch(auth, result.branchId);
+    return result;
   }
   async update(
     auth: AccessClaims,
@@ -283,7 +274,7 @@ export class WalkInService {
     requestId: string,
   ) {
     const body = walkInUpdateSchema.parse(input);
-    return (
+    const result = (
       await this.db.transaction((client) =>
         this.idem.execute(client, {
           tenantId: auth.tenantId,
@@ -338,6 +329,8 @@ export class WalkInService {
         }),
       )
     ).data;
+    await this.eta.refreshBranch(auth, result.branchId);
+    return result;
   }
   async priority(
     auth: AccessClaims,
@@ -347,7 +340,7 @@ export class WalkInService {
     requestId: string,
   ) {
     const body = walkInPrioritySchema.parse(input);
-    return (
+    const result = (
       await this.db.transaction((client) =>
         this.idem.execute(client, {
           tenantId: auth.tenantId,
@@ -385,6 +378,8 @@ export class WalkInService {
         }),
       )
     ).data;
+    await this.eta.refreshBranch(auth, result.branchId);
+    return result;
   }
   async conversionPlan(auth: AccessClaims, id: string, input: unknown) {
     const body = walkInConversionPlanSchema.parse(input),
@@ -399,7 +394,10 @@ export class WalkInService {
       desiredStartAt:
         body.desiredStartAt ??
         walk.estimatedStartAt ??
-        new Date(Date.now() + 60_000).toISOString(),
+        roundUpBranchTime(
+          new Date(),
+          await this.branchTimezone(auth, walk.branchId),
+        ).toISO()!,
       items: walk.items.map((x: any) => ({
         serviceId: x.serviceId,
         staffPreference: x.staffPreference,
@@ -465,6 +463,11 @@ export class WalkInService {
         transactionHook: {
           before: async (client) => {
             locked = await this.lock(client, auth, id);
+            await this.assertBranchActive(
+              client,
+              auth.tenantId,
+              locked.branch_id,
+            );
             if (locked.status === "CONVERTED")
               throw new ConflictException({
                 code: "WALK_IN_ALREADY_CONVERTED",
@@ -601,11 +604,44 @@ export class WalkInService {
           : Number(x.estimated_wait_minutes),
       estimateGeneratedAt: x.estimate_generated_at ?? undefined,
       estimateDisclaimer: "ESTIMATED_NOT_GUARANTEED",
+      estimateConfidence: x.estimated_start_at ? "MEDIUM" : "LOW",
+      estimateReasonCodes: x.estimated_start_at
+        ? ["QUEUE_WORKLOAD_INCLUDED"]
+        : ["WALK_IN_ESTIMATE_UNAVAILABLE"],
       calledAt: x.called_at ?? undefined,
       convertedAppointmentId: x.converted_appointment_id ?? undefined,
       version: Number(x.version),
       createdAt: x.created_at,
     };
+  }
+  private async assertBranchActive(
+    client: PoolClient,
+    tenantId: string,
+    branchId: string,
+  ) {
+    const row = await client.query(
+      "SELECT 1 FROM branches WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'",
+      [tenantId, branchId],
+    );
+    if (!row.rowCount)
+      throw new ConflictException({
+        code: "BRANCH_INACTIVE",
+        message: "Branch is not active",
+      });
+  }
+  private async branchTimezone(auth: AccessClaims, branchId: string) {
+    const row = (
+      await this.db.query<any>(
+        "SELECT timezone FROM branches WHERE tenant_id=$1 AND id=$2",
+        [auth.tenantId, branchId],
+      )
+    ).rows[0];
+    if (!row)
+      throw new NotFoundException({
+        code: "WALK_IN_NOT_FOUND",
+        message: "Branch not found",
+      });
+    return row.timezone as string;
   }
 }
 function version() {

@@ -775,6 +775,15 @@ export class BookingService {
               message: "Appointment not found",
             });
           this.guardBranch(auth, appointment.branch_id);
+          const activeBranch = await client.query(
+            "SELECT 1 FROM branches WHERE tenant_id=$1 AND id=$2 AND status='ACTIVE'",
+            [auth.tenantId, appointment.branch_id],
+          );
+          if (!activeBranch.rowCount)
+            throw new ConflictException({
+              code: "BRANCH_INACTIVE",
+              message: "Branch is not active for add-service",
+            });
           if (
             !["CHECKED_IN", "IN_SERVICE", "PARTIALLY_COMPLETED"].includes(
               appointment.status,
@@ -818,6 +827,11 @@ export class BookingService {
             throw new ConflictException({
               code: "ADD_SERVICE_NOT_AVAILABLE",
               message: "Add-service hold must contain exactly one service",
+            });
+          if (new Date(source[0].staff_occupancy_start_at) < new Date())
+            throw new ConflictException({
+              code: "ADD_SERVICE_NOT_AVAILABLE",
+              message: "Add-service reservation cannot start in the past",
             });
           if (body.parentItemId) {
             const related = await client.query(

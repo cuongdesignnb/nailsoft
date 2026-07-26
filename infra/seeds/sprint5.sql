@@ -29,6 +29,19 @@ INSERT INTO service_session_staff_segments(id,tenant_id,service_session_id,staff
 ('79000000-0000-4000-8000-000000000016','10000000-0000-4000-8000-000000000001','77000000-0000-4000-8000-000000000016','47000000-0000-4000-8000-000000000004','PRIMARY','2026-07-14 01:05:00+07','2026-07-14 01:45:00+07','PAUSED','30000000-0000-4000-8000-000000000004'),
 ('79000000-0000-4000-8000-000000000017','10000000-0000-4000-8000-000000000001','77000000-0000-4000-8000-000000000017','47000000-0000-4000-8000-000000000005','PRIMARY','2026-07-14 02:00:00+07','2026-07-14 02:25:00+07','TRANSFERRED','30000000-0000-4000-8000-000000000002'),
 ('79000000-0000-4000-8000-000000000018','10000000-0000-4000-8000-000000000001','77000000-0000-4000-8000-000000000017','47000000-0000-4000-8000-000000000006','PRIMARY','2026-07-14 02:25:00+07','2026-07-14 03:00:00+07','COMPLETED','30000000-0000-4000-8000-000000000002') ON CONFLICT DO NOTHING;
+-- The checked-in execution fixture retains the booking engine's active staff
+-- reservation. Start/transfer authorization requires the assignment and the
+-- reservation to agree; this seed mirrors a real booking/check-in lifecycle.
+INSERT INTO staff_schedule_reservations(tenant_id,branch_id,staff_id,appointment_item_id,reservation_type,status,start_at,end_at)
+SELECT ss.tenant_id,ss.branch_id,asa.staff_id,ss.appointment_item_id,'APPOINTMENT','ACTIVE',ai.staff_occupancy_start_at,ai.staff_occupancy_end_at
+FROM service_sessions ss
+JOIN appointment_item_staff_assignments asa ON asa.tenant_id=ss.tenant_id AND asa.appointment_item_id=ss.appointment_item_id AND asa.assignment_role='PRIMARY' AND asa.status='ACTIVE'
+JOIN appointment_items ai ON ai.tenant_id=ss.tenant_id AND ai.id=ss.appointment_item_id
+WHERE ss.id='77000000-0000-4000-8000-000000000007'
+  AND NOT EXISTS(
+    SELECT 1 FROM staff_schedule_reservations sr
+    WHERE sr.tenant_id=ss.tenant_id AND sr.appointment_item_id=ss.appointment_item_id AND sr.reservation_type='APPOINTMENT' AND sr.status='ACTIVE'
+  );
 INSERT INTO service_session_notes(id,tenant_id,service_session_id,author_user_id,visibility,note) VALUES ('7a000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','77000000-0000-4000-8000-000000000008','30000000-0000-4000-8000-000000000008','TECHNICIAN','Deterministic sanitized plain-text note') ON CONFLICT DO NOTHING;
 INSERT INTO service_session_media(id,tenant_id,service_session_id,media_type,storage_key,mime_type,size_bytes,checksum,status,uploaded_by_user_id,ready_at) VALUES ('7b000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','77000000-0000-4000-8000-000000000008','AFTER','tenants/10000000-0000-4000-8000-000000000001/sessions/77000000-0000-4000-8000-000000000008/fixture','image/jpeg',1024,repeat('a',64),'READY','30000000-0000-4000-8000-000000000008','2026-07-13 18:01:00+07') ON CONFLICT DO NOTHING;
 COMMIT;

@@ -264,6 +264,8 @@ export interface WalkInSummary {
   estimatedWaitMinutes?: number;
   estimateGeneratedAt?: string;
   estimateDisclaimer: "ESTIMATED_NOT_GUARANTEED";
+  estimateConfidence?: "LOW" | "MEDIUM" | "HIGH";
+  estimateReasonCodes?: string[];
   version: number;
 }
 export interface ServiceSessionSummary {

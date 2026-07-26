@@ -1332,7 +1332,15 @@ paths:
         }
       responses:
         {
-          "200": { description: Walk-in created },
+          "201":
+            {
+              description: Walk-in created with a non-guaranteed queue-aware estimate,
+              content:
+                {
+                  application/json:
+                    { schema: { $ref: "#/components/schemas/WalkInEnvelope" } },
+                },
+            },
           "409": { description: Queue conflict },
         }
   /walk-ins/queue-summary:
@@ -1579,6 +1587,17 @@ paths:
         summary: Add sanitized note,
         responses: { "200": { description: Note added } },
       }
+  /service-sessions/{sessionId}/notes/{noteId}:
+    patch:
+      {
+        tags: [service-sessions],
+        summary: Optimistically update an authorized sanitized note,
+        responses:
+          {
+            "200": { description: Note updated and audited },
+            "409": { description: Note version conflict },
+          },
+      }
   /service-sessions/{sessionId}/media/presign:
     post:
       {
@@ -1586,6 +1605,47 @@ paths:
         summary: Create tenant-prefixed short-lived upload metadata,
         responses:
           { "200": { description: Presign or disabled feature state } },
+      }
+  /service-sessions/{sessionId}/media:
+    get:
+      {
+        tags: [service-sessions],
+        summary: List authorized private media metadata,
+        responses: { "200": { description: Media metadata list } },
+      }
+  /service-sessions/{sessionId}/media/{mediaId}/complete:
+    post:
+      {
+        tags: [service-sessions],
+        summary: Report upload completion pending trusted provider verification,
+        description: Client input never promotes media to READY. A trusted provider callback or Worker verification must validate object existence,
+        checksum,
+        ? MIME and size.
+          responses
+        : {
+            "200":
+              {
+                description: Upload report accepted but still pending verification,
+                content:
+                  {
+                    application/json:
+                      {
+                        schema:
+                          {
+                            $ref: "#/components/schemas/MediaUploadReportedEnvelope",
+                          },
+                      },
+                  },
+              },
+            "409": { description: Checksum or state conflict },
+          },
+      }
+  /service-sessions/{sessionId}/media/{mediaId}/delete:
+    post:
+      {
+        tags: [service-sessions],
+        summary: Soft-delete authorized media metadata with audit and outbox,
+        responses: { "200": { description: Media metadata deleted } },
       }
   /operations/board:
     get:
@@ -1653,6 +1713,46 @@ components:
                 properties:
                   type: { enum: [ANY, SPECIFIC] }
                   staffId: { type: string, format: uuid }
+    WalkInEstimate:
+      type: object
+      required:
+        [
+          estimateGeneratedAt,
+          estimateDisclaimer,
+          estimateConfidence,
+          estimateReasonCodes,
+        ]
+      properties:
+        estimatedStartAt: { type: string, format: date-time, nullable: true }
+        estimatedWaitMinutes: { type: integer, minimum: 0, nullable: true }
+        estimateGeneratedAt: { type: string, format: date-time }
+        estimateDisclaimer: { const: ESTIMATED_NOT_GUARANTEED }
+        estimateConfidence: { enum: [LOW, MEDIUM, HIGH] }
+        estimateReasonCodes:
+          type: array
+          items: { type: string }
+        eligibleStaffCount: { type: integer, minimum: 0 }
+        queueAheadCount: { type: integer, minimum: 0 }
+        queuedWorkMinutes: { type: integer, minimum: 0 }
+    WalkInEnvelope:
+      type: object
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          allOf:
+            - { type: object }
+            - { $ref: "#/components/schemas/WalkInEstimate" }
+    MediaUploadReportedEnvelope:
+      type: object
+      properties:
+        success: { type: boolean, const: true }
+        data:
+          type: object
+          required: [id, status, verification]
+          properties:
+            id: { type: string, format: uuid }
+            status: { const: PENDING_UPLOAD }
+            verification: { const: TRUSTED_PROVIDER_CALLBACK }
     AvailabilityExplainRequest:
       type: object
       required: [branchId, serviceId, startAt]

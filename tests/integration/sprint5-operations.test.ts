@@ -353,6 +353,21 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
     });
     expect(transferred.statusCode, transferred.body).toBe(201);
     current = transferred.json().data;
+    const formerPause = await app.inject({
+        method: "POST",
+        url: `/v1/service-sessions/${sessionId}/pause`,
+        headers: techHeaders(`${run}-former-pause`),
+        payload: { version: current.version, reasonCode: "CUSTOMER_BREAK" },
+      }),
+      formerComplete = await app.inject({
+        method: "POST",
+        url: `/v1/service-sessions/${sessionId}/complete`,
+        headers: techHeaders(`${run}-former-complete`),
+        payload: { version: current.version },
+      });
+    expect(formerPause.statusCode, formerPause.body).toBe(403);
+    expect(formerPause.json().error.code).toBe("SERVICE_SESSION_SCOPE_DENIED");
+    expect(formerComplete.statusCode, formerComplete.body).toBe(403);
     const targetHeaders = (k = crypto.randomUUID()) => ({
       authorization: `Bearer ${targetTechToken}`,
       "x-tenant-id": tenant,
@@ -458,6 +473,12 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
       payload: { checksum },
     });
     expect(completed.statusCode).toBe(201);
+    expect(completed.json().data).toEqual(
+      expect.objectContaining({
+        status: "PENDING_UPLOAD",
+        verificationRequired: "TRUSTED_PROVIDER_CALLBACK",
+      }),
+    );
     delete process.env.OBJECT_STORAGE_ENDPOINT;
     delete process.env.OBJECT_STORAGE_BUCKET;
     delete process.env.OBJECT_STORAGE_SECRET_KEY;

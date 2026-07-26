@@ -68,6 +68,8 @@ Walk-in events: `walkin.created`, `walkin.status_changed`, `walkin.estimate_upda
 
 Appointment operations: `appointment.arrived`, `appointment.checked_in`, `appointment.check_in_reverted`, `appointment.operational_status_changed`, `appointment.item_added`, `appointment.item_cancelled`, `appointment.checkout_ready`.
 
-Execution events: `service_session.created`, `service_session.started`, `service_session.paused`, `service_session.resumed`, `service_session.completed`, `service_session.cancelled`, `service_session.staff_transferred`, `service_session.note_added`, `service_session.media_added`.
+Execution events: `service_session.created`, `service_session.started`, `service_session.paused`, `service_session.resumed`, `service_session.completed`, `service_session.cancelled`, `service_session.staff_transferred`, `service_session.note_added`, `service_session.note_updated`, `service_session.media_added`, `service_session.media_upload_reported`, `service_session.media_deleted`.
+
+`service_session.media_upload_reported` explicitly means that an authorized client reported completion. It does not assert object integrity and never promotes metadata to `READY`; that state requires a trusted provider callback or Worker verification of object existence, checksum, MIME type and size.
 
 All are committed with the authoritative transaction. Payloads contain identifiers, status/version and `refetch: true`, never customer contact, notes or media URLs. The Worker resolves tenant, branch, assigned-staff and authorized appointment rooms, reads `branch_operational_versions`, then emits `operations.invalidated` plus `walkin.updated`, `appointment.updated` or `service_session.updated`. Realtime is an invalidation signal only.
