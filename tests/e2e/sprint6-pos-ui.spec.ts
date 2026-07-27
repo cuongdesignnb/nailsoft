@@ -55,9 +55,9 @@ test("Cashier completes the real POS, split-safe payment and immutable receipt U
     .fill(`e2e-terminal-${Date.now()}`);
   await page.getByLabel("Card last 4 only").fill("4242");
   await page.getByRole("button", { name: "Capture once" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "External payment evidence recorded",
-  );
+  await expect(
+    page.getByText("External payment evidence recorded.", { exact: true }),
+  ).toBeVisible();
 
   await page.goto(`http://localhost:3000/admin/pos/orders/${draftOrder}`);
   await expect(page.getByText(/PAID · version/)).toBeVisible();
