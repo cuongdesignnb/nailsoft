@@ -341,8 +341,11 @@ function WalkInNew() {
 }
 function WalkInDetail({ id }: { id: string }) {
   const v = useData(`/v1/walk-ins/${id}`),
-    [msg, setMsg] = useState("");
+    [msg, setMsg] = useState(""),
+    [pending, setPending] = useState(false);
   async function act(a: string, extra: any = {}) {
+    if (pending) return;
+    setPending(true);
     const old = v.data;
     v.setData({
       ...old,
@@ -354,17 +357,20 @@ function WalkInDetail({ id }: { id: string }) {
         ...extra,
       });
       setMsg("Updated successfully.");
-      await v.load();
     } catch (e: any) {
       setMsg(
         e.code === "VERSION_CONFLICT"
           ? "Version conflict; current state was reloaded."
           : e.message,
       );
+    } finally {
       await v.load();
+      setPending(false);
     }
   }
   async function convert() {
+    if (pending) return;
+    setPending(true);
     try {
       const h = await command(`/v1/walk-ins/${id}/conversion-holds`, {}),
         x = await command(`/v1/walk-ins/${id}/convert`, {
@@ -372,9 +378,11 @@ function WalkInDetail({ id }: { id: string }) {
           holdId: h.holdId,
         });
       setMsg(`Converted to appointment ${x.appointmentId}.`);
-      await v.load();
     } catch (e: any) {
       setMsg(e.message);
+    } finally {
+      await v.load();
+      setPending(false);
     }
   }
   return (
@@ -415,18 +423,23 @@ function WalkInDetail({ id }: { id: string }) {
             <h2>Actions</h2>
             <div className="actions">
               {v.data.status === "WAITING" && (
-                <button onClick={() => void act("ready")}>Ready</button>
+                <button disabled={pending} onClick={() => void act("ready")}>
+                  Ready
+                </button>
               )}
               {v.data.status === "READY" && (
-                <button onClick={() => void act("call")}>Call</button>
+                <button disabled={pending} onClick={() => void act("call")}>
+                  Call
+                </button>
               )}
               {["READY", "CALLED"].includes(v.data.status) && (
-                <button onClick={() => void convert()}>
+                <button disabled={pending} onClick={() => void convert()}>
                   Convert through Booking Engine
                 </button>
               )}
               {["WAITING", "READY"].includes(v.data.status) && (
                 <button
+                  disabled={pending}
                   onClick={() =>
                     void act("cancel", { reasonCode: "CUSTOMER_REQUEST" })
                   }
