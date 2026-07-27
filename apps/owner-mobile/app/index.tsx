@@ -116,6 +116,10 @@ export default function Home() {
           {[
             "operationalSummary",
             "financialSummary",
+            "pendingRefunds",
+            "refundTotals",
+            "commissionPeriods",
+            "commissionReadiness",
             "walkInQueue",
             "appointmentsToday",
             "appointments",

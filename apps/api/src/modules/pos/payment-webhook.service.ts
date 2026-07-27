@@ -58,20 +58,81 @@ export class PaymentWebhookService {
     const signatureHash = createHmac("sha256", secret)
       .update(input.signature)
       .digest("hex");
-    const result = await this.db.query(
-      `INSERT INTO payment_provider_events(provider,provider_event_id,signature_hash,status,safe_metadata_json)
-       VALUES($1,$2,$3,'IGNORED',$4) ON CONFLICT(provider,provider_event_id) DO NOTHING RETURNING id`,
-      [
-        provider,
-        input.eventId,
-        signatureHash,
-        JSON.stringify({
+    let payload: unknown;
+    try {
+      payload = JSON.parse(input.rawBody.toString("utf8"));
+    } catch {
+      throw new UnauthorizedException({
+        code: "PAYMENT_WEBHOOK_INVALID",
+        message: "Webhook body must be valid JSON",
+      });
+    }
+    const event = refundEvent(payload);
+    return this.db.transaction(async (client) => {
+      const allocation = event.providerRefundId
+        ? (
+            await client.query<{
+              tenant_id: string;
+              refund_id: string;
+              status: string;
+            }>(
+              `SELECT a.tenant_id,a.refund_id,a.status FROM refund_payment_allocations a
+                 WHERE a.provider=$1 AND a.provider_refund_id=$2 FOR UPDATE`,
+              [provider, event.providerRefundId],
+            )
+          ).rows[0]
+        : undefined;
+      const status = allocation && event.kind ? "PROCESSED" : "IGNORED";
+      const result = await client.query(
+        `INSERT INTO payment_provider_events(tenant_id,provider,provider_event_id,signature_hash,status,safe_metadata_json)
+         VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(provider,provider_event_id) DO NOTHING RETURNING id`,
+        [
+          allocation?.tenant_id ?? null,
           provider,
-          eventId: input.eventId,
-          reason: "NO_PRODUCTION_ADAPTER",
-        }),
-      ],
-    );
-    return { received: true, duplicate: result.rowCount === 0 };
+          input.eventId,
+          signatureHash,
+          status,
+          JSON.stringify({
+            eventType: event.type,
+            refundId: allocation?.refund_id ?? null,
+            providerRefundReferenceSuffix: event.providerRefundId?.slice(-4),
+            result: event.kind,
+            reason: allocation
+              ? "REFUND_EVENT_RECORDED"
+              : "UNKNOWN_REFUND_OPAQUE",
+          }),
+        ],
+      );
+      return {
+        received: true,
+        duplicate: result.rowCount === 0,
+        matchedRefund: Boolean(allocation),
+      };
+    });
   }
+}
+
+function refundEvent(payload: unknown) {
+  if (!payload || typeof payload !== "object")
+    return { type: "unknown", kind: null, providerRefundId: null };
+  const value = payload as Record<string, unknown>;
+  const data =
+    value.data && typeof value.data === "object"
+      ? (value.data as Record<string, unknown>)
+      : {};
+  const type = typeof value.type === "string" ? value.type : "unknown";
+  const kind =
+    type === "refund.succeeded"
+      ? "SUCCESS"
+      : type === "refund.failed"
+        ? "FAILED"
+        : type === "refund.unknown"
+          ? "UNKNOWN"
+          : null;
+  return {
+    type,
+    kind,
+    providerRefundId:
+      typeof data.providerRefundId === "string" ? data.providerRefundId : null,
+  };
 }

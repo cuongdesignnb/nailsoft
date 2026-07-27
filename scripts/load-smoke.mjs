@@ -317,6 +317,53 @@ const scenarios = [
       }),
   },
   {
+    name: "refund-list",
+    setup: async (worker) => auth(`load-refunds-${worker}`),
+    run: (state) =>
+      request("/v1/refunds?branchId=20000000-0000-4000-8000-000000000001", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "net-sales-report",
+    setup: async (worker) => auth(`load-net-sales-${worker}`),
+    run: (state) =>
+      request(
+        "/v1/financial/net-sales?branchId=20000000-0000-4000-8000-000000000001",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
+    name: "commission-entries",
+    setup: async (worker) => auth(`load-commission-${worker}`),
+    run: (state) =>
+      request("/v1/commission-entries", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "credit-note-list",
+    setup: async (worker) => auth(`load-credit-notes-${worker}`),
+    run: (state) =>
+      request("/v1/credit-notes", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
     name: "public-booking-availability",
     run: () =>
       request(

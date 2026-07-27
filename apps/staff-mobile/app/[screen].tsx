@@ -29,9 +29,15 @@ const titles: Record<string, string> = {
   myBusy: "My busy blocks",
   myAvailability: "My availability summary",
   staffToday: "Staff Today",
+  myEarnings: "My earnings",
+  commissionHistory: "Commission and refund history",
+  netTips: "My net tips",
 };
 function pathFor(screen: string, id?: string) {
   if (screen === "staffToday") return "/v1/staff/me/today";
+  if (screen === "myEarnings" || screen === "commissionHistory")
+    return "/v1/staff/me/commissions";
+  if (screen === "netTips") return "/v1/staff/me/tips";
   if (screen === "upcomingAppointments")
     return "/v1/appointments?from=2026-07-01T00:00:00Z&to=2026-09-01T00:00:00Z";
   if (screen === "appointment") return `/v1/appointments/${id ?? ""}`;
@@ -99,7 +105,12 @@ export default function StaffScreen() {
     void load();
   }, [load]);
   useEffect(() => {
-    if (screen !== "staffToday") return;
+    if (
+      !["staffToday", "myEarnings", "commissionHistory", "netTips"].includes(
+        screen,
+      )
+    )
+      return;
     const token = getSession().accessToken;
     if (!token) return;
     const socket = io(`${api}/scheduling`, {
@@ -110,6 +121,8 @@ export default function StaffScreen() {
       "service_session.updated",
       "appointment.updated",
       "operations.invalidated",
+      "commission.updated",
+      "refund.updated",
     ].forEach((event) => socket.on(event, () => void load()));
     return () => {
       socket.disconnect();

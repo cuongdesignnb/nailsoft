@@ -85,3 +85,15 @@ The following events use the existing safe outbox envelope and contain refetch i
 - `cash_session.opened`, `cash_session.closing_started`, `cash_session.declared`, `cash_session.reopened`, `cash_session.closed`, `cash_movement.created`
 
 Worker routing targets tenant, branch, register, cash-session, order and appointment rooms. Payloads are invalidation signals, not financial truth, and exclude customer/payment secrets.
+
+# Sprint 7 correction and commission events
+
+Refund lifecycle: `refund.created`, `refund.submitted`, `refund.approved`, `refund.rejected`, `refund.cancelled`, `refund.processing`, `refund.completed`, `refund.failed`, `refund.unknown`, `refund.cash_executed`, `refund.external_recorded`.
+
+Correction documents: `credit_note.issued`, `credit_note.delivery_requested`.
+
+Commission: `commission.rule_created`, `commission.rule_superseded`, `commission.rule_deactivated`, `commission.entry_generated`, `commission.refund_reversal_generated`, `commission.adjustment_requested`, `commission.adjustment_approved`, `commission.adjustment_rejected`, `commission.period_created`, `commission.period_review_started`, `commission.period_reopened`, `commission.period_locked`.
+
+Reporting: `financial.export_requested`.
+
+Events are committed with audit and authoritative PostgreSQL state. Refund payloads contain only invoice/refund IDs, reference, status, amount/currency, branch/register attribution and `refetch: true`; provider secrets, full references, customer data and payment credentials are forbidden. Worker routing emits `refund.updated`, `credit_note.updated`, `commission.updated` or `financial.updated` to authorized tenant/branch/staff rooms. Staff events contain an authorized staff ID and never salon-wide revenue.

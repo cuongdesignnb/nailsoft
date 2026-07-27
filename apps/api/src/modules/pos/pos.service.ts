@@ -1972,7 +1972,109 @@ export class PosService {
         status: "ISSUED",
       },
     });
+    await this.generateCommissionEvidence(client, auth, invoice.id);
     return invoice;
+  }
+
+  private async generateCommissionEvidence(
+    client: PoolClient,
+    auth: AccessClaims,
+    invoiceId: string,
+  ) {
+    await client.query(
+      `WITH source AS (
+         SELECT il.tenant_id,il.id invoice_line_id,il.invoice_id,
+                round(il.unit_price_minor*il.quantity)::bigint gross_minor,il.taxable_minor,
+                pol.service_id,pol.service_session_id,i.branch_id,i.currency,
+                (i.issued_at AT TIME ZONE b.timezone)::date business_date
+           FROM invoice_lines il
+           JOIN invoices i ON i.tenant_id=il.tenant_id AND i.id=il.invoice_id
+           JOIN branches b ON b.tenant_id=i.tenant_id AND b.id=i.branch_id
+           JOIN pos_order_lines pol ON pol.tenant_id=il.tenant_id AND pol.id=il.source_order_line_id
+          WHERE il.tenant_id=$1 AND il.invoice_id=$2 AND pol.line_type='SERVICE'
+       ), contribution AS (
+         SELECT s.*,seg.staff_id,sum(extract(epoch FROM(seg.ended_at-seg.started_at)))::bigint work_seconds,
+                sum(sum(extract(epoch FROM(seg.ended_at-seg.started_at)))) OVER(PARTITION BY s.invoice_line_id)::bigint total_work_seconds
+           FROM source s JOIN service_session_staff_segments seg
+             ON seg.tenant_id=s.tenant_id AND seg.service_session_id=s.service_session_id AND seg.ended_at IS NOT NULL
+          GROUP BY s.tenant_id,s.invoice_line_id,s.invoice_id,s.gross_minor,s.taxable_minor,s.service_id,s.service_session_id,
+                   s.branch_id,s.currency,s.business_date,seg.staff_id
+       ), resolved AS (
+         SELECT c.*,r.id rule_id,r.rule_code,r.rule_type,r.base_mode,r.percent_basis_points,r.fixed_minor,r.currency rule_currency,
+                r.priority,r.policy_json,r.effective_from,r.effective_to
+           FROM contribution c LEFT JOIN LATERAL (
+             SELECT cr.* FROM commission_rules cr
+              WHERE cr.tenant_id=c.tenant_id AND cr.status='ACTIVE'
+                AND (cr.branch_id IS NULL OR cr.branch_id=c.branch_id)
+                AND (cr.staff_id IS NULL OR cr.staff_id=c.staff_id)
+                AND (cr.service_id IS NULL OR cr.service_id=c.service_id)
+                AND cr.effective_from<=now() AND (cr.effective_to IS NULL OR cr.effective_to>now())
+              ORDER BY ((cr.staff_id IS NOT NULL)::int*4+(cr.service_id IS NOT NULL)::int*2+(cr.branch_id IS NOT NULL)::int) DESC,
+                       cr.priority DESC,cr.id LIMIT 1
+           ) r ON true
+       ), calculated AS (
+         SELECT r.*,
+                CASE WHEN r.base_mode='GROSS_SERVICE_BEFORE_DISCOUNT' THEN r.gross_minor ELSE r.taxable_minor END total_base,
+                CASE WHEN r.rule_type='SERVICE_FIXED' THEN r.fixed_minor
+                     ELSE round((CASE WHEN r.base_mode='GROSS_SERVICE_BEFORE_DISCOUNT' THEN r.gross_minor ELSE r.taxable_minor END)
+                                *r.percent_basis_points::numeric/10000)::bigint END total_commission
+           FROM resolved r WHERE r.rule_id IS NOT NULL AND (r.rule_currency IS NULL OR r.rule_currency=r.currency)
+       )
+       INSERT INTO commission_entries(tenant_id,branch_id,staff_id,invoice_id,invoice_line_id,service_session_id,entry_type,business_date,
+              currency,base_minor,commission_minor,contribution_basis_json,rule_snapshot_json,source_snapshot_json,generation_key,status)
+       SELECT tenant_id,branch_id,staff_id,invoice_id,invoice_line_id,service_session_id,'EARNING',business_date,currency,
+              round(total_base*work_seconds::numeric/NULLIF(total_work_seconds,0))::bigint,
+              round(total_commission*work_seconds::numeric/NULLIF(total_work_seconds,0))::bigint,
+              jsonb_build_object('workSeconds',work_seconds,'totalWorkSeconds',total_work_seconds),
+              jsonb_build_object('id',rule_id,'code',rule_code,'type',rule_type,'baseMode',base_mode,'percentBasisPoints',percent_basis_points,
+                                 'fixedMinor',fixed_minor,'priority',priority,'policy',policy_json,'effectiveFrom',effective_from,'effectiveTo',effective_to),
+              jsonb_build_object('invoiceId',invoice_id,'invoiceLineId',invoice_line_id,'serviceSessionId',service_session_id),
+              concat('invoice:',invoice_id,':line:',invoice_line_id,':staff:',staff_id),'GENERATED'
+         FROM calculated ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
+      [auth.tenantId, invoiceId],
+    );
+    await client.query(
+      `WITH contribution AS (
+         SELECT il.tenant_id,il.invoice_id,il.id invoice_line_id,i.branch_id,i.currency,pol.service_id,seg.staff_id
+           FROM invoice_lines il
+           JOIN invoices i ON i.tenant_id=il.tenant_id AND i.id=il.invoice_id
+           JOIN pos_order_lines pol ON pol.tenant_id=il.tenant_id AND pol.id=il.source_order_line_id
+           JOIN service_session_staff_segments seg ON seg.tenant_id=pol.tenant_id AND seg.service_session_id=pol.service_session_id AND seg.ended_at IS NOT NULL
+          WHERE il.tenant_id=$1 AND il.invoice_id=$2 AND pol.line_type='SERVICE'
+          GROUP BY il.tenant_id,il.invoice_id,il.id,i.branch_id,i.currency,pol.service_id,seg.staff_id
+       )
+       INSERT INTO commission_generation_conflicts(tenant_id,invoice_id,invoice_line_id,staff_id,conflict_code,context_json)
+       SELECT c.tenant_id,c.invoice_id,c.invoice_line_id,c.staff_id,'COMMISSION_RULE_MISSING',
+              jsonb_build_object('branchId',c.branch_id,'serviceId',c.service_id,'currency',c.currency)
+         FROM contribution c
+        WHERE NOT EXISTS(
+          SELECT 1 FROM commission_rules r
+           WHERE r.tenant_id=c.tenant_id AND r.status='ACTIVE'
+             AND (r.branch_id IS NULL OR r.branch_id=c.branch_id)
+             AND (r.staff_id IS NULL OR r.staff_id=c.staff_id)
+             AND (r.service_id IS NULL OR r.service_id=c.service_id)
+             AND (r.currency IS NULL OR r.currency=c.currency)
+             AND r.effective_from<=now() AND (r.effective_to IS NULL OR r.effective_to>now())
+        )
+          AND NOT EXISTS(
+            SELECT 1 FROM commission_generation_conflicts x
+             WHERE x.tenant_id=c.tenant_id AND x.invoice_line_id=c.invoice_line_id
+               AND x.staff_id=c.staff_id AND x.conflict_code='COMMISSION_RULE_MISSING'
+          )`,
+      [auth.tenantId, invoiceId],
+    );
+    await client.query(
+      `WITH source AS (
+         SELECT il.tenant_id,il.invoice_id,il.id invoice_line_id,pol.service_session_id
+           FROM invoice_lines il JOIN pos_order_lines pol ON pol.tenant_id=il.tenant_id AND pol.id=il.source_order_line_id
+          WHERE il.tenant_id=$1 AND il.invoice_id=$2 AND pol.line_type='SERVICE'
+       )
+       INSERT INTO commission_generation_conflicts(tenant_id,invoice_id,invoice_line_id,conflict_code,context_json)
+       SELECT s.tenant_id,s.invoice_id,s.invoice_line_id,'COMMISSION_CONTRIBUTION_MISSING',jsonb_build_object('serviceSessionId',s.service_session_id)
+         FROM source s WHERE NOT EXISTS(SELECT 1 FROM service_session_staff_segments seg WHERE seg.tenant_id=s.tenant_id AND seg.service_session_id=s.service_session_id AND seg.ended_at IS NOT NULL)
+           AND NOT EXISTS(SELECT 1 FROM commission_generation_conflicts c WHERE c.tenant_id=s.tenant_id AND c.invoice_line_id=s.invoice_line_id AND c.conflict_code='COMMISSION_CONTRIBUTION_MISSING')`,
+      [auth.tenantId, invoiceId],
+    );
   }
 
   private async checkoutAppointment(

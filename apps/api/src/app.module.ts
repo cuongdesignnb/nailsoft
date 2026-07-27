@@ -11,6 +11,7 @@ import { CalendarModule } from "./modules/calendar/calendar.module.js";
 import { BookingModule } from "./modules/booking/booking.module.js";
 import { OperationsModule } from "./modules/operations/operations.module.js";
 import { PosModule } from "./modules/pos/pos.module.js";
+import { FinanceModule } from "./modules/finance/finance.module.js";
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { PosModule } from "./modules/pos/pos.module.js";
     BookingModule,
     OperationsModule,
     PosModule,
+    FinanceModule,
   ],
 })
 export class AppModule implements NestModule {

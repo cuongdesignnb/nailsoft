@@ -110,6 +110,32 @@ const financialEvents = new Set([
   "cash_session.reopened",
   "cash_session.closed",
   "cash_movement.created",
+  "refund.created",
+  "refund.submitted",
+  "refund.approved",
+  "refund.rejected",
+  "refund.cancelled",
+  "refund.processing",
+  "refund.completed",
+  "refund.failed",
+  "refund.unknown",
+  "refund.cash_executed",
+  "refund.external_recorded",
+  "credit_note.issued",
+  "credit_note.delivery_requested",
+  "commission.rule_created",
+  "commission.rule_superseded",
+  "commission.rule_deactivated",
+  "commission.entry_generated",
+  "commission.refund_reversal_generated",
+  "commission.adjustment_requested",
+  "commission.adjustment_approved",
+  "commission.adjustment_rejected",
+  "commission.period_created",
+  "commission.period_review_started",
+  "commission.period_reopened",
+  "commission.period_locked",
+  "financial.export_requested",
 ]);
 
 @Injectable()
@@ -201,7 +227,15 @@ export class OutboxEventRouter {
       stringValue(event.metadata_json.realtimeEvent) ??
       (event.aggregate_type === "cash_session"
         ? "cash_session.updated"
-        : "pos.order.updated");
+        : event.aggregate_type === "refund"
+          ? "refund.updated"
+          : event.aggregate_type === "credit_note"
+            ? "credit_note.updated"
+            : event.aggregate_type.startsWith("commission_")
+              ? "commission.updated"
+              : event.aggregate_type === "financial_export"
+                ? "financial.updated"
+                : "pos.order.updated");
     return {
       kind: "invalidation",
       deliveries: [

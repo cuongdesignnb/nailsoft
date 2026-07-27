@@ -39,6 +39,10 @@ const titles: Record<string, string> = {
   operationalSummary: "Operational summary",
   walkInQueue: "Walk-in queue",
   financialSummary: "Today financial summary",
+  pendingRefunds: "Pending refund approvals",
+  refundTotals: "Refund totals",
+  commissionPeriods: "Commission period summary",
+  commissionReadiness: "Commission lock readiness",
 };
 function endpoint(screen: string, id?: string) {
   if (screen === "operationalSummary")
@@ -46,6 +50,12 @@ function endpoint(screen: string, id?: string) {
   if (screen === "walkInQueue") return `/v1/walk-ins?branchId=${branch}`;
   if (screen === "financialSummary")
     return `/v1/financial/summary?branchId=${branch}`;
+  if (screen === "pendingRefunds")
+    return `/v1/refunds?branchId=${branch}&status=PENDING_APPROVAL`;
+  if (screen === "refundTotals")
+    return `/v1/financial/refunds?branchId=${branch}`;
+  if (screen === "commissionPeriods" || screen === "commissionReadiness")
+    return "/v1/commission-periods";
   if (screen === "appointmentsToday")
     return `/v1/appointments?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-11T00:00:00%2B07:00`;
   if (screen === "appointments")
@@ -99,7 +109,9 @@ export default function OwnerScreen() {
       if (!response.ok)
         throw new Error(body.error?.message ?? "Unable to load");
       const raw = body.data,
-        value = Array.isArray(raw) ? raw : (raw?.events ?? raw?.days ?? [raw]);
+        value = Array.isArray(raw)
+          ? raw
+          : (raw?.rows ?? raw?.events ?? raw?.days ?? [raw]);
       setData(value.filter(Boolean));
       setState(value.filter(Boolean).length ? "ready" : "empty");
     } catch (error) {
@@ -129,6 +141,10 @@ export default function OwnerScreen() {
       "appointment.updated",
       "pos.order.updated",
       "cash_session.updated",
+      "refund.updated",
+      "credit_note.updated",
+      "commission.updated",
+      "financial.updated",
     ].forEach((event) => socket.on(event, () => void load()));
     return () => {
       socket.disconnect();
@@ -192,6 +208,35 @@ export default function OwnerScreen() {
         error instanceof Error ? error.message : "Internet connection required",
       );
     }
+  }
+  async function refundDecision(action: "approve" | "reject", item: any) {
+    if (!navigator.onLine) {
+      setMessage(
+        "Internet connection required. Refund decisions are not queued.",
+      );
+      return;
+    }
+    const response = await apiFetch(`/v1/refunds/${item.id}/${action}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        version: item.version,
+        reason:
+          action === "approve"
+            ? "Approved in Owner Mobile"
+            : "Rejected in Owner Mobile",
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setMessage(
+      response.ok
+        ? `Refund ${action}d.`
+        : (body.error?.message ?? "Decision failed safely."),
+    );
+    await load();
   }
   return (
     <SafeAreaView>
@@ -259,6 +304,22 @@ export default function OwnerScreen() {
                   <Link href={`/leaveReview?id=${item.id}` as never}>
                     Review request
                   </Link>
+                )}
+                {screen === "pendingRefunds" && item.id && (
+                  <View style={{ gap: 8 }}>
+                    <Text>
+                      {item.refundReference} · {item.requestedMinor}{" "}
+                      {item.currency}
+                    </Text>
+                    <Button
+                      title="Approve"
+                      onPress={() => void refundDecision("approve", item)}
+                    />
+                    <Button
+                      title="Reject"
+                      onPress={() => void refundDecision("reject", item)}
+                    />
+                  </View>
                 )}
               </View>
             ))}

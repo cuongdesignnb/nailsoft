@@ -102,6 +102,9 @@ export default function Home() {
           </Text>
           {[
             "staffToday",
+            "myEarnings",
+            "commissionHistory",
+            "netTips",
             "upcomingAppointments",
             "myCalendar",
             "myBusy",

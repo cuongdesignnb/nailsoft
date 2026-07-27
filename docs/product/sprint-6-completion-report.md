@@ -2,7 +2,7 @@
 
 ## Status
 
-Sprint 6 closure implementation, local QA and closure CI are complete. Product status is `IN PROGRESS` pending BA/Product Owner acceptance. All technical closure criteria are met; Sprint 7 has not started.
+Sprint 6 is `DONE`. BA/Product Owner accepted the closure implementation, final evidence HEAD and exact final CI before authorizing Sprint 7.
 
 ## Git
 
@@ -10,9 +10,10 @@ Sprint 6 closure implementation, local QA and closure CI are complete. Product s
 - Sprint 6 closure checkpoint: `b52e4b723414e16d3cb01ca9439ca3caab77317e`
 - Sprint 6 feature commit: `8a6556d375ebb6f421d84d2693b6321906bb74c9`
 - Sprint 6 closure implementation commit: `3c3688ea924ad85d0c1d13867cd5310f2900b8e6`
+- Accepted final evidence HEAD: `e8b77d4c942a3f7d38228d95c0ae4a4d62485df9`
 - Migrations `0001-0012`: unchanged
 - Closure migration: `0013_sprint6_financial_attribution_hardening`
-- Closure implementation commit was aligned with `origin/main` and its working tree was clean before this evidence-only report update.
+- Accepted evidence HEAD was aligned with `origin/main`; working tree was clean and Docker services running were `0`.
 
 ## Closure CI
 
@@ -21,7 +22,7 @@ Sprint 6 closure implementation, local QA and closure CI are complete. Product s
 - Commit: `3c3688ea924ad85d0c1d13867cd5310f2900b8e6`
 - Status: `SUCCESS`
 - Duration: 11m51s
-- Evidence-report HEAD must also pass CI before final handoff.
+- Accepted final evidence CI: `30244104848` — `SUCCESS` for `e8b77d4c942a3f7d38228d95c0ae4a4d62485df9`.
 
 ## Register trust boundary
 

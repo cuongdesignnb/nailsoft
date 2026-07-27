@@ -428,3 +428,130 @@ export const invoiceDeliverySchema = z
     destination: z.string().trim().max(254).optional(),
   })
   .strict();
+
+const refundLineSchema = z
+  .object({ invoiceLineId: uuidSchema, amountMinor: positiveMoneyMinorSchema })
+  .strict();
+const refundPaymentPreferenceSchema = z
+  .object({ paymentId: uuidSchema, amountMinor: positiveMoneyMinorSchema })
+  .strict();
+export const refundPlanSchema = z
+  .object({
+    items: z.array(refundLineSchema).min(1).max(100),
+    tipAmountMinor: moneyMinorSchema.default(0),
+    paymentPreferences: z
+      .array(refundPaymentPreferenceSchema)
+      .max(20)
+      .optional(),
+  })
+  .strict();
+export const refundCreateSchema = refundPlanSchema
+  .extend({
+    reasonCode: z.string().trim().min(1).max(80),
+    reasonText: z.string().trim().min(3).max(2000),
+    overrideReason: z.string().trim().min(3).max(1000).optional(),
+  })
+  .strict();
+export const refundVersionSchema = z
+  .object({ version: z.number().int().positive() })
+  .strict();
+export const refundDecisionSchema = refundVersionSchema
+  .extend({ reason: z.string().trim().min(3).max(1000) })
+  .strict();
+export const cashRefundExecutionSchema = refundVersionSchema
+  .extend({ cashSessionId: uuidSchema })
+  .strict();
+export const externalRefundExecutionSchema = refundVersionSchema
+  .extend({
+    provider: z.string().trim().min(1).max(100),
+    providerRefundId: z.string().trim().min(1).max(200),
+    processedAt: z.string().datetime({ offset: true }),
+    evidenceNote: z.string().trim().min(3).max(1000),
+  })
+  .strict();
+export const creditNoteDeliverySchema = z
+  .object({
+    channel: z.enum(["EMAIL", "SMS_LINK", "PRINT"]),
+    destination: z.string().trim().max(254).optional(),
+  })
+  .strict();
+export const commissionRuleSchema = z
+  .object({
+    branchId: uuidSchema.optional().nullable(),
+    staffId: uuidSchema.optional().nullable(),
+    serviceId: uuidSchema.optional().nullable(),
+    ruleCode: z.string().trim().min(1).max(80),
+    ruleType: z.enum(["SERVICE_PERCENT", "SERVICE_FIXED"]),
+    baseMode: z.enum([
+      "NET_SERVICE_AFTER_DISCOUNT_BEFORE_TAX",
+      "GROSS_SERVICE_BEFORE_DISCOUNT",
+      "FIXED_PER_COMPLETED_SERVICE",
+    ]),
+    percentBasisPoints: z.number().int().min(0).max(10000).optional(),
+    fixedMinor: moneyMinorSchema.optional(),
+    currency: z
+      .string()
+      .regex(/^[A-Z]{3}$/)
+      .optional(),
+    priority: z.number().int().min(-100000).max(100000).default(0),
+    effectiveFrom: z.string().datetime({ offset: true }),
+    effectiveTo: z.string().datetime({ offset: true }).optional().nullable(),
+    policy: z.record(z.string(), z.unknown()).default({}),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.ruleType === "SERVICE_PERCENT" &&
+      value.percentBasisPoints === undefined
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["percentBasisPoints"],
+        message: "Required for percentage rule",
+      });
+    if (value.ruleType === "SERVICE_FIXED" && value.fixedMinor === undefined)
+      context.addIssue({
+        code: "custom",
+        path: ["fixedMinor"],
+        message: "Required for fixed rule",
+      });
+  });
+export const commissionPeriodSchema = z
+  .object({
+    code: z.string().trim().min(1).max(80),
+    startDate: z.string().date(),
+    endDate: z.string().date(),
+    currency: z.string().regex(/^[A-Z]{3}$/),
+  })
+  .strict();
+export const commissionPeriodCommandSchema = refundVersionSchema.extend({
+  reason: z.string().trim().min(3).max(1000).optional(),
+});
+export const commissionAdjustmentSchema = z
+  .object({
+    staffId: uuidSchema,
+    targetPeriodId: uuidSchema,
+    postingPeriodId: uuidSchema.optional().nullable(),
+    amountMinor: z
+      .number()
+      .int()
+      .safe()
+      .refine((value) => value !== 0),
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    reasonCode: z.string().trim().min(1).max(80),
+    note: z.string().trim().min(3).max(2000),
+  })
+  .strict();
+export const financialExportSchema = z
+  .object({
+    branchId: uuidSchema.optional(),
+    exportType: z.enum([
+      "REFUNDS",
+      "CREDIT_NOTES",
+      "COMMISSION_ENTRIES",
+      "COMMISSION_STATEMENTS",
+      "NET_SALES",
+    ]),
+    filters: z.record(z.string(), z.unknown()).default({}),
+  })
+  .strict();

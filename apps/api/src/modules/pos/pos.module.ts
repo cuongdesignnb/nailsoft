@@ -41,5 +41,6 @@ import {
     FinancialReportService,
     PaymentWebhookService,
   ],
+  exports: [FinancialEvidenceService, RegisterDeviceAuthorizationService],
 })
 export class PosModule {}

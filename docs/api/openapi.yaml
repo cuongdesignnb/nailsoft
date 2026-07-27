@@ -2,8 +2,10 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.8.1,
-    description: Sprint 6 POS closure with authenticated-device register trust,
+    version: 0.9.0,
+    description: Sprint 7 refund,
+    credit note,
+    commission and financial reporting plus Sprint 6 POS with authenticated-device register trust,
     invoice,
     payment,
     tip and cash-session API plus Sprint 5 operations and prior booking lifecycle,
@@ -2016,12 +2018,480 @@ paths:
         tags: [payments],
         security: [],
         summary: Verify raw-body signature,
-        timestamp and event replay,
-        responses:
-          {
+        ? timestamp and event replay for payment and refund events
+          responses
+        : {
             "200": { description: Opaque acknowledgement },
             "401": { description: Invalid signature },
           },
+      }
+  /invoices/{invoiceId}/refund-plans:
+    post:
+      tags: [refunds]
+      summary: Recalculate an authoritative refund plan without reserving funds
+      parameters: [{ $ref: "#/components/parameters/InvoiceId" }]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/RefundPlanRequest" } },
+            },
+        }
+      responses:
+        {
+          "200": { description: Refund plan },
+          "409": { description: Refundable balance conflict },
+        }
+  /invoices/{invoiceId}/refunds:
+    post:
+      tags: [refunds]
+      summary: Create an idempotent refund draft
+      parameters:
+        [
+          { $ref: "#/components/parameters/InvoiceId" },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema: { $ref: "#/components/schemas/RefundCreateRequest" },
+                },
+            },
+        }
+      responses:
+        {
+          "200": { description: Refund created },
+          "409": { description: Balance or idempotency conflict },
+        }
+  /refunds:
+    get:
+      {
+        tags: [refunds],
+        summary: List tenant and branch scoped refunds,
+        responses: { "200": { description: Refund list } },
+      }
+  /refunds/{refundId}:
+    get:
+      tags: [refunds]
+      summary: Read refund evidence
+      parameters: [{ $ref: "#/components/parameters/RefundId" }]
+      responses:
+        {
+          "200": { description: Refund },
+          "404": { description: Not found in scope },
+        }
+  /refunds/{refundId}/history:
+    get:
+      {
+        tags: [refunds],
+        summary: Read append-only refund history,
+        parameters: [{ $ref: "#/components/parameters/RefundId" }],
+        responses: { "200": { description: History } },
+      }
+  /refunds/{refundId}/attempts:
+    get:
+      {
+        tags: [refunds],
+        summary: Read redacted provider attempts,
+        parameters: [{ $ref: "#/components/parameters/RefundId" }],
+        responses: { "200": { description: Attempts } },
+      }
+  /refunds/{refundId}/submit:
+    post:
+      {
+        tags: [refunds],
+        summary: Submit for approval,
+        parameters:
+          [
+            { $ref: "#/components/parameters/RefundId" },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        requestBody: { $ref: "#/components/requestBodies/VersionedCommand" },
+        responses:
+          {
+            "200": { description: Submitted },
+            "409": { description: State/version conflict },
+          },
+      }
+  /refunds/{refundId}/approve:
+    post:
+      {
+        tags: [refunds],
+        summary: Approve with dual control and role limit,
+        parameters:
+          [
+            { $ref: "#/components/parameters/RefundId" },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        requestBody: { $ref: "#/components/requestBodies/DecisionCommand" },
+        responses:
+          {
+            "200": { description: Approved },
+            "403": { description: Approval denied },
+          },
+      }
+  /refunds/{refundId}/reject:
+    post:
+      {
+        tags: [refunds],
+        summary: Reject a request,
+        parameters:
+          [
+            { $ref: "#/components/parameters/RefundId" },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        requestBody: { $ref: "#/components/requestBodies/DecisionCommand" },
+        responses: { "200": { description: Rejected } },
+      }
+  /refunds/{refundId}/cancel:
+    post:
+      {
+        tags: [refunds],
+        summary: Cancel before execution,
+        parameters:
+          [
+            { $ref: "#/components/parameters/RefundId" },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        requestBody: { $ref: "#/components/requestBodies/DecisionCommand" },
+        responses: { "200": { description: Cancelled } },
+      }
+  /refunds/{refundId}/execute-cash:
+    post:
+      tags: [refunds]
+      summary: Execute cash refund on authenticated register/session
+      parameters:
+        [
+          { $ref: "#/components/parameters/RefundId" },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema: { $ref: "#/components/schemas/CashRefundExecution" },
+                },
+            },
+        }
+      responses:
+        {
+          "200": { description: Confirmed execution },
+          "409": { description: Drawer, balance or state conflict },
+        }
+  /refunds/{refundId}/execute-external:
+    post:
+      tags: [refunds]
+      summary: Record confirmed manual external refund evidence
+      parameters:
+        [
+          { $ref: "#/components/parameters/RefundId" },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/ExternalRefundExecution" },
+                },
+            },
+        }
+      responses:
+        {
+          "200": { description: Confirmed execution },
+          "409": { description: Provider reference conflict },
+        }
+  /refunds/{refundId}/retry:
+    post:
+      {
+        tags: [refunds],
+        summary: Retry or query the same provider aggregate,
+        parameters:
+          [
+            { $ref: "#/components/parameters/RefundId" },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        requestBody: { $ref: "#/components/requestBodies/VersionedCommand" },
+        responses: { "200": { description: Processing resumed } },
+      }
+  /credit-notes:
+    get:
+      {
+        tags: [credit-notes],
+        summary: List immutable credit notes,
+        responses: { "200": { description: Credit notes } },
+      }
+  /credit-notes/{creditNoteId}:
+    get:
+      {
+        tags: [credit-notes],
+        summary: Read immutable credit note and lines,
+        parameters: [{ $ref: "#/components/parameters/CreditNoteId" }],
+        responses: { "200": { description: Credit note } },
+      }
+  /credit-notes/{creditNoteId}/print:
+    get:
+      {
+        tags: [credit-notes],
+        summary: Build immutable print model,
+        parameters: [{ $ref: "#/components/parameters/CreditNoteId" }],
+        responses: { "200": { description: Print model } },
+      }
+  /credit-notes/{creditNoteId}/deliver:
+    post:
+      {
+        tags: [credit-notes],
+        summary: Request credit-note delivery,
+        parameters:
+          [
+            { $ref: "#/components/parameters/CreditNoteId" },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses: { "200": { description: Delivery requested } },
+      }
+  /commission-rules:
+    get:
+      {
+        tags: [commission],
+        summary: List effective-dated rules,
+        responses: { "200": { description: Rules } },
+      }
+    post:
+      {
+        tags: [commission],
+        summary: Create immutable rule version,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { $ref: "#/components/schemas/CommissionRuleRequest" },
+                  },
+              },
+          },
+        responses: { "200": { description: Rule created } },
+      }
+  /commission-rules/{ruleId}:
+    get:
+      {
+        tags: [commission],
+        summary: Read rule,
+        parameters:
+          [
+            {
+              name: ruleId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses: { "200": { description: Rule } },
+      }
+  /commission-rules/{ruleId}/supersede:
+    post:
+      {
+        tags: [commission],
+        summary: Supersede without historical mutation,
+        parameters:
+          [
+            {
+              name: ruleId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses: { "200": { description: New rule version } },
+      }
+  /commission-rules/{ruleId}/deactivate:
+    post:
+      {
+        tags: [commission],
+        summary: End active rule,
+        parameters:
+          [
+            {
+              name: ruleId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        requestBody: { $ref: "#/components/requestBodies/DecisionCommand" },
+        responses: { "200": { description: Deactivated } },
+      }
+  /commission-entries:
+    get:
+      {
+        tags: [commission],
+        summary: List branch-scoped append-only entries,
+        responses: { "200": { description: Entries } },
+      }
+  /staff/me/commissions:
+    get:
+      {
+        tags: [commission],
+        summary: Read own commission only,
+        responses: { "200": { description: Own entries } },
+      }
+  /staff/me/tips:
+    get:
+      {
+        tags: [commission],
+        summary: Read own net tips and refund history,
+        responses: { "200": { description: Own tips } },
+      }
+  /commission-periods:
+    get:
+      {
+        tags: [commission],
+        summary: List periods,
+        responses: { "200": { description: Periods } },
+      }
+    post:
+      {
+        tags: [commission],
+        summary: Create non-overlapping period,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Period } },
+      }
+  /commission-periods/{periodId}/lock:
+    post:
+      {
+        tags: [commission],
+        summary: Atomically lock statements and integrity hash,
+        parameters:
+          [
+            {
+              name: periodId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        requestBody: { $ref: "#/components/requestBodies/VersionedCommand" },
+        responses:
+          {
+            "200": { description: Locked },
+            "409": { description: Conflict or unresolved evidence },
+          },
+      }
+  /commission-adjustments:
+    get:
+      {
+        tags: [commission],
+        summary: List adjustment requests,
+        responses: { "200": { description: Adjustments } },
+      }
+    post:
+      {
+        tags: [commission],
+        summary: Request append-only adjustment,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Requested } },
+      }
+  /commission-adjustments/{adjustmentId}/approve:
+    post:
+      tags: [commission]
+      summary: Approve a pending adjustment using dual control
+      parameters:
+        [
+          { $ref: "#/components/parameters/IdempotencyKey" },
+          { $ref: "#/components/parameters/AdjustmentId" },
+        ]
+      requestBody: { $ref: "#/components/requestBodies/DecisionCommand" }
+      responses:
+        { "200": { description: Approved }, "409": { description: Conflict } }
+  /commission-adjustments/{adjustmentId}/reject:
+    post:
+      tags: [commission]
+      summary: Reject a pending adjustment using dual control
+      parameters:
+        [
+          { $ref: "#/components/parameters/IdempotencyKey" },
+          { $ref: "#/components/parameters/AdjustmentId" },
+        ]
+      requestBody: { $ref: "#/components/requestBodies/DecisionCommand" }
+      responses:
+        { "200": { description: Rejected }, "409": { description: Conflict } }
+  /commission-adjustments/{adjustmentId}/cancel:
+    post:
+      tags: [commission]
+      summary: Allow the requester to cancel a pending adjustment
+      parameters:
+        [
+          { $ref: "#/components/parameters/IdempotencyKey" },
+          { $ref: "#/components/parameters/AdjustmentId" },
+        ]
+      requestBody: { $ref: "#/components/requestBodies/DecisionCommand" }
+      responses:
+        {
+          "200": { description: Cancelled },
+          "403": { description: Requester only },
+        }
+  /financial/refunds:
+    get:
+      {
+        tags: [financial-reporting],
+        summary: Refund totals,
+        responses: { "200": { description: Report } },
+      }
+  /financial/net-sales:
+    get:
+      {
+        tags: [financial-reporting],
+        summary: Invoice sales less completed refunds,
+        responses: { "200": { description: Report } },
+      }
+  /financial/commission-liability:
+    get:
+      {
+        tags: [financial-reporting],
+        summary: Commission liability,
+        responses: { "200": { description: Report } },
+      }
+  /financial/exports:
+    post:
+      {
+        tags: [financial-reporting],
+        summary: Request audited expiring export,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Export job } },
+      }
+  /financial/exports/{exportId}:
+    get:
+      {
+        tags: [financial-reporting],
+        summary: Read export job state,
+        parameters:
+          [
+            {
+              name: exportId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses: { "200": { description: Export job } },
       }
 components:
   parameters:
@@ -2033,6 +2503,69 @@ components:
         schema: { type: string, minLength: 16, maxLength: 128 },
         description: Actor-scoped command replay key; raw value is never logged,
       }
+    InvoiceId:
+      {
+        name: invoiceId,
+        in: path,
+        required: true,
+        schema: { type: string, format: uuid },
+      }
+    AdjustmentId:
+      {
+        name: adjustmentId,
+        in: path,
+        required: true,
+        schema: { type: string, format: uuid },
+      }
+    RefundId:
+      {
+        name: refundId,
+        in: path,
+        required: true,
+        schema: { type: string, format: uuid },
+      }
+    CreditNoteId:
+      {
+        name: creditNoteId,
+        in: path,
+        required: true,
+        schema: { type: string, format: uuid },
+      }
+  requestBodies:
+    VersionedCommand:
+      required: true
+      content:
+        {
+          application/json:
+            {
+              schema:
+                {
+                  type: object,
+                  additionalProperties: false,
+                  required: [version],
+                  properties: { version: { type: integer, minimum: 1 } },
+                },
+            },
+        }
+    DecisionCommand:
+      required: true
+      content:
+        {
+          application/json:
+            {
+              schema:
+                {
+                  type: object,
+                  additionalProperties: false,
+                  required: [version, reason],
+                  properties:
+                    {
+                      version: { type: integer, minimum: 1 },
+                      reason: { type: string, minLength: 3, maxLength: 1000 },
+                    },
+                },
+            },
+        }
   securitySchemes:
     bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
     tenantContext:
@@ -2043,6 +2576,107 @@ components:
         description: Requested tenant scope; always verified against the authenticated membership,
       }
   schemas:
+    RefundPlanRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          {
+            type: array,
+            minItems: 1,
+            maxItems: 100,
+            items:
+              {
+                type: object,
+                additionalProperties: false,
+                required: [invoiceLineId, amountMinor],
+                properties:
+                  {
+                    invoiceLineId: { type: string, format: uuid },
+                    amountMinor: { type: integer, minimum: 1 },
+                  },
+              },
+          }
+        tipAmountMinor: { type: integer, minimum: 0, default: 0 }
+        paymentPreferences:
+          {
+            type: array,
+            items:
+              {
+                type: object,
+                additionalProperties: false,
+                required: [paymentId, amountMinor],
+                properties:
+                  {
+                    paymentId: { type: string, format: uuid },
+                    amountMinor: { type: integer, minimum: 1 },
+                  },
+              },
+          }
+    RefundCreateRequest:
+      allOf:
+        - { $ref: "#/components/schemas/RefundPlanRequest" }
+        - {
+            type: object,
+            additionalProperties: false,
+            required: [reasonCode, reasonText],
+            properties:
+              {
+                reasonCode: { type: string, maxLength: 80 },
+                reasonText: { type: string, minLength: 3, maxLength: 2000 },
+                overrideReason: { type: string, minLength: 3, maxLength: 1000 },
+              },
+          }
+    CashRefundExecution:
+      type: object
+      additionalProperties: false
+      required: [version, cashSessionId]
+      properties:
+        {
+          version: { type: integer, minimum: 1 },
+          cashSessionId: { type: string, format: uuid },
+        }
+    ExternalRefundExecution:
+      type: object
+      additionalProperties: false
+      required: [version, provider, providerRefundId, processedAt, evidenceNote]
+      properties:
+        {
+          version: { type: integer, minimum: 1 },
+          provider: { type: string },
+          providerRefundId: { type: string },
+          processedAt: { type: string, format: date-time },
+          evidenceNote: { type: string, minLength: 3 },
+        }
+    CommissionRuleRequest:
+      type: object
+      additionalProperties: false
+      required: [ruleCode, ruleType, baseMode, priority, effectiveFrom]
+      properties:
+        {
+          branchId: { type: string, format: uuid },
+          staffId: { type: string, format: uuid },
+          serviceId: { type: string, format: uuid },
+          ruleCode: { type: string },
+          ruleType: { enum: [SERVICE_PERCENT, SERVICE_FIXED] },
+          baseMode:
+            {
+              enum:
+                [
+                  NET_SERVICE_AFTER_DISCOUNT_BEFORE_TAX,
+                  GROSS_SERVICE_BEFORE_DISCOUNT,
+                  FIXED_PER_COMPLETED_SERVICE,
+                ],
+            },
+          percentBasisPoints: { type: integer, minimum: 0, maximum: 10000 },
+          fixedMinor: { type: integer, minimum: 0 },
+          currency: { type: string, pattern: "^[A-Z]{3}$" },
+          priority: { type: integer },
+          effectiveFrom: { type: string, format: date-time },
+          effectiveTo: { type: string, format: date-time },
+          policy: { type: object },
+        }
     VersionCommand:
       type: object
       additionalProperties: false

@@ -22,6 +22,11 @@ try {
   );
   if (sprint6.rowCount)
     await c.query(await readFile("infra/seeds/sprint6.sql", "utf8"));
+  const sprint7 = await c.query(
+    "SELECT 1 FROM schema_migrations WHERE version='0014_refund_credit_note_commission_reporting'",
+  );
+  if (sprint7.rowCount)
+    await c.query(await readFile("infra/seeds/sprint7.sql", "utf8"));
 } finally {
   await c.end();
 }
