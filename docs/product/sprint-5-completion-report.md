@@ -2,14 +2,20 @@
 
 ## Status
 
-Sprint 5 closure hardening is implemented and locally verified. Formal `DONE` still requires the GitHub Actions run for the immutable closure commit to succeed; the exact commit and run are recorded in the final handoff because a Git commit cannot contain its own hash.
+Sprint 5: `DONE`.
+
+- Final commit: `cb0377d1d818597dcda8e4cfd864de9c538a0b4a`
+- Final CI: `30212397335` — `SUCCESS`
+- Unit: `59/59`
+- Integration: `67/67`
+- Deep authenticated E2E: `5/5`
 
 ## Git
 
 - Branch: `main`
 - Sprint start checkpoint: `d6df218b24021bfe303300980a73ce493ea18097`
 - Closure checkpoint: `b435758612861e29a0aa079993374562227b538d`
-- Final commit: recorded in the final handoff
+- Final commit: `cb0377d1d818597dcda8e4cfd864de9c538a0b4a`
 - Commit message: `feat: complete sprint 5 salon operations`
 - Start state: `HEAD = origin/main`, clean
 - Migrations 0001-0011: unchanged by closure hardening

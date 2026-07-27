@@ -12,7 +12,7 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16-alpine
@@ -73,7 +73,7 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 5 migration rollback and re-migrate
+      - name: Sprint 6 migration rollback and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
@@ -81,12 +81,14 @@ jobs:
         run: pnpm test:unit
       - name: Public booking policy and capability unit tests
         run: pnpm exec vitest run apps/api/test/public-booking-policy.test.ts apps/api/test/booking-idempotency.test.ts apps/api/test/booking-token.test.ts packages/validation/src/index.test.ts
-      - name: Sprint 1-5 PostgreSQL and concurrency integration
+      - name: Sprint 1-6 PostgreSQL and concurrency integration
         run: pnpm test:integration
       - name: Sprint 5 operational authorization integration
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint5-closure-authorization.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 5 ETA and timezone integration
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint5-eta-timezone.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 6 payment and cash concurrency integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint6-pos-payment-cash.test.ts --maxWorkers=1 --minWorkers=1
       - name: Reset focused regression fixture
         run: pnpm db:reset && pnpm db:seed
       - name: Public booking tenant-scoped deep integration
@@ -150,6 +152,8 @@ jobs:
             pnpm db:seed
             pnpm exec playwright test "$spec"
           done
+      - name: Sprint 6 authenticated POS and mobile E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint6-pos-ui.spec.ts
       - name: Scheduling and booking load smoke
         env:
           LOAD_DURATION_SECONDS: 2
@@ -163,6 +167,13 @@ jobs:
           LOAD_WARMUP_SECONDS: 1
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: operations-board,walkin-queue,checkout-summary
+        run: pnpm load:smoke
+      - name: Sprint 6 financial load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: pos-orders,financial-summary,financial-reconciliation,invoice-list
         run: pnpm load:smoke
       - name: Build API
         run: pnpm --filter @nailsoft/api build

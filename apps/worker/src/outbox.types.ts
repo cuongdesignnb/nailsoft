@@ -5,6 +5,7 @@ export type OutboxEvent = {
   event_type: string;
   aggregate_type: string;
   aggregate_id: string;
+  aggregate_version: number;
   payload_json: Record<string, unknown>;
   metadata_json: Record<string, unknown>;
   attempt_count: number;

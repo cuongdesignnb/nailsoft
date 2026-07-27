@@ -7,6 +7,7 @@ import { authorizedFetch } from "./auth";
 import Sprint3Screen from "./sprint3-screen";
 import Sprint4Screen from "./sprint4-screen";
 import Sprint5Screen from "./sprint5-screen";
+import Sprint6Screen from "./sprint6-screen";
 
 type Resource = {
   title: string;
@@ -182,6 +183,11 @@ function unwrap(body: any): any[] {
 
 export default function Sprint1Screen() {
   const pathname = usePathname();
+  if (
+    pathname.startsWith("/admin/pos") ||
+    pathname.startsWith("/admin/financial")
+  )
+    return <Sprint6Screen pathname={pathname} />;
   if (
     pathname.startsWith("/admin/operations") ||
     pathname.startsWith("/admin/service-sessions") ||

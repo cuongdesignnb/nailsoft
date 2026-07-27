@@ -73,3 +73,15 @@ Execution events: `service_session.created`, `service_session.started`, `service
 `service_session.media_upload_reported` explicitly means that an authorized client reported completion. It does not assert object integrity and never promotes metadata to `READY`; that state requires a trusted provider callback or Worker verification of object existence, checksum, MIME type and size.
 
 All are committed with the authoritative transaction. Payloads contain identifiers, status/version and `refetch: true`, never customer contact, notes or media URLs. The Worker resolves tenant, branch, assigned-staff and authorized appointment rooms, reads `branch_operational_versions`, then emits `operations.invalidated` plus `walkin.updated`, `appointment.updated` or `service_session.updated`. Realtime is an invalidation signal only.
+
+# Sprint 6 financial events
+
+The following events use the existing safe outbox envelope and contain refetch identifiers plus minor-unit/currency summaries only:
+
+- `pos.order_created`, `pos.order_recalculated`, `pos.order_finalized`, `pos.order_partially_paid`, `pos.order_paid`, `pos.order_voided`
+- `pos.discount_applied`, `pos.discount_approved`, `pos.tip_set`
+- `payment.captured`, `payment.failed`
+- `invoice.issued`, `invoice.delivery_requested`
+- `cash_session.opened`, `cash_session.closing_started`, `cash_session.declared`, `cash_session.reopened`, `cash_session.closed`, `cash_movement.created`
+
+Worker routing targets tenant, branch, register, cash-session, order and appointment rooms. Payloads are invalidation signals, not financial truth, and exclude customer/payment secrets.

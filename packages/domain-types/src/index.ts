@@ -182,6 +182,8 @@ export type AppointmentStatus =
   | "IN_SERVICE"
   | "PARTIALLY_COMPLETED"
   | "COMPLETED"
+  | "CHECKED_OUT"
+  | "PAID"
   | "EXPIRED"
   | "CANCELLED_BY_CUSTOMER"
   | "CANCELLED_BY_SALON";
@@ -279,4 +281,55 @@ export interface ServiceSessionSummary {
   totalPauseSeconds: number;
   actualWorkSeconds: number;
   version: number;
+}
+
+export type PosOrderStatus =
+  | "DRAFT"
+  | "READY_FOR_PAYMENT"
+  | "PARTIALLY_PAID"
+  | "PAID"
+  | "VOIDED"
+  | "EXPIRED";
+export type PaymentTender =
+  "CASH" | "CARD_EXTERNAL" | "BANK_TRANSFER" | "OTHER_EXTERNAL";
+export type CashSessionStatus = "OPEN" | "CLOSING" | "CLOSED" | "CANCELLED";
+export interface MoneyTotals {
+  subtotalMinor: number;
+  discountMinor: number;
+  taxableMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  tipMinor: number;
+  grandTotalMinor: number;
+  amountPaidMinor: number;
+  amountDueMinor: number;
+  currency: string;
+}
+export interface PosOrderSummary extends MoneyTotals {
+  id: string;
+  branchId: string;
+  appointmentId?: string;
+  orderNumber: string;
+  source: "APPOINTMENT" | "WALK_IN" | "COUNTER_SALE" | "MANUAL";
+  status: PosOrderStatus;
+  pricingLockedAt?: string;
+  version: number;
+}
+export interface PaymentSummary {
+  id: string;
+  orderId: string;
+  paymentReference: string;
+  tenderType: PaymentTender;
+  status:
+    | "PENDING"
+    | "AUTHORIZED"
+    | "CAPTURED"
+    | "FAILED"
+    | "CANCELLED"
+    | "REVERSED_TECHNICAL";
+  capturedMinor: number;
+  cashReceivedMinor?: number;
+  changeDueMinor?: number;
+  currency: string;
+  createdAt: string;
 }

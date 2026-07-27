@@ -90,6 +90,27 @@ const operationalEvents = new Set([
   "service_session.note_added",
   "service_session.media_added",
 ]);
+const financialEvents = new Set([
+  "pos.order_created",
+  "pos.order_recalculated",
+  "pos.order_finalized",
+  "pos.order_partially_paid",
+  "pos.order_paid",
+  "pos.order_voided",
+  "pos.discount_applied",
+  "pos.discount_approved",
+  "pos.tip_set",
+  "payment.captured",
+  "payment.failed",
+  "invoice.issued",
+  "invoice.delivery_requested",
+  "cash_session.opened",
+  "cash_session.closing_started",
+  "cash_session.declared",
+  "cash_session.reopened",
+  "cash_session.closed",
+  "cash_movement.created",
+]);
 
 @Injectable()
 export class OutboxEventRouter {
@@ -100,6 +121,7 @@ export class OutboxEventRouter {
   async route(event: OutboxEvent): Promise<RoutedEvent> {
     const control = this.control(event);
     if (control) return { kind: "control", message: control };
+    if (financialEvents.has(event.event_type)) return this.financial(event);
     if (operationalEvents.has(event.event_type)) return this.operational(event);
     if (bookingEvents.has(event.event_type)) return this.booking(event);
     if (
@@ -162,6 +184,55 @@ export class OutboxEventRouter {
       });
     }
     return { kind: "invalidation", deliveries };
+  }
+
+  private async financial(event: OutboxEvent): Promise<RoutedEvent> {
+    const branchId =
+      event.branch_id ?? stringValue(event.payload_json.branchId);
+    if (!branchId) return { kind: "ignored" };
+    await this.assertBranch(event.tenant_id, branchId);
+    const registerId = stringValue(event.payload_json.registerId);
+    const cashSessionId = stringValue(event.payload_json.cashSessionId);
+    const orderId =
+      stringValue(event.payload_json.orderId) ??
+      (event.aggregate_type === "pos_order" ? event.aggregate_id : undefined);
+    const appointmentId = stringValue(event.payload_json.appointmentId);
+    const realtimeEvent =
+      stringValue(event.metadata_json.realtimeEvent) ??
+      (event.aggregate_type === "cash_session"
+        ? "cash_session.updated"
+        : "pos.order.updated");
+    return {
+      kind: "invalidation",
+      deliveries: [
+        {
+          payload: {
+            eventId: event.id,
+            tenantId: event.tenant_id,
+            branchId,
+            ...(registerId ? { registerId } : {}),
+            ...(cashSessionId ? { cashSessionId } : {}),
+            ...(orderId ? { orderId } : {}),
+            ...(appointmentId ? { appointmentId } : {}),
+            dataVersion: event.aggregate_version,
+            sourceEventType: event.event_type,
+            realtimeEvent,
+            refetch: true,
+            occurredAt: event.created_at.toISOString(),
+          },
+          rooms: [
+            ...new Set([
+              `tenant:${event.tenant_id}`,
+              `branch:${branchId}`,
+              ...(registerId ? [`register:${registerId}`] : []),
+              ...(cashSessionId ? [`cash-session:${cashSessionId}`] : []),
+              ...(orderId ? [`order:${orderId}`] : []),
+              ...(appointmentId ? [`appointment:${appointmentId}`] : []),
+            ]),
+          ],
+        },
+      ],
+    };
   }
 
   private async operational(event: OutboxEvent): Promise<RoutedEvent> {

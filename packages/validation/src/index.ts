@@ -264,3 +264,164 @@ export const addServiceCommitSchema = z.object({
   customerApprovalMethod: z.enum(["VERBAL", "DIGITAL", "WRITTEN"]),
   approvalNote: optionalNote,
 });
+
+const moneyMinorSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const positiveMoneyMinorSchema = moneyMinorSchema.positive();
+
+export const posOrderCreateSchema = z
+  .object({
+    registerId: uuidSchema.optional(),
+  })
+  .strict();
+export const posOrderVersionSchema = z
+  .object({ version: z.number().int().positive() })
+  .strict();
+export const posManualLineSchema = posOrderVersionSchema
+  .extend({
+    lineType: z.enum(["MANUAL_SERVICE", "ADJUSTMENT"]),
+    description: z.string().trim().min(1).max(300),
+    quantity: z.number().positive().max(1000).default(1),
+    unitPriceMinor: moneyMinorSchema,
+    reasonCode: z.string().trim().min(1).max(80),
+  })
+  .strict();
+export const posDiscountSchema = posOrderVersionSchema
+  .extend({
+    orderLineId: uuidSchema.optional(),
+    discountType: z.enum(["FIXED", "PERCENT"]),
+    value: z.number().nonnegative().max(10000),
+    reasonCode: z.string().trim().min(1).max(80),
+    note: z.string().trim().max(1000).optional(),
+  })
+  .strict();
+export const posDiscountDecisionSchema = z
+  .object({
+    version: z.number().int().positive(),
+    decisionReason: z.string().trim().min(3).max(1000),
+  })
+  .strict();
+export const posTipSchema = posOrderVersionSchema
+  .extend({
+    amountMinor: moneyMinorSchema,
+    source: z
+      .enum(["CUSTOMER", "CASHIER_ENTRY", "TERMINAL"])
+      .default("CASHIER_ENTRY"),
+    allocationBasis: z.enum(["MANUAL", "EQUAL", "WORK_SECONDS"]),
+    allocations: z
+      .array(
+        z
+          .object({
+            staffId: uuidSchema,
+            appointmentItemId: uuidSchema.optional(),
+            amountMinor: moneyMinorSchema,
+          })
+          .strict(),
+      )
+      .max(50)
+      .optional(),
+  })
+  .strict();
+export const posVoidSchema = posOrderVersionSchema
+  .extend({ reason: z.string().trim().min(3).max(1000) })
+  .strict();
+
+const paymentBase = {
+  version: z.number().int().positive(),
+  amountToApplyMinor: positiveMoneyMinorSchema,
+};
+export const cashPaymentSchema = z
+  .object({
+    ...paymentBase,
+    tenderType: z.literal("CASH"),
+    cashReceivedMinor: positiveMoneyMinorSchema,
+    cashSessionId: uuidSchema,
+  })
+  .strict();
+export const cardExternalPaymentSchema = z
+  .object({
+    ...paymentBase,
+    tenderType: z.literal("CARD_EXTERNAL"),
+    provider: z.string().trim().min(1).max(100),
+    providerTransactionId: z.string().trim().min(1).max(200),
+    terminalId: z.string().trim().max(120).optional(),
+    cardBrand: z.string().trim().max(40).optional(),
+    cardLast4: z
+      .string()
+      .regex(/^[0-9]{4}$/)
+      .optional(),
+    approvalCode: z.string().trim().max(80).optional(),
+  })
+  .strict();
+export const bankTransferPaymentSchema = z
+  .object({
+    ...paymentBase,
+    tenderType: z.literal("BANK_TRANSFER"),
+    providerTransactionId: z.string().trim().min(1).max(200),
+    receivedAt: z.string().datetime({ offset: true }),
+    evidenceNote: z.string().trim().min(1).max(1000),
+  })
+  .strict();
+export const otherExternalPaymentSchema = z
+  .object({
+    ...paymentBase,
+    tenderType: z.literal("OTHER_EXTERNAL"),
+    provider: z.string().trim().min(1).max(100),
+    providerTransactionId: z.string().trim().min(1).max(200),
+    evidenceNote: z.string().trim().min(1).max(1000),
+  })
+  .strict();
+export const posPaymentSchema = z.discriminatedUnion("tenderType", [
+  cashPaymentSchema,
+  cardExternalPaymentSchema,
+  bankTransferPaymentSchema,
+  otherExternalPaymentSchema,
+]);
+
+export const cashSessionOpenSchema = z
+  .object({
+    registerId: uuidSchema,
+    cashDrawerId: uuidSchema,
+    openingFloatMinor: moneyMinorSchema,
+    deviceId: z.string().trim().max(200).optional(),
+  })
+  .strict();
+export const cashMovementSchema = z
+  .object({
+    version: z.number().int().positive(),
+    movementType: z.enum(["CASH_IN", "CASH_OUT", "CASH_DROP"]),
+    amountMinor: positiveMoneyMinorSchema,
+    reasonCode: z.string().trim().min(1).max(80),
+    note: z.string().trim().max(1000).optional(),
+  })
+  .strict();
+export const cashSessionVersionSchema = z
+  .object({ version: z.number().int().positive() })
+  .strict();
+export const cashDeclareSchema = cashSessionVersionSchema
+  .extend({
+    declaredCashMinor: moneyMinorSchema,
+    denominations: z
+      .array(
+        z
+          .object({
+            denominationMinor: positiveMoneyMinorSchema,
+            count: z.number().int().nonnegative().max(100000),
+          })
+          .strict(),
+      )
+      .max(100)
+      .optional(),
+  })
+  .strict();
+export const cashCloseSchema = cashSessionVersionSchema
+  .extend({
+    varianceReason: z.string().trim().min(3).max(1000).optional(),
+    approveVariance: z.boolean().default(false),
+  })
+  .strict();
+export const invoiceDeliverySchema = z
+  .object({
+    channel: z.enum(["EMAIL", "SMS_LINK", "PRINT"]),
+    destination: z.string().trim().max(254).optional(),
+  })
+  .strict();

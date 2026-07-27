@@ -17,6 +17,11 @@ try {
   );
   if (sprint5.rowCount)
     await c.query(await readFile("infra/seeds/sprint5.sql", "utf8"));
+  const sprint6 = await c.query(
+    "SELECT 1 FROM schema_migrations WHERE version='0012_pos_invoice_payment_cash_session'",
+  );
+  if (sprint6.rowCount)
+    await c.query(await readFile("infra/seeds/sprint6.sql", "utf8"));
 } finally {
   await c.end();
 }

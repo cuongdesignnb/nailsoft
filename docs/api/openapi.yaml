@@ -2,9 +2,11 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.7.0,
-    description: Sprint 5 walk-in,
-    check-in and service execution plus Sprint 4 booking lifecycle,
+    version: 0.8.0,
+    description: Sprint 6 POS,
+    invoice,
+    payment,
+    tip and cash-session API plus Sprint 5 operations and prior booking lifecycle,
     public booking,
     availability and calendar API,
   }
@@ -1668,6 +1670,312 @@ paths:
         summary: Privacy-safe own Staff Today data,
         responses: { "200": { description: Staff Today } },
       }
+  /appointments/{appointmentId}/pos-orders:
+    post:
+      tags: [pos]
+      summary: Idempotently create or return the one active appointment order
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/PosOrderCreate" } },
+            },
+        }
+      responses:
+        {
+          "200": { description: POS order },
+          "409": { description: Appointment is not checkout ready },
+        }
+  /pos-orders:
+    get:
+      {
+        tags: [pos],
+        summary: List branch-scoped POS orders,
+        responses: { "200": { description: Orders } },
+      }
+  /pos-orders/{orderId}:
+    get:
+      {
+        tags: [pos],
+        summary: Read order,
+        lines,
+        tenders and invoice,
+        responses: { "200": { description: Order detail } },
+      }
+  /pos-orders/{orderId}/history:
+    get:
+      {
+        tags: [pos],
+        summary: Read append-only order status history,
+        responses: { "200": { description: History } },
+      }
+  /pos-orders/{orderId}/recalculate:
+    post:
+      {
+        tags: [pos],
+        summary: Recalculate authoritative unlocked totals,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/VersionCommand" } },
+              },
+          },
+        responses:
+          {
+            "200": { description: Recalculated },
+            "409": { description: Pricing locked or version conflict },
+          },
+      }
+  /pos-orders/{orderId}/discounts:
+    post:
+      {
+        tags: [pos],
+        summary: Apply discount or create threshold approval request,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/DiscountCommand" } },
+              },
+          },
+        responses: { "200": { description: Applied or approval pending } },
+      }
+  /pos-orders/{orderId}/tip:
+    post:
+      {
+        tags: [pos],
+        summary: Set and exactly allocate an unlocked tip,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/TipCommand" } },
+              },
+          },
+        responses: { "200": { description: Tip allocated } },
+      }
+  /pos-orders/{orderId}/finalize:
+    post:
+      {
+        tags: [pos],
+        summary: Finalize pricing and create invoice draft or issue zero-total invoice,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/VersionCommand" } },
+              },
+          },
+        responses: { "200": { description: Ready for payment or paid } },
+      }
+  /pos-orders/{orderId}/payments:
+    get:
+      {
+        tags: [payments],
+        summary: Read immutable order payment evidence,
+        responses: { "200": { description: Payments } },
+      }
+    post:
+      tags: [payments]
+      summary: Capture cash or record approved external evidence without overpayment
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/PaymentCommand" } },
+            },
+        }
+      responses:
+        {
+          "200": { description: Payment and updated order },
+          "409":
+            { description: Due, provider-reference or concurrency conflict },
+        }
+  /pos-orders/{orderId}/void:
+    post:
+      {
+        tags: [pos],
+        summary: Void an unpaid draft or ready order,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Voided } },
+      }
+  /payments:
+    get:
+      {
+        tags: [payments],
+        summary: Read tenant and branch-scoped payment evidence,
+        responses: { "200": { description: Payments } },
+      }
+  /payments/{paymentId}:
+    get:
+      {
+        tags: [payments],
+        summary: Read redacted payment metadata,
+        responses: { "200": { description: Payment } },
+      }
+  /invoices:
+    get:
+      {
+        tags: [invoices],
+        summary: List invoices,
+        responses: { "200": { description: Invoices } },
+      }
+  /invoices/{invoiceId}:
+    get:
+      {
+        tags: [invoices],
+        summary: Read immutable issued snapshot,
+        responses: { "200": { description: Invoice } },
+      }
+  /invoices/{invoiceId}/print:
+    get:
+      {
+        tags: [invoices],
+        summary: Read printable receipt snapshot,
+        responses: { "200": { description: Receipt } },
+      }
+  /invoices/{invoiceId}/deliver:
+    post:
+      {
+        tags: [invoices],
+        summary: Enqueue receipt delivery without changing financial state,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Delivery request } },
+      }
+  /pos-registers:
+    get:
+      {
+        tags: [cash-sessions],
+        summary: List authorized registers and drawers,
+        responses: { "200": { description: Registers } },
+      }
+  /cash-sessions:
+    get:
+      {
+        tags: [cash-sessions],
+        summary: List scoped cash sessions,
+        responses: { "200": { description: Sessions } },
+      }
+  /cash-sessions/open:
+    post:
+      {
+        tags: [cash-sessions],
+        summary: Open the one active drawer session,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/CashSessionOpen" } },
+              },
+          },
+        responses:
+          {
+            "200": { description: Opened },
+            "409": { description: Drawer already open },
+          },
+      }
+  /cash-sessions/{sessionId}:
+    get:
+      {
+        tags: [cash-sessions],
+        summary: Read cash-session reconciliation evidence,
+        responses: { "200": { description: Session } },
+      }
+  /cash-sessions/{sessionId}/movements:
+    get:
+      {
+        tags: [cash-sessions],
+        summary: Read append-only cash movements,
+        responses: { "200": { description: Movements } },
+      }
+    post:
+      {
+        tags: [cash-sessions],
+        summary: Record authorized cash in/out/drop,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Movement } },
+      }
+  /cash-sessions/{sessionId}/begin-closing:
+    post:
+      {
+        tags: [cash-sessions],
+        summary: Freeze new cash payments and derive expected count,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Closing } },
+      }
+  /cash-sessions/{sessionId}/declare:
+    post:
+      {
+        tags: [cash-sessions],
+        summary: Declare cash or denomination count,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Count declared } },
+      }
+  /cash-sessions/{sessionId}/reopen:
+    post:
+      {
+        tags: [cash-sessions],
+        summary: Manager reopens a closing session,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Reopened } },
+      }
+  /cash-sessions/{sessionId}/close:
+    post:
+      {
+        tags: [cash-sessions],
+        summary: Close with variance dual control,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Closed } },
+      }
+  /financial/reconciliation/daily:
+    get:
+      {
+        tags: [financial],
+        summary: Branch-local half-open daily reconciliation,
+        responses: { "200": { description: Reconciliation } },
+      }
+  /financial/summary:
+    get:
+      {
+        tags: [financial],
+        summary: Owner read-only financial summary,
+        responses: { "200": { description: Summary } },
+      }
+  /payment-providers/{provider}/webhook:
+    post:
+      {
+        tags: [payments],
+        security: [],
+        summary: Verify raw-body signature,
+        timestamp and event replay,
+        responses:
+          {
+            "200": { description: Opaque acknowledgement },
+            "401": { description: Invalid signature },
+          },
+      }
 components:
   parameters:
     IdempotencyKey:
@@ -1688,6 +1996,129 @@ components:
         description: Requested tenant scope; always verified against the authenticated membership,
       }
   schemas:
+    VersionCommand:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties: { version: { type: integer, minimum: 1 } }
+    PosOrderCreate:
+      type: object
+      additionalProperties: false
+      properties: { registerId: { type: string, format: uuid } }
+    DiscountCommand:
+      type: object
+      additionalProperties: false
+      required: [version, discountType, value, reasonCode]
+      properties:
+        version: { type: integer, minimum: 1 }
+        orderLineId: { type: string, format: uuid }
+        discountType: { enum: [FIXED, PERCENT] }
+        value: { type: number, minimum: 0, maximum: 10000 }
+        reasonCode: { type: string, minLength: 1, maxLength: 80 }
+        note: { type: string, maxLength: 1000 }
+    TipCommand:
+      type: object
+      additionalProperties: false
+      required: [version, amountMinor, allocationBasis]
+      properties:
+        version: { type: integer, minimum: 1 }
+        amountMinor: { type: integer, minimum: 0 }
+        source: { enum: [CUSTOMER, CASHIER_ENTRY, TERMINAL] }
+        allocationBasis: { enum: [MANUAL, EQUAL, WORK_SECONDS] }
+        allocations:
+          {
+            type: array,
+            items:
+              {
+                type: object,
+                required: [staffId, amountMinor],
+                properties:
+                  {
+                    staffId: { type: string, format: uuid },
+                    appointmentItemId: { type: string, format: uuid },
+                    amountMinor: { type: integer, minimum: 0 },
+                  },
+              },
+          }
+    PaymentCommand:
+      oneOf:
+        - { $ref: "#/components/schemas/CashPayment" }
+        - { $ref: "#/components/schemas/ExternalCardPayment" }
+        - { $ref: "#/components/schemas/BankTransferPayment" }
+    CashPayment:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          version,
+          tenderType,
+          amountToApplyMinor,
+          cashReceivedMinor,
+          cashSessionId,
+        ]
+      properties:
+        {
+          version: { type: integer, minimum: 1 },
+          tenderType: { const: CASH },
+          amountToApplyMinor: { type: integer, minimum: 1 },
+          cashReceivedMinor: { type: integer, minimum: 1 },
+          cashSessionId: { type: string, format: uuid },
+        }
+    ExternalCardPayment:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          version,
+          tenderType,
+          amountToApplyMinor,
+          provider,
+          providerTransactionId,
+        ]
+      properties:
+        {
+          version: { type: integer, minimum: 1 },
+          tenderType: { const: CARD_EXTERNAL },
+          amountToApplyMinor: { type: integer, minimum: 1 },
+          provider: { type: string },
+          providerTransactionId: { type: string },
+          terminalId: { type: string },
+          cardBrand: { type: string },
+          cardLast4: { type: string, pattern: "^[0-9]{4}$" },
+          approvalCode: { type: string },
+        }
+    BankTransferPayment:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          version,
+          tenderType,
+          amountToApplyMinor,
+          providerTransactionId,
+          receivedAt,
+          evidenceNote,
+        ]
+      properties:
+        {
+          version: { type: integer, minimum: 1 },
+          tenderType: { const: BANK_TRANSFER },
+          amountToApplyMinor: { type: integer, minimum: 1 },
+          providerTransactionId: { type: string },
+          receivedAt: { type: string, format: date-time },
+          evidenceNote: { type: string },
+        }
+    CashSessionOpen:
+      type: object
+      additionalProperties: false
+      required: [registerId, cashDrawerId, openingFloatMinor]
+      properties:
+        {
+          registerId: { type: string, format: uuid },
+          cashDrawerId: { type: string, format: uuid },
+          openingFloatMinor: { type: integer, minimum: 0 },
+          deviceId: { type: string },
+        }
     WalkInCreate:
       type: object
       required: [branchId, displayName, items]

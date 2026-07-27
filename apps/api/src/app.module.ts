@@ -10,6 +10,7 @@ import { BusyBlockModule } from "./modules/busy-block/busy-block.module.js";
 import { CalendarModule } from "./modules/calendar/calendar.module.js";
 import { BookingModule } from "./modules/booking/booking.module.js";
 import { OperationsModule } from "./modules/operations/operations.module.js";
+import { PosModule } from "./modules/pos/pos.module.js";
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { OperationsModule } from "./modules/operations/operations.module.js";
     CalendarModule,
     BookingModule,
     OperationsModule,
+    PosModule,
   ],
 })
 export class AppModule implements NestModule {

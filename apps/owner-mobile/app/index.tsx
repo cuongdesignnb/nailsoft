@@ -115,6 +115,7 @@ export default function Home() {
           </Text>
           {[
             "operationalSummary",
+            "financialSummary",
             "walkInQueue",
             "appointmentsToday",
             "appointments",

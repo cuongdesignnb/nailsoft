@@ -24,6 +24,7 @@ export async function createApp() {
         ],
       },
     }),
+    { rawBody: true },
   );
   app.setGlobalPrefix("v1");
   await app.register(fastifyCookie);

@@ -38,11 +38,14 @@ const titles: Record<string, string> = {
   createBlock: "Create manual block",
   operationalSummary: "Operational summary",
   walkInQueue: "Walk-in queue",
+  financialSummary: "Today financial summary",
 };
 function endpoint(screen: string, id?: string) {
   if (screen === "operationalSummary")
     return `/v1/operations/summary?branchId=${branch}`;
   if (screen === "walkInQueue") return `/v1/walk-ins?branchId=${branch}`;
+  if (screen === "financialSummary")
+    return `/v1/financial/summary?branchId=${branch}`;
   if (screen === "appointmentsToday")
     return `/v1/appointments?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-11T00:00:00%2B07:00`;
   if (screen === "appointments")
@@ -108,16 +111,25 @@ export default function OwnerScreen() {
     void load();
   }, [load]);
   useEffect(() => {
-    if (!["operationalSummary", "walkInQueue"].includes(screen)) return;
+    if (
+      !["operationalSummary", "walkInQueue", "financialSummary"].includes(
+        screen,
+      )
+    )
+      return;
     const token = getSession().accessToken;
     if (!token) return;
     const socket = io(`${api}/scheduling`, {
       auth: { token },
       transports: ["websocket"],
     });
-    ["operations.invalidated", "walkin.updated", "appointment.updated"].forEach(
-      (event) => socket.on(event, () => void load()),
-    );
+    [
+      "operations.invalidated",
+      "walkin.updated",
+      "appointment.updated",
+      "pos.order.updated",
+      "cash_session.updated",
+    ].forEach((event) => socket.on(event, () => void load()));
     return () => {
       socket.disconnect();
     };
@@ -185,7 +197,7 @@ export default function OwnerScreen() {
     <SafeAreaView>
       <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }}>
         <Text style={{ color: "#6D28D9", fontWeight: "700" }}>
-          OWNER · SPRINT 4
+          OWNER · SPRINT 6
         </Text>
         <Text style={{ fontSize: 30, fontWeight: "700" }}>
           {titles[screen] ?? "Workspace"}
@@ -302,6 +314,22 @@ export default function OwnerScreen() {
             <Text>
               Live updates are refetch signals; server data remains
               authoritative.
+            </Text>
+          </View>
+        )}
+        {screen === "financialSummary" && data[0]?.totals && (
+          <View style={{ gap: 12 }}>
+            <Text style={{ fontSize: 22, fontWeight: "700" }}>Today sales</Text>
+            <Text>Sales: {data[0].totals.todaySalesMinor} minor units</Text>
+            <Text>Paid orders: {data[0].totals.paidOrders}</Text>
+            <Text>Tips: {data[0].totals.tipsMinor} minor units</Text>
+            <Text>Open cash sessions: {data[0].totals.openCashSessions}</Text>
+            <Text>
+              Cash variance: {data[0].totals.cashVarianceMinor} minor units
+            </Text>
+            <Text>Partial orders: {data[0].totals.partialOrders}</Text>
+            <Text>
+              Read-only. Payment capture is unavailable on Owner Mobile.
             </Text>
           </View>
         )}

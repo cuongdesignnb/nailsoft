@@ -267,6 +267,56 @@ const scenarios = [
       ),
   },
   {
+    name: "pos-orders",
+    setup: async (worker) => auth(`load-pos-orders-${worker}`),
+    run: (state) =>
+      request("/v1/pos-orders?branchId=20000000-0000-4000-8000-000000000001", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "financial-summary",
+    setup: async (worker) => auth(`load-financial-summary-${worker}`),
+    run: (state) =>
+      request(
+        "/v1/financial/summary?branchId=20000000-0000-4000-8000-000000000001",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
+    name: "financial-reconciliation",
+    setup: async (worker) => auth(`load-financial-reconciliation-${worker}`),
+    run: (state) =>
+      request(
+        "/v1/financial/reconciliation/daily?branchId=20000000-0000-4000-8000-000000000001",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
+    name: "invoice-list",
+    setup: async (worker) => auth(`load-invoices-${worker}`),
+    run: (state) =>
+      request("/v1/invoices?branchId=20000000-0000-4000-8000-000000000001", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
     name: "public-booking-availability",
     run: () =>
       request(
