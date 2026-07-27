@@ -73,7 +73,7 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 7 migration rollback and re-migrate
+      - name: Sprint 8 migration rollback and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
@@ -113,6 +113,8 @@ jobs:
             pnpm db:seed
             pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
           done
+      - name: Sprint 8 benefit invariants and concurrency integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint8-benefit-invariants.test.ts --maxWorkers=1 --minWorkers=1
       - name: Reset focused regression fixture
         run: pnpm db:reset && pnpm db:seed
       - name: Public booking tenant-scoped deep integration
@@ -219,6 +221,10 @@ jobs:
             pnpm db:seed
             pnpm exec playwright test "$spec"
           done
+      - name: Sprint 8 authenticated wallet and dual-control E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint8-benefits.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 8 Owner and Staff Mobile contract smoke
+        run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Scheduling and booking load smoke
         env:
           LOAD_DURATION_SECONDS: 2
@@ -246,6 +252,13 @@ jobs:
           LOAD_WARMUP_SECONDS: 1
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: refund-list,net-sales-report,commission-entries,credit-note-list
+        run: pnpm load:smoke
+      - name: Sprint 8 benefit load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: benefit-wallet,voucher-campaigns,benefit-liability,expiring-benefits
         run: pnpm load:smoke
       - name: Build API
         run: pnpm --filter @nailsoft/api build

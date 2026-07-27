@@ -97,3 +97,13 @@ Commission: `commission.rule_created`, `commission.rule_superseded`, `commission
 Reporting: `financial.export_requested`.
 
 Events are committed with audit and authoritative PostgreSQL state. Refund payloads contain only invoice/refund IDs, reference, status, amount/currency, branch/register attribution and `refetch: true`; provider secrets, full references, customer data and payment credentials are forbidden. Worker routing emits `refund.updated`, `credit_note.updated`, `commission.updated` or `financial.updated` to authorized tenant/branch/staff rooms. Staff events contain an authorized staff ID and never salon-wide revenue.
+
+# Sprint 8 customer benefit events
+
+Voucher: `voucher.campaign_created`, `voucher.code_issued`, `voucher.reserved`, `voucher.redeemed`, `voucher.released`, `voucher.reversed`, `voucher.updated`.
+
+Loyalty: `loyalty.program_created`, `loyalty.points_pending`, `loyalty.points_available`, `loyalty.points_reserved`, `loyalty.points_redeemed`, `loyalty.points_released`, `loyalty.points_expired`, `loyalty.adjustment_requested`, `loyalty.adjustment_approved`, `loyalty.updated`.
+
+Membership and package: `membership.tier_created`, `membership.assigned`, `membership.upgraded`, `membership.revoked`, `membership.updated`, `package.product_created`, `package.issued`, `package.reserved`, `package.committed`, `package.released`, `package.reversed`, `package.updated`, `benefits.refund_reversed`.
+
+Payloads contain tenant/branch and aggregate IDs, version/status and `refetch: true`; voucher codes, customer contacts, ledger notes and qualification detail are forbidden. Worker fans out minimal `voucher.updated`, `loyalty.updated`, `membership.updated`, `package.updated` and `benefits.wallet_invalidated` signals to authorized tenant/branch rooms. Clients refetch PostgreSQL-backed APIs.

@@ -27,6 +27,11 @@ try {
   );
   if (sprint7.rowCount)
     await c.query(await readFile("infra/seeds/sprint7.sql", "utf8"));
+  const sprint8 = await c.query(
+    "SELECT 1 FROM schema_migrations WHERE version='0016_voucher_loyalty_membership_package'",
+  );
+  if (sprint8.rowCount)
+    await c.query(await readFile("infra/seeds/sprint8.sql", "utf8"));
 } finally {
   await c.end();
 }

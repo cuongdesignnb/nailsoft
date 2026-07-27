@@ -22,6 +22,7 @@ import {
 } from "@nailsoft/validation";
 import { DatabaseService } from "../../infrastructure/database.service.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
+import { BenefitsTransactionService } from "../benefits/benefits-transaction.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
 import { FinancialEvidenceService } from "./financial-evidence.service.js";
 import { ManualExternalProvider } from "./payment-provider.js";
@@ -43,6 +44,8 @@ export class PosService {
     private readonly evidence: FinancialEvidenceService,
     @Inject(RegisterDeviceAuthorizationService)
     private readonly registerDevice: RegisterDeviceAuthorizationService,
+    @Inject(BenefitsTransactionService)
+    private readonly benefits: BenefitsTransactionService,
   ) {}
 
   async createFromAppointment(
@@ -842,13 +845,20 @@ export class PosService {
           branchId: order.branch_id,
           client,
         });
-        const priced = await this.reprice(
+        await this.reprice(
           client,
           auth,
           id,
           requestId,
           "FINALIZE",
         );
+        await this.benefits.revalidateOrderBenefits(client, auth, order);
+        const priced = (
+          await client.query<any>(
+            "SELECT * FROM pos_orders WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+            [auth.tenantId, id],
+          )
+        ).rows[0];
         await this.validateTipInvariant(
           client,
           auth,
@@ -883,8 +893,22 @@ export class PosService {
         );
         await this.ensureDraftInvoice(client, auth, updated);
         await this.checkoutAppointment(client, auth, updated, requestId, zero);
-        if (zero)
-          await this.issueInvoice(client, auth, updated, requestId, key);
+        if (zero) {
+          const invoice = await this.issueInvoice(
+            client,
+            auth,
+            updated,
+            requestId,
+            key,
+          );
+          await this.benefits.commitOrderBenefits(
+            client,
+            auth,
+            updated,
+            invoice?.id ?? null,
+            requestId,
+          );
+        }
         await this.recordOrder(
           client,
           auth,
@@ -928,6 +952,16 @@ export class PosService {
           branchId: order.branch_id,
           client,
         });
+        await this.benefits.revalidateOrderBenefits(client, auth, order);
+        Object.assign(
+          order,
+          (
+            await client.query<any>(
+              "SELECT * FROM pos_orders WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+              [auth.tenantId, id],
+            )
+          ).rows[0],
+        );
         const due = BigInt(order.amount_due_minor);
         const captured = this.pricing.assertMoney(
           body.amountToApplyMinor,
@@ -1142,7 +1176,20 @@ export class PosService {
           body.tenderType,
         );
         if (nextStatus === "PAID") {
-          await this.issueInvoice(client, auth, updated, requestId, key);
+          const invoice = await this.issueInvoice(
+            client,
+            auth,
+            updated,
+            requestId,
+            key,
+          );
+          await this.benefits.commitOrderBenefits(
+            client,
+            auth,
+            updated,
+            invoice?.id ?? null,
+            requestId,
+          );
           await this.checkoutAppointment(
             client,
             auth,
@@ -1215,6 +1262,13 @@ export class PosService {
             [auth.tenantId, id, auth.userId, body.reason],
           )
         ).rows[0];
+        await this.benefits.releaseOrderBenefits(
+          client,
+          auth,
+          id,
+          requestId,
+          key,
+        );
         await client.query(
           "UPDATE invoices SET status='VOIDED_BEFORE_PAYMENT',voided_at=now(),voided_by_user_id=$3,void_reason=$4,version=version+1,updated_at=now() WHERE tenant_id=$1 AND pos_order_id=$2 AND status='DRAFT'",
           [auth.tenantId, id, auth.userId, body.reason],

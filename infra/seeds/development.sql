@@ -77,7 +77,15 @@ INSERT INTO staff_schedule_reservations(tenant_id,branch_id,staff_id,slot_hold_i
 ('10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','47000000-0000-4000-8000-000000000003','74000000-0000-4000-8000-000000000002','HOLD','EXPIRED','2026-01-01 08:55:00+07','2026-01-01 10:15:00+07','2026-01-01 00:10:00+07','2026-01-01 00:10:00+07');
 INSERT INTO products(tenant_id,sku,name,kind) SELECT '10000000-0000-4000-8000-000000000001','SKU-'||n,'Sản phẩm '||n,CASE WHEN n<6 THEN 'CONSUMABLE' ELSE 'RETAIL' END FROM generate_series(1,10)n;
 INSERT INTO vouchers(tenant_id,code,kind,usage_limit) VALUES('10000000-0000-4000-8000-000000000001','WELCOME10','PERCENTAGE',100),('10000000-0000-4000-8000-000000000001','NEW50K','FIXED_AMOUNT',50),('10000000-0000-4000-8000-000000000001','ADDONFREE','FREE_ADDON',25);
-INSERT INTO loyalty_programs(tenant_id,name,status) VALUES('10000000-0000-4000-8000-000000000001','Rewards','ACTIVE');
+INSERT INTO loyalty_programs(
+  tenant_id,name,status,earn_basis,spend_minor_per_point,redemption_points,
+  redemption_minor,settlement_delay_hours,points_valid_days,effective_from,
+  policy_json,created_by_user_id
+) VALUES(
+  '10000000-0000-4000-8000-000000000001','Rewards','ACTIVE',
+  'NET_ORDER_AFTER_DISCOUNT_BEFORE_TIP',10000,100,10000,24,365,now(),
+  '{}'::jsonb,'30000000-0000-4000-8000-000000000002'
+);
 INSERT INTO commission_rules(tenant_id,name,rule_json,status,rule_code,rule_type,base_mode,percent_basis_points,priority,policy_json,effective_from,created_by_user_id) VALUES
 ('10000000-0000-4000-8000-000000000001','Service 10%','{"value":10}','ACTIVE','LEGACY-SERVICE-10','SERVICE_PERCENT','NET_SERVICE_AFTER_DISCOUNT_BEFORE_TAX',1000,0,'{"migratedFixture":true}',timestamptz '2026-01-01 00:00:00+07','30000000-0000-4000-8000-000000000001'),
 ('10000000-0000-4000-8000-000000000001','Retail 5%','{"value":5}','ACTIVE','LEGACY-RETAIL-5','SERVICE_PERCENT','NET_SERVICE_AFTER_DISCOUNT_BEFORE_TAX',500,-1,'{"migratedFixture":true}',timestamptz '2026-01-01 00:00:00+07','30000000-0000-4000-8000-000000000001'); COMMIT;

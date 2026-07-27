@@ -17,6 +17,7 @@ import {
 import type { PoolClient } from "pg";
 import { DatabaseService } from "../../infrastructure/database.service.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
+import { BenefitsTransactionService } from "../benefits/benefits-transaction.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
 import { FinancialEvidenceService } from "../pos/financial-evidence.service.js";
 import { RegisterDeviceAuthorizationService } from "../pos/register-device-authorization.service.js";
@@ -33,6 +34,8 @@ export class RefundService {
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(BookingIdempotencyService)
     private readonly idem: BookingIdempotencyService,
+    @Inject(BenefitsTransactionService)
+    private readonly benefits: BenefitsTransactionService,
     @Inject(FinancialEvidenceService)
     private readonly evidence: FinancialEvidenceService,
     @Inject(RegisterDeviceAuthorizationService)
@@ -898,6 +901,12 @@ export class RefundService {
       await this.issueCreditNote(client, auth, updated, requestId);
       await this.generateTipReversals(client, auth, updated);
       await this.generateCommissionReversals(client, auth, updated);
+      await this.benefits.reverseRefundBenefits(
+        client,
+        auth,
+        updated,
+        requestId,
+      );
     }
     await this.record(
       client,

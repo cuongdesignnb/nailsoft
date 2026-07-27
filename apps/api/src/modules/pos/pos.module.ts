@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { DatabaseModule } from "../../infrastructure/database.module.js";
 import { BookingModule } from "../booking/booking.module.js";
+import { BenefitsModule } from "../benefits/benefits.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
 import { CashSessionService } from "./cash-session.service.js";
 import { FinancialEvidenceService } from "./financial-evidence.service.js";
@@ -21,7 +22,7 @@ import {
 } from "./pos.controller.js";
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, BookingModule],
+  imports: [DatabaseModule, IdentityModule, BookingModule, BenefitsModule],
   controllers: [
     AppointmentPosController,
     PosOrderController,

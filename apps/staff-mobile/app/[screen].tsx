@@ -32,6 +32,7 @@ const titles: Record<string, string> = {
   myEarnings: "My earnings",
   commissionHistory: "Commission and refund history",
   netTips: "My net tips",
+  packageCoverage: "Appointment package coverage",
 };
 function pathFor(screen: string, id?: string) {
   if (screen === "staffToday") return "/v1/staff/me/today";
@@ -41,6 +42,8 @@ function pathFor(screen: string, id?: string) {
   if (screen === "upcomingAppointments")
     return "/v1/appointments?from=2026-07-01T00:00:00Z&to=2026-09-01T00:00:00Z";
   if (screen === "appointment") return `/v1/appointments/${id ?? ""}`;
+  if (screen === "packageCoverage")
+    return id ? `/v1/appointments/${id}/benefits` : null;
   if (["profile", "branches", "skills", "createLeave"].includes(screen))
     return "/v1/staff/me";
   if (screen === "shifts") return "/v1/shifts";
@@ -106,9 +109,13 @@ export default function StaffScreen() {
   }, [load]);
   useEffect(() => {
     if (
-      !["staffToday", "myEarnings", "commissionHistory", "netTips"].includes(
-        screen,
-      )
+      ![
+        "staffToday",
+        "myEarnings",
+        "commissionHistory",
+        "netTips",
+        "packageCoverage",
+      ].includes(screen)
     )
       return;
     const token = getSession().accessToken;
@@ -123,6 +130,8 @@ export default function StaffScreen() {
       "operations.invalidated",
       "commission.updated",
       "refund.updated",
+      "package.updated",
+      "benefits.wallet_invalidated",
     ].forEach((event) => socket.on(event, () => void load()));
     return () => {
       socket.disconnect();
@@ -307,9 +316,14 @@ export default function StaffScreen() {
                     : (item.status ?? "Active")}
                 </Text>
                 {screen === "upcomingAppointments" && item.id && (
-                  <Link href={`/appointment?id=${item.id}` as never}>
-                    Open assigned appointment
-                  </Link>
+                  <View style={{ gap: 6 }}>
+                    <Link href={`/appointment?id=${item.id}` as never}>
+                      Open assigned appointment
+                    </Link>
+                    <Link href={`/packageCoverage?id=${item.id}` as never}>
+                      View package coverage
+                    </Link>
+                  </View>
                 )}
                 {screen === "leave" && item.id && (
                   <Link href={`/leaveDetail?id=${item.id}` as never}>

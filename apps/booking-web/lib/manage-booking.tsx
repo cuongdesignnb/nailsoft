@@ -33,7 +33,9 @@ export default function ManageBooking() {
   const [availability, setAvailability] = useState<any>();
   const [selectedSlot, setSelectedSlot] = useState<any>();
   const [replacementHold, setReplacementHold] = useState<any>();
-  const keys = useRef({ hold: "", reschedule: "", cancel: "" });
+  const [packages, setPackages] = useState<any[]>([]);
+  const [packageReservation, setPackageReservation] = useState<any>();
+  const keys = useRef({ hold: "", reschedule: "", cancel: "", package: "" });
 
   useEffect(() => {
     const value = new URLSearchParams(window.location.search).get("salon");
@@ -91,6 +93,11 @@ export default function ManageBooking() {
       setToken(data.managementToken);
       setReference(data.bookingReference);
       setBooking(detail);
+      const wallet = await call(
+        `/v1/public/salons/${encodeURIComponent(salonSlug)}/customer-packages`,
+        { headers: { authorization: `Bearer ${data.managementToken}` } },
+      );
+      setPackages(Array.isArray(wallet) ? wallet : []);
       setBranch(selectedBranch);
       setDate(selectedBranch?.bookingWindow?.earliestDate ?? "");
       setStep(3);
@@ -239,6 +246,41 @@ export default function ManageBooking() {
     }
   }
 
+  async function reservePackage(
+    entitlementId: string,
+    appointmentItemId: string,
+  ) {
+    if (!navigator.onLine)
+      return setError("Internet connection required to reserve package units.");
+    setLoading(true);
+    setError("");
+    try {
+      keys.current.package ||= crypto.randomUUID();
+      const value = await call(
+        `/v1/public/salons/${encodeURIComponent(salonSlug)}/package-reservations`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+            "idempotency-key": keys.current.package,
+          },
+          body: JSON.stringify({ entitlementId, appointmentItemId }),
+        },
+      );
+      setPackageReservation(value);
+      setNotice("Package unit reserved for this appointment.");
+    } catch (cause: any) {
+      setError(
+        cause.code === "PACKAGE_RESERVATION_CONFLICT"
+          ? "This appointment item already has an active package reservation."
+          : cause.message,
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const slots = availability?.days?.flatMap((day: any) => day.slots) ?? [];
   return (
     <main className="booking-shell">
@@ -350,6 +392,32 @@ export default function ManageBooking() {
                 </span>
               ))}
               <span>Phiên truy cập hết hạn sau 15 phút.</span>
+            </div>
+            <div className="summary">
+              <h2>Service packages</h2>
+              {packages.length === 0 ? (
+                <span>No active package covers this customer.</span>
+              ) : (
+                packages.map((item: any) => (
+                  <span key={item.id}>
+                    {item.name?.["vi-VN"] ?? item.code}: {item.availableUnits} units
+                    {booking.items?.[0]?.id && !packageReservation && (
+                      <button
+                        className="secondary"
+                        disabled={loading || item.availableUnits < 1}
+                        onClick={() =>
+                          void reservePackage(item.id, booking.items[0].id)
+                        }
+                      >
+                        Reserve one unit
+                      </button>
+                    )}
+                  </span>
+                ))
+              )}
+              {packageReservation && (
+                <strong>Reserved · {packageReservation.units} unit</strong>
+              )}
             </div>
             {!String(booking.status).startsWith("CANCELLED") && (
               <div className="actions">

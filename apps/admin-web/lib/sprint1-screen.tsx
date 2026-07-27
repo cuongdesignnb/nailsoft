@@ -9,6 +9,7 @@ import Sprint4Screen from "./sprint4-screen";
 import Sprint5Screen from "./sprint5-screen";
 import Sprint6Screen from "./sprint6-screen";
 import Sprint7Screen from "./sprint7-screen";
+import Sprint8Screen from "./sprint8-screen";
 
 type Resource = {
   title: string;
@@ -184,6 +185,16 @@ function unwrap(body: any): any[] {
 
 export default function Sprint1Screen() {
   const pathname = usePathname();
+  if (
+    pathname.startsWith("/admin/benefits") ||
+    pathname.startsWith("/admin/vouchers") ||
+    pathname.startsWith("/admin/loyalty") ||
+    pathname.startsWith("/admin/membership") ||
+    pathname.startsWith("/admin/packages") ||
+    (pathname.startsWith("/admin/pos/orders/") &&
+      pathname.endsWith("/benefits"))
+  )
+    return <Sprint8Screen pathname={pathname} />;
   if (
     pathname.startsWith("/admin/refunds") ||
     pathname.startsWith("/admin/credit-notes") ||

@@ -364,6 +364,53 @@ const scenarios = [
       }),
   },
   {
+    name: "benefit-wallet",
+    setup: async (worker) => auth(`load-benefit-wallet-${worker}`),
+    run: (state) =>
+      request(
+        "/v1/customers/60000000-0000-4000-8000-000000000001/packages",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
+    name: "voucher-campaigns",
+    setup: async (worker) => auth(`load-voucher-campaigns-${worker}`),
+    run: (state) =>
+      request("/v1/voucher-campaigns", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "benefit-liability",
+    setup: async (worker) => auth(`load-benefit-liability-${worker}`),
+    run: (state) =>
+      request("/v1/benefits/reports/liability", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "expiring-benefits",
+    setup: async (worker) => auth(`load-expiring-benefits-${worker}`),
+    run: (state) =>
+      request("/v1/benefits/reports/expiring", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
     name: "public-booking-availability",
     run: () =>
       request(

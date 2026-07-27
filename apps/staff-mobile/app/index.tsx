@@ -105,6 +105,7 @@ export default function Home() {
             "myEarnings",
             "commissionHistory",
             "netTips",
+            "packageCoverage",
             "upcomingAppointments",
             "myCalendar",
             "myBusy",

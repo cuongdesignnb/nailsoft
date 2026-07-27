@@ -3,6 +3,7 @@ import { DatabaseModule } from "../../infrastructure/database.module.js";
 import { BookingModule } from "../booking/booking.module.js";
 import { PosModule } from "../pos/pos.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
+import { BenefitsModule } from "../benefits/benefits.module.js";
 import { CommissionService } from "./commission.service.js";
 import {
   CommissionController,
@@ -14,7 +15,13 @@ import { FinancialReportingService } from "./financial-reporting.service.js";
 import { RefundService } from "./refund.service.js";
 
 @Module({
-  imports: [DatabaseModule, BookingModule, IdentityModule, PosModule],
+  imports: [
+    DatabaseModule,
+    BookingModule,
+    IdentityModule,
+    PosModule,
+    BenefitsModule,
+  ],
   controllers: [
     RefundController,
     CreditNoteController,

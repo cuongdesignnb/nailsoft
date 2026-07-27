@@ -2,9 +2,9 @@
 
 ## Status
 
-`IN PROGRESS — READY FOR BA/PRODUCT OWNER ACCEPTANCE`
+`DONE — BA/PRODUCT OWNER ACCEPTED`
 
-Sprint 7 foundation and financial-correctness closure are implemented and have passed local QA and the complete GitHub Actions closure pipeline. Sprint 8 is not authorized. Sprint 7 must not be marked `DONE` until the exact final evidence commit has a successful GitHub Actions run and BA/Product Owner accepts it.
+Sprint 7 foundation and financial-correctness closure passed local QA and the complete GitHub Actions closure pipeline. BA/Product Owner accepted Sprint 7 and authorized Sprint 8 from the final evidence checkpoint below.
 
 ## Git
 
@@ -14,15 +14,16 @@ Sprint 7 foundation and financial-correctness closure are implemented and have p
 - Initial closure-report commit: `e8985690ac76d46e3f68d77b5a42b538f423c697`
 - Concurrency correction commit: `5734ddcb15ea8545993e4137eb91cc73e51c96a9`
 - Final evidence commit: the commit containing this report; exact hash is recorded in the final handoff
-- HEAD/origin: final equality is verified after the evidence commit is pushed
-- Working tree: final clean state is verified after the evidence commit is pushed
+- Accepted final evidence commit: `89ec677260ad33dfe29cb6cd74a7041eadbea115`
+- HEAD/origin at acceptance: `89ec677260ad33dfe29cb6cd74a7041eadbea115`
+- Working tree at acceptance: clean
 
 ## GitHub Actions
 
 - Accepted starting run: `30263379103` — `SUCCESS`
 - Closure verification run: [`30274578481`](https://github.com/cuongdesignnb/nailsoft/actions/runs/30274578481) — `SUCCESS`
 - Verified commit: `5734ddcb15ea8545993e4137eb91cc73e51c96a9`
-- Exact final evidence-commit run: recorded in the final handoff after this report commit is pushed and verified
+- Accepted final evidence run: [`30275947362`](https://github.com/cuongdesignnb/nailsoft/actions/runs/30275947362) — `SUCCESS`
 
 ## Migration
 
@@ -107,7 +108,7 @@ Required authenticated deep E2E files:
 - Production payment/refund provider integration remains deferred.
 - Country-specific e-invoice filing remains deferred.
 - Production-like financial capacity/contention benchmark remains outstanding.
-- BA/Product Owner acceptance is still required before `DONE`; the exact final evidence-commit CI result is recorded in the final handoff.
+- Production provider integrations and production-like capacity/contention evidence remain release-gate technical debt, not Sprint 7 acceptance blockers.
 
 ## Scope confirmation
 

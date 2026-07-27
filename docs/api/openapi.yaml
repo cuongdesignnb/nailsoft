@@ -2,8 +2,10 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.9.0,
-    description: Sprint 7 refund,
+    version: 0.10.0,
+    description: Sprint 8 voucher,
+    loyalty,
+    membership and service package benefits plus Sprint 7 refund,
     credit note,
     commission and financial reporting plus Sprint 6 POS with authenticated-device register trust,
     invoice,
@@ -2493,6 +2495,118 @@ paths:
           ],
         responses: { "200": { description: Export job } },
       }
+  /voucher-campaigns:
+    get: { tags: [benefits], summary: List tenant voucher campaigns, responses: { "200": { description: Campaigns } } }
+    post:
+      tags: [benefits]
+      summary: Create a draft voucher campaign
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/VoucherCampaignInput" } } } }
+      responses: { "201": { description: Campaign }, "409": { description: Version or eligibility conflict } }
+  /voucher-campaigns/{campaignId}/activate:
+    post:
+      tags: [benefits]
+      summary: Activate a versioned campaign
+      parameters:
+        - { name: campaignId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody: { $ref: "#/components/requestBodies/VersionedCommand" }
+      responses: { "201": { description: Activated } }
+  /voucher-campaigns/{campaignId}/codes:
+    post:
+      tags: [benefits]
+      summary: Issue a tenant-HMAC voucher code; plaintext is write-only
+      parameters:
+        - { name: campaignId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/VoucherCodeIssue" } } } }
+      responses: { "201": { description: Last-four voucher metadata } }
+  /customers/{customerId}/loyalty:
+    get:
+      tags: [benefits]
+      summary: Read pending, available and reserved points
+      parameters: [{ name: customerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "200": { description: Loyalty account } }
+  /loyalty-adjustments:
+    get: { tags: [benefits], summary: List adjustment requests, responses: { "200": { description: Requests } } }
+    post:
+      tags: [benefits]
+      summary: Request an append-only loyalty adjustment
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LoyaltyAdjustmentInput" } } } }
+      responses: { "201": { description: Pending adjustment } }
+  /loyalty-adjustments/{adjustmentId}/approve:
+    post:
+      tags: [benefits]
+      summary: Approve with a second actor
+      parameters:
+        - { $ref: "#/components/parameters/AdjustmentId" }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody: { $ref: "#/components/requestBodies/DecisionCommand" }
+      responses: { "201": { description: Approved }, "403": { description: Self-approval denied } }
+  /membership-tiers:
+    get: { tags: [benefits], summary: List effective membership tiers, responses: { "200": { description: Tiers } } }
+    post: { tags: [benefits], summary: Create a versioned tier, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], responses: { "201": { description: Tier } } }
+  /customers/{customerId}/membership:
+    get:
+      tags: [benefits]
+      summary: Read effective membership assignment history
+      parameters: [{ name: customerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "200": { description: Membership history } }
+  /service-packages:
+    get: { tags: [benefits], summary: List package products, responses: { "200": { description: Products } } }
+    post: { tags: [benefits], summary: Create a versioned package product, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], responses: { "201": { description: Product } } }
+  /customers/{customerId}/packages:
+    get:
+      tags: [benefits]
+      summary: Read customer package entitlements
+      parameters: [{ name: customerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "200": { description: Entitlements } }
+  /appointments/{appointmentId}/package-reservations:
+    post:
+      tags: [benefits]
+      summary: Reserve package units for an appointment item
+      parameters:
+        - { name: appointmentId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AppointmentPackageReservation" } } } }
+      responses: { "201": { description: Reservation }, "409": { description: Balance or duplicate conflict } }
+  /pos-orders/{orderId}/benefits/eligibility:
+    get:
+      tags: [benefits]
+      summary: Calculate ordered benefit eligibility from current PostgreSQL state
+      parameters: [{ name: orderId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "200": { description: Eligibility and policy snapshots } }
+  /pos-orders/{orderId}/benefits/{benefitType}:
+    post:
+      tags: [benefits]
+      summary: Reserve/apply package, membership, voucher or loyalty benefit
+      parameters:
+        - { name: orderId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: benefitType, in: path, required: true, schema: { enum: [package, membership, voucher, loyalty] } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses: { "201": { description: Repriced order }, "409": { description: Reservation conflict } }
+  /customer/me/benefits:
+    get: { tags: [benefits], summary: Read the authenticated customer's wallet, responses: { "200": { description: Wallet } } }
+  /benefits/reports/liability:
+    get: { tags: [benefits], summary: Read loyalty and package liability, responses: { "200": { description: Liability } } }
+  /public/salons/{salonSlug}/customer-packages:
+    get:
+      tags: [public-benefits]
+      security: [{ bearerAuth: [] }]
+      summary: Read capability-bound booking package wallet
+      parameters: [{ name: salonSlug, in: path, required: true, schema: { type: string } }]
+      responses: { "200": { description: Eligible entitlements }, "401": { description: Invalid capability } }
+  /public/salons/{salonSlug}/package-reservations:
+    post:
+      tags: [public-benefits]
+      security: [{ bearerAuth: [] }]
+      summary: Reserve a package unit for the capability-bound appointment
+      parameters:
+        - { name: salonSlug, in: path, required: true, schema: { type: string } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PublicPackageReservation" } } } }
+      responses: { "201": { description: Reservation }, "409": { description: Conflict } }
 components:
   parameters:
     IdempotencyKey:
@@ -2576,6 +2690,55 @@ components:
         description: Requested tenant scope; always verified against the authenticated membership,
       }
   schemas:
+    VoucherCampaignInput:
+      type: object
+      additionalProperties: false
+      required: [name, discountType, discountValue, minimumSpendMinor, validFrom, validUntil]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        discountType: { enum: [FIXED, PERCENT] }
+        discountValue: { type: integer, minimum: 1 }
+        currency: { type: string, pattern: "^[A-Z]{3}$" }
+        minimumSpendMinor: { type: integer, minimum: 0 }
+        maximumDiscountMinor: { type: integer, minimum: 1 }
+        branchIds: { type: array, items: { type: string, format: uuid } }
+        serviceIds: { type: array, items: { type: string, format: uuid } }
+        customerIds: { type: array, items: { type: string, format: uuid } }
+        validFrom: { type: string, format: date-time }
+        validUntil: { type: string, format: date-time }
+    VoucherCodeIssue:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code: { type: string, minLength: 4, maxLength: 100, writeOnly: true }
+        customerId: { type: string, format: uuid }
+        useLimit: { type: integer, minimum: 1 }
+        expiresAt: { type: string, format: date-time }
+    LoyaltyAdjustmentInput:
+      type: object
+      additionalProperties: false
+      required: [customerId, pointsDelta, reasonCode, note]
+      properties:
+        customerId: { type: string, format: uuid }
+        pointsDelta: { type: integer, not: { const: 0 } }
+        reasonCode: { type: string, minLength: 1, maxLength: 80 }
+        note: { type: string, minLength: 3, maxLength: 2000 }
+    AppointmentPackageReservation:
+      type: object
+      additionalProperties: false
+      required: [entitlementId, appointmentItemId, version]
+      properties:
+        entitlementId: { type: string, format: uuid }
+        appointmentItemId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+    PublicPackageReservation:
+      type: object
+      additionalProperties: false
+      required: [entitlementId, appointmentItemId]
+      properties:
+        entitlementId: { type: string, format: uuid }
+        appointmentItemId: { type: string, format: uuid }
     RefundPlanRequest:
       type: object
       additionalProperties: false

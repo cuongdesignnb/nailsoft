@@ -43,6 +43,12 @@ const titles: Record<string, string> = {
   refundTotals: "Refund totals",
   commissionPeriods: "Commission period summary",
   commissionReadiness: "Commission lock readiness",
+  benefitSummary: "Customer benefit summary",
+  benefitLiability: "Benefit liability",
+  voucherUsage: "Voucher effectiveness",
+  membershipCounts: "Membership counts",
+  pendingLoyaltyAdjustments: "Pending loyalty adjustments",
+  expiringBenefits: "Expiring customer benefits",
 };
 function endpoint(screen: string, id?: string) {
   if (screen === "operationalSummary")
@@ -56,6 +62,15 @@ function endpoint(screen: string, id?: string) {
     return `/v1/financial/refunds?branchId=${branch}`;
   if (screen === "commissionPeriods" || screen === "commissionReadiness")
     return "/v1/commission-periods";
+  if (screen === "benefitSummary" || screen === "benefitLiability")
+    return "/v1/benefits/reports/liability";
+  if (screen === "voucherUsage") return "/v1/benefits/reports/vouchers";
+  if (screen === "membershipCounts")
+    return "/v1/benefits/reports/membership";
+  if (screen === "pendingLoyaltyAdjustments")
+    return "/v1/loyalty-adjustments";
+  if (screen === "expiringBenefits")
+    return "/v1/benefits/reports/expiring";
   if (screen === "appointmentsToday")
     return `/v1/appointments?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-11T00:00:00%2B07:00`;
   if (screen === "appointments")
@@ -124,9 +139,17 @@ export default function OwnerScreen() {
   }, [load]);
   useEffect(() => {
     if (
-      !["operationalSummary", "walkInQueue", "financialSummary"].includes(
-        screen,
-      )
+      ![
+        "operationalSummary",
+        "walkInQueue",
+        "financialSummary",
+        "benefitSummary",
+        "benefitLiability",
+        "voucherUsage",
+        "membershipCounts",
+        "pendingLoyaltyAdjustments",
+        "expiringBenefits",
+      ].includes(screen)
     )
       return;
     const token = getSession().accessToken;
@@ -145,6 +168,11 @@ export default function OwnerScreen() {
       "credit_note.updated",
       "commission.updated",
       "financial.updated",
+      "voucher.updated",
+      "loyalty.updated",
+      "membership.updated",
+      "package.updated",
+      "benefits.wallet_invalidated",
     ].forEach((event) => socket.on(event, () => void load()));
     return () => {
       socket.disconnect();

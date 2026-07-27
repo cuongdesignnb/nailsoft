@@ -333,3 +333,41 @@ export interface PaymentSummary {
   currency: string;
   createdAt: string;
 }
+
+export type VoucherCampaignStatus =
+  "DRAFT" | "ACTIVE" | "PAUSED" | "ENDED" | "CANCELLED";
+export type BenefitReservationStatus =
+  "ACTIVE" | "COMMITTED" | "RELEASED" | "EXPIRED" | "CANCELLED";
+export interface BenefitCandidate {
+  id: string;
+  eligible: boolean;
+  reasonCodes: string[];
+  calculatedAmountMinor?: number;
+  calculatedUnits?: number;
+  expiresAt?: string;
+  policySnapshot: Record<string, unknown>;
+}
+export interface BenefitsEligibilityResult {
+  generatedAt: string;
+  applicationOrder: ["PACKAGE", "MEMBERSHIP", "VOUCHER", "LOYALTY"];
+  vouchers: BenefitCandidate[];
+  loyalty: {
+    availablePoints: number;
+    maxRedeemablePoints: number;
+    maxRedeemableMinor: number;
+    reasonCodes: string[];
+  };
+  membership: {
+    tierId: string | null;
+    benefits: Array<Record<string, unknown>>;
+  };
+  packages: BenefitCandidate[];
+}
+export interface CustomerBenefitWallet {
+  customerId: string;
+  membership: Record<string, unknown> | null;
+  vouchers: Array<Record<string, unknown>>;
+  loyalty: Record<string, unknown> | null;
+  packages: Array<Record<string, unknown>>;
+  expiringSoon: Array<Record<string, unknown>>;
+}

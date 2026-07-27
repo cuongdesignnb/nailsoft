@@ -11,6 +11,8 @@ import { BookingNotificationRouter } from "./booking-notification.router.js";
 import { BookingOtpPoller } from "./booking-otp.poller.js";
 import { BookingOtpProcessor } from "./booking-otp.processor.js";
 import { BookingOtpProvider } from "./booking-otp.provider.js";
+import { BenefitMaintenancePoller } from "./benefit-maintenance.poller.js";
+import { BenefitMaintenanceProcessor } from "./benefit-maintenance.processor.js";
 
 @Module({
   providers: [
@@ -26,6 +28,8 @@ import { BookingOtpProvider } from "./booking-otp.provider.js";
     BookingOtpProvider,
     BookingOtpProcessor,
     BookingOtpPoller,
+    BenefitMaintenanceProcessor,
+    BenefitMaintenancePoller,
   ],
   exports: [OutboxRepository, OutboxEventRouter, OutboxProcessor],
 })

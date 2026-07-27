@@ -555,3 +555,270 @@ export const financialExportSchema = z
     filters: z.record(z.string(), z.unknown()).default({}),
   })
   .strict();
+
+export const voucherCampaignSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    description: z.string().trim().max(2000).optional(),
+    discountType: z.enum(["FIXED", "PERCENT"]),
+    discountValue: z.number().int().positive().safe(),
+    currency: z
+      .string()
+      .regex(/^[A-Z]{3}$/)
+      .optional(),
+    minimumSpendMinor: moneyMinorSchema.default(0),
+    maximumDiscountMinor: positiveMoneyMinorSchema.optional(),
+    totalUseLimit: z.number().int().positive().safe().optional(),
+    perCustomerUseLimit: z.number().int().positive().max(100000).optional(),
+    codeUseLimit: z.number().int().positive().max(100000).default(1),
+    branchIds: z.array(uuidSchema).max(100).default([]),
+    serviceIds: z.array(uuidSchema).max(1000).default([]),
+    customerIds: z.array(uuidSchema).max(10000).default([]),
+    membershipTierIds: z.array(uuidSchema).max(100).default([]),
+    eligibilityPolicy: z.record(z.string(), z.unknown()).default({}),
+    refundPolicy: z
+      .enum(["RESTORE_USE", "DO_NOT_RESTORE", "PROPORTIONAL_RESTORE"])
+      .default("DO_NOT_RESTORE"),
+    validFrom: z.string().datetime({ offset: true }),
+    validUntil: z.string().datetime({ offset: true }),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.validUntil <= value.validFrom)
+      context.addIssue({
+        code: "custom",
+        path: ["validUntil"],
+        message: "Must be after validFrom",
+      });
+    if (value.discountType === "PERCENT" && value.discountValue > 10000)
+      context.addIssue({
+        code: "custom",
+        path: ["discountValue"],
+        message: "Basis points cannot exceed 10000",
+      });
+    if (value.discountType === "FIXED" && !value.currency)
+      context.addIssue({
+        code: "custom",
+        path: ["currency"],
+        message: "Currency is required",
+      });
+  });
+export const voucherCodeIssueSchema = z
+  .object({
+    code: z.string().trim().min(4).max(100),
+    customerId: uuidSchema.optional().nullable(),
+    useLimit: z.number().int().positive().max(100000).default(1),
+    expiresAt: z.string().datetime({ offset: true }).optional().nullable(),
+  })
+  .strict();
+export const voucherBatchSchema = z
+  .object({ codes: z.array(voucherCodeIssueSchema).min(1).max(1000) })
+  .strict();
+export const voucherAssignSchema = z
+  .object({ customerId: uuidSchema, version: z.number().int().positive() })
+  .strict();
+export const voucherValidateSchema = z
+  .object({
+    code: z.string().trim().min(4).max(100),
+    branchId: uuidSchema,
+    customerId: uuidSchema,
+    serviceItems: z
+      .array(
+        z
+          .object({ serviceId: uuidSchema, amountMinor: moneyMinorSchema })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+    localDateTime: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export const benefitOrderCommandSchema = z
+  .object({ version: z.number().int().positive() })
+  .strict();
+export const voucherApplySchema = benefitOrderCommandSchema
+  .extend({ code: z.string().trim().min(4).max(100) })
+  .strict();
+export const loyaltyApplySchema = benefitOrderCommandSchema
+  .extend({ points: z.number().int().positive().safe() })
+  .strict();
+export const membershipApplySchema = benefitOrderCommandSchema
+  .extend({ assignmentId: uuidSchema.optional() })
+  .strict();
+export const packageApplySchema = benefitOrderCommandSchema
+  .extend({
+    entitlementId: uuidSchema,
+    orderLineId: uuidSchema,
+    units: z.number().int().positive().default(1),
+  })
+  .strict();
+
+export const loyaltyProgramSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    earnBasis: z
+      .enum([
+        "NET_ORDER_AFTER_DISCOUNT_BEFORE_TIP",
+        "NET_SERVICE_AFTER_DISCOUNT_BEFORE_TAX",
+        "FIXED_PER_COMPLETED_SERVICE",
+      ])
+      .default("NET_ORDER_AFTER_DISCOUNT_BEFORE_TIP"),
+    spendMinorPerPoint: z.number().int().positive().safe(),
+    redemptionPoints: z.number().int().positive().safe(),
+    redemptionMinor: z.number().int().positive().safe(),
+    settlementDelayHours: z.number().int().min(0).max(8760).default(0),
+    pointsValidDays: z
+      .number()
+      .int()
+      .positive()
+      .max(36500)
+      .optional()
+      .nullable(),
+    effectiveFrom: z.string().datetime({ offset: true }),
+    effectiveTo: z.string().datetime({ offset: true }).optional().nullable(),
+    policy: z.record(z.string(), z.unknown()).default({}),
+  })
+  .strict();
+export const loyaltyAdjustmentSchema = z
+  .object({
+    customerId: uuidSchema,
+    pointsDelta: z
+      .number()
+      .int()
+      .safe()
+      .refine((v) => v !== 0),
+    reasonCode: z.string().trim().min(1).max(80),
+    note: z.string().trim().min(3).max(2000),
+  })
+  .strict();
+export const benefitDecisionSchema = z
+  .object({
+    version: z.number().int().positive(),
+    reason: z.string().trim().min(3).max(1000),
+  })
+  .strict();
+
+export const membershipTierSchema = z
+  .object({
+    code: z.string().trim().min(1).max(80),
+    name: z.record(z.string(), z.string().trim().min(1)),
+    qualificationType: z.enum(["MANUAL", "ROLLING_SPEND", "VISIT_COUNT"]),
+    qualificationThreshold: z.number().int().nonnegative().safe(),
+    rollingWindowDays: z
+      .number()
+      .int()
+      .positive()
+      .max(3650)
+      .optional()
+      .nullable(),
+    benefits: z
+      .array(
+        z
+          .object({
+            type: z.enum([
+              "PERCENT_DISCOUNT",
+              "FIXED_DISCOUNT",
+              "LOYALTY_MULTIPLIER",
+              "PRIORITY_BOOKING",
+              "BOOKING_WINDOW_EXTENSION",
+              "PACKAGE_BONUS",
+            ]),
+            value: z.number().int().nonnegative().safe(),
+          })
+          .strict(),
+      )
+      .max(50),
+    priority: z.number().int().min(-100000).max(100000).default(0),
+    effectiveFrom: z.string().datetime({ offset: true }),
+    effectiveTo: z.string().datetime({ offset: true }).optional().nullable(),
+  })
+  .strict();
+export const membershipAssignSchema = z
+  .object({
+    tierId: uuidSchema,
+    effectiveFrom: z.string().datetime({ offset: true }),
+    effectiveTo: z.string().datetime({ offset: true }).optional().nullable(),
+    reasonCode: z.string().trim().min(1).max(80).default("MANUAL"),
+  })
+  .strict();
+
+export const servicePackageSchema = z
+  .object({
+    code: z.string().trim().min(1).max(80),
+    name: z.record(z.string(), z.string().trim().min(1)),
+    description: z.record(z.string(), z.string()).default({}),
+    grantedUnits: z.number().int().positive().max(100000),
+    unitsPerRedemption: z.number().int().positive().max(100000).default(1),
+    priceMinor: moneyMinorSchema.default(0),
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    validityDays: z.number().int().positive().max(36500),
+    refundPolicy: z
+      .enum(["RESTORE_UNIT", "DO_NOT_RESTORE", "MANUAL_REVIEW"])
+      .default("RESTORE_UNIT"),
+    policy: z.record(z.string(), z.unknown()).default({}),
+    eligibility: z
+      .array(
+        z
+          .object({
+            serviceId: uuidSchema.optional(),
+            categoryId: uuidSchema.optional(),
+            branchId: uuidSchema.optional(),
+            unitsPerRedemption: z.number().int().positive().default(1),
+          })
+          .refine((v) => !!v.serviceId || !!v.categoryId),
+      )
+      .min(1)
+      .max(1000),
+  })
+  .strict();
+export const packageIssueSchema = z
+  .object({
+    packageProductId: uuidSchema,
+    expiresAt: z.string().datetime({ offset: true }).optional(),
+    generationKey: z.string().trim().min(8).max(200).optional(),
+  })
+  .strict();
+export const packageAdjustmentSchema = z
+  .object({
+    unitsDelta: z
+      .number()
+      .int()
+      .refine((v) => v !== 0),
+    reasonCode: z.string().trim().min(1).max(80),
+    note: z.string().trim().min(3).max(2000),
+  })
+  .strict();
+export const packageReservationSchema = z
+  .object({
+    branchId: uuidSchema,
+    appointmentId: uuidSchema.optional(),
+    appointmentItemId: uuidSchema.optional(),
+    posOrderId: uuidSchema.optional(),
+    serviceId: uuidSchema,
+    units: z.number().int().positive().default(1),
+    expiresAt: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+export const appointmentPackageReservationSchema = z
+  .object({
+    entitlementId: uuidSchema,
+    appointmentItemId: uuidSchema,
+    version: z.number().int().positive(),
+  })
+  .strict();
+export const publicPackageReservationSchema = z
+  .object({ entitlementId: uuidSchema, appointmentItemId: uuidSchema })
+  .strict();
+export const benefitExportSchema = z
+  .object({
+    exportType: z.enum([
+      "VOUCHERS",
+      "LOYALTY",
+      "MEMBERSHIP",
+      "PACKAGES",
+      "LIABILITY",
+      "EXPIRING",
+    ]),
+    filters: z.record(z.string(), z.unknown()).default({}),
+  })
+  .strict();

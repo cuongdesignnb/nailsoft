@@ -137,6 +137,41 @@ const financialEvents = new Set([
   "commission.period_locked",
   "financial.export_requested",
 ]);
+const benefitEvents = new Set([
+  "voucher.campaign_created",
+  "voucher.code_issued",
+  "voucher.reserved",
+  "voucher.redeemed",
+  "voucher.released",
+  "voucher.reversed",
+  "voucher.expired",
+  "voucher.updated",
+  "loyalty.points_pending",
+  "loyalty.points_available",
+  "loyalty.points_reserved",
+  "loyalty.points_redeemed",
+  "loyalty.points_released",
+  "loyalty.points_expired",
+  "loyalty.points_reversed",
+  "loyalty.adjustment_approved",
+  "loyalty.updated",
+  "membership.assigned",
+  "membership.upgraded",
+  "membership.downgraded",
+  "membership.revoked",
+  "membership.updated",
+  "package.entitlement_issued",
+  "package.reserved",
+  "package.redeemed",
+  "package.released",
+  "package.expired",
+  "package.reversed",
+  "package.updated",
+  "benefits.wallet_invalidated",
+  "benefits.liability_invalidated",
+  "benefits.released",
+  "benefits.refund_reversed",
+]);
 
 @Injectable()
 export class OutboxEventRouter {
@@ -147,6 +182,7 @@ export class OutboxEventRouter {
   async route(event: OutboxEvent): Promise<RoutedEvent> {
     const control = this.control(event);
     if (control) return { kind: "control", message: control };
+    if (benefitEvents.has(event.event_type)) return this.benefit(event);
     if (financialEvents.has(event.event_type)) return this.financial(event);
     if (operationalEvents.has(event.event_type)) return this.operational(event);
     if (bookingEvents.has(event.event_type)) return this.booking(event);
@@ -266,6 +302,43 @@ export class OutboxEventRouter {
           ],
         },
       ],
+    };
+  }
+
+  private async benefit(event: OutboxEvent): Promise<RoutedEvent> {
+    const branchId = event.branch_id ?? stringValue(event.payload_json.branchId);
+    const branches = branchId
+      ? [branchId]
+      : await this.tenantBranches(event.tenant_id);
+    if (!branches.length) return { kind: "ignored" };
+    for (const id of branches) await this.assertBranch(event.tenant_id, id);
+    const realtimeEvent = event.event_type.startsWith("voucher.")
+      ? "voucher.updated"
+      : event.event_type.startsWith("loyalty.")
+        ? "loyalty.updated"
+        : event.event_type.startsWith("membership.")
+          ? "membership.updated"
+          : event.event_type.startsWith("package.")
+            ? "package.updated"
+            : "benefits.wallet_invalidated";
+    return {
+      kind: "invalidation",
+      deliveries: branches.map((id) => ({
+          payload: {
+            eventId: event.id,
+            tenantId: event.tenant_id,
+            branchId: id,
+            dataVersion: event.aggregate_version,
+            sourceEventType: event.event_type,
+            realtimeEvent,
+            refetch: true,
+            occurredAt: event.created_at.toISOString(),
+          },
+          rooms: [
+            `tenant:${event.tenant_id}`,
+            `branch:${id}`,
+          ],
+        })),
     };
   }
 
