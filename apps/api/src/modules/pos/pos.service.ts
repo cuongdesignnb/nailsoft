@@ -11,6 +11,7 @@ import type { PoolClient } from "pg";
 import {
   posDiscountDecisionSchema,
   posDiscountSchema,
+  posAssignRegisterSchema,
   posManualLineSchema,
   posOrderCreateSchema,
   posOrderVersionSchema,
@@ -24,6 +25,7 @@ import { BookingIdempotencyService } from "../booking/booking-idempotency.servic
 import type { AccessClaims } from "../identity/auth.types.js";
 import { FinancialEvidenceService } from "./financial-evidence.service.js";
 import { ManualExternalProvider } from "./payment-provider.js";
+import { RegisterDeviceAuthorizationService } from "./register-device-authorization.service.js";
 import {
   minorNumber,
   PosPricingService,
@@ -39,6 +41,8 @@ export class PosService {
     @Inject(PosPricingService) private readonly pricing: PosPricingService,
     @Inject(FinancialEvidenceService)
     private readonly evidence: FinancialEvidenceService,
+    @Inject(RegisterDeviceAuthorizationService)
+    private readonly registerDevice: RegisterDeviceAuthorizationService,
   ) {}
 
   async createFromAppointment(
@@ -102,13 +106,20 @@ export class PosService {
                 code: "POS_ORDER_NOT_CHECKOUT_READY",
                 message: "Appointment is not checkout ready",
               });
-            if (body.registerId)
+            if (body.registerId) {
               await this.assertRegister(
                 client,
                 auth,
                 appointment.branch_id,
                 body.registerId,
               );
+              await this.registerDevice.assertRegisterAccess({
+                auth,
+                registerId: body.registerId,
+                branchId: appointment.branch_id,
+                client,
+              });
+            }
             const sourceLines = (
               await client.query<any>(
                 `SELECT ai.id appointment_item_id,ai.service_id,ai.service_snapshot_json,
@@ -403,6 +414,77 @@ export class PosService {
           "pos.order_recalculated",
           requestId,
           key,
+        );
+        return this.orderView(client, auth, id);
+      },
+    );
+  }
+
+  async assignRegister(
+    auth: AccessClaims,
+    id: string,
+    input: unknown,
+    key: string,
+    requestId: string,
+  ) {
+    const body = posAssignRegisterSchema.parse(input);
+    return this.mutateOrder(
+      auth,
+      id,
+      "pos.order.assign_register",
+      key,
+      body,
+      requestId,
+      async (client, order) => {
+        this.assertVersion(order, body.version);
+        this.assertDraft(order);
+        await this.assertBranchActive(client, auth.tenantId, order.branch_id);
+        const paid = await client.query(
+          "SELECT 1 FROM payments WHERE tenant_id=$1 AND pos_order_id=$2 LIMIT 1",
+          [auth.tenantId, id],
+        );
+        if (paid.rowCount)
+          throw new ConflictException({
+            code: "POS_ORDER_REGISTER_LOCKED",
+            message: "Register cannot change after payment activity",
+          });
+        await this.assertRegister(
+          client,
+          auth,
+          order.branch_id,
+          body.registerId,
+        );
+        await this.registerDevice.assertRegisterAccess({
+          auth,
+          registerId: body.registerId,
+          branchId: order.branch_id,
+          client,
+        });
+        const updated = (
+          await client.query<any>(
+            `UPDATE pos_orders
+                SET register_id=$3,version=version+1,updated_by_user_id=$4,updated_at=now()
+              WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+            [auth.tenantId, id, body.registerId, auth.userId],
+          )
+        ).rows[0];
+        await this.appendHistory(
+          client,
+          auth,
+          id,
+          "DRAFT",
+          "DRAFT",
+          requestId,
+          "REGISTER_ASSIGNED",
+        );
+        await this.recordOrder(
+          client,
+          auth,
+          updated,
+          "pos.register_assigned",
+          requestId,
+          key,
+          { registerId: body.registerId },
         );
         return this.orderView(client, auth, id);
       },
@@ -753,6 +835,13 @@ export class PosService {
         this.assertVersion(order, body.version);
         this.assertDraft(order);
         await this.assertBranchActive(client, auth.tenantId, order.branch_id);
+        this.assertOrderRegister(order);
+        await this.registerDevice.assertRegisterAccess({
+          auth,
+          registerId: order.register_id,
+          branchId: order.branch_id,
+          client,
+        });
         const priced = await this.reprice(
           client,
           auth,
@@ -832,6 +921,13 @@ export class PosService {
             message: "Order is not ready for payment",
           });
         await this.assertBranchActive(client, auth.tenantId, order.branch_id);
+        this.assertOrderRegister(order);
+        await this.registerDevice.assertRegisterAccess({
+          auth,
+          registerId: order.register_id,
+          branchId: order.branch_id,
+          client,
+        });
         const due = BigInt(order.amount_due_minor);
         const captured = this.pricing.assertMoney(
           body.amountToApplyMinor,
@@ -879,6 +975,16 @@ export class PosService {
             throw new ConflictException({
               code: "PAYMENT_CASH_SESSION_REQUIRED",
               message: "An open branch cash session is required",
+            });
+          if (cashSession.register_id !== order.register_id)
+            throw new ConflictException({
+              code: "PAYMENT_REGISTER_MISMATCH",
+              message: "Cash session and order must use the same register",
+            });
+          if (order.cash_session_id && order.cash_session_id !== cashSession.id)
+            throw new ConflictException({
+              code: "PAYMENT_CASH_SESSION_MISMATCH",
+              message: "All cash payments must use the original cash session",
             });
           if (
             cashSession.cashier_user_id !== auth.userId &&
@@ -938,14 +1044,15 @@ export class PosService {
         try {
           await client.query(
             `INSERT INTO payments(
-             id,tenant_id,branch_id,pos_order_id,payment_reference,tender_type,status,currency,requested_minor,captured_minor,
+             id,tenant_id,branch_id,register_id,pos_order_id,payment_reference,tender_type,status,currency,requested_minor,captured_minor,
              cash_received_minor,change_due_minor,provider,provider_transaction_id,terminal_id,card_brand,card_last4,approval_code,
              external_evidence_json,cash_session_id,idempotency_key_hash,request_hash,created_by_user_id,captured_at
-           ) VALUES($1,$2,$3,$4,$5,$6,'CAPTURED',$7,$8,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,now())`,
+           ) VALUES($1,$2,$3,$4,$5,$6,$7,'CAPTURED',$8,$9,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,now())`,
             [
               paymentId,
               auth.tenantId,
               order.branch_id,
+              order.register_id,
               id,
               paymentReference,
               body.tenderType,
@@ -2020,6 +2127,13 @@ export class PosService {
         message: "Only a draft order can be repriced",
       });
   }
+  private assertOrderRegister(order: any) {
+    if (!order.register_id)
+      throw new ConflictException({
+        code: "POS_ORDER_REGISTER_REQUIRED",
+        message: "Assign an active register before finalization or payment",
+      });
+  }
   private assertVersion(order: any, version: number) {
     if (Number(order.version) !== version)
       throw new ConflictException({
@@ -2179,6 +2293,7 @@ function paymentView(row: any) {
     cardLast4: row.card_last4,
     approvalCode: row.approval_code,
     cashSessionId: row.cash_session_id,
+    registerId: row.register_id,
     capturedAt: row.captured_at,
     createdAt: row.created_at,
   };

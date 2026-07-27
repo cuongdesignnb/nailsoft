@@ -126,6 +126,25 @@ export class PosOrderController {
       request,
     );
   }
+  @Post(":orderId/assign-register")
+  @RequirePermission("pos.order.update")
+  async assignRegister(
+    @Param("orderId") id: string,
+    @Body() body: unknown,
+    @Headers("idempotency-key") key: string | undefined,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(
+      await this.service.assignRegister(
+        request.auth,
+        id,
+        body,
+        idem(key),
+        requestId(request),
+      ),
+      request,
+    );
+  }
   @Post(":orderId/discounts")
   @RequirePermission("pos.discount.apply")
   async discount(
@@ -355,6 +374,17 @@ export class CashSessionController {
     @Req() request: AuthenticatedRequest,
   ) {
     return response(await this.service.detail(request.auth, id), request);
+  }
+  @Get("cash-sessions/:sessionId/closing-review")
+  @RequirePermission("cash_session.approve_variance")
+  async closingReview(
+    @Param("sessionId") id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(
+      await this.service.closingReview(request.auth, id),
+      request,
+    );
   }
   @Get("cash-sessions/:sessionId/movements")
   @RequirePermission("cash_session.read")

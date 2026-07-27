@@ -45,50 +45,108 @@ export class FinancialReportService {
     );
     const registerId = query?.registerId ?? null;
     const cashierUserId = query?.cashierUserId ?? null;
-    const [orders, payments, failed, sessions, partials, unissued] =
-      await Promise.all([
-        this.db.query<any>(
-          `SELECT count(*) orders,COALESCE(sum(subtotal_minor),0) gross,COALESCE(sum(discount_minor),0) discounts,
-                COALESCE(sum(tax_minor),0) tax,COALESCE(sum(tip_minor),0) tips,
-                COALESCE(sum(total_minor),0) net_sales,COALESCE(sum(amount_paid_minor),0) collected
-           FROM pos_orders WHERE tenant_id=$1 AND branch_id=$2 AND paid_at >= $3 AND paid_at < $4
-             AND ($5::uuid IS NULL OR register_id=$5)`,
-          [auth.tenantId, branchId, startUtc, endUtc, registerId],
-        ),
-        this.db.query<any>(
-          `SELECT tender_type,COALESCE(sum(captured_minor),0) amount,count(*) count
+    const [
+      orders,
+      payments,
+      allocations,
+      failed,
+      sessions,
+      partials,
+      unissued,
+    ] = await Promise.all([
+      this.db.query<any>(
+        `SELECT count(*) orders,COALESCE(sum(i.subtotal_minor),0) gross,
+                  COALESCE(sum(i.discount_minor),0) discounts,COALESCE(sum(i.tax_minor),0) tax,
+                  COALESCE(sum(i.tip_minor),0) tips,COALESCE(sum(i.total_minor),0) net_sales
+             FROM invoices i
+             JOIN pos_orders o ON o.tenant_id=i.tenant_id AND o.id=i.pos_order_id
+            WHERE i.tenant_id=$1 AND i.branch_id=$2 AND i.status='ISSUED'
+              AND i.issued_at >= $3 AND i.issued_at < $4
+              AND ($5::uuid IS NULL OR o.register_id=$5)
+              AND ($6::uuid IS NULL OR EXISTS(
+                SELECT 1 FROM payments actor_payment
+                 WHERE actor_payment.tenant_id=i.tenant_id
+                   AND actor_payment.pos_order_id=i.pos_order_id
+                   AND actor_payment.status='CAPTURED'
+                   AND actor_payment.created_by_user_id=$6
+                   AND actor_payment.captured_at >= $3 AND actor_payment.captured_at < $4))`,
+        [auth.tenantId, branchId, startUtc, endUtc, registerId, cashierUserId],
+      ),
+      this.db.query<any>(
+        `SELECT tender_type,COALESCE(sum(captured_minor),0) amount,count(*) count
            FROM payments WHERE tenant_id=$1 AND branch_id=$2 AND status='CAPTURED' AND captured_at >= $3 AND captured_at < $4
-             AND ($5::uuid IS NULL OR cash_session_id IN (SELECT id FROM cash_sessions WHERE tenant_id=$1 AND register_id=$5))
+             AND ($5::uuid IS NULL OR register_id=$5)
              AND ($6::uuid IS NULL OR created_by_user_id=$6)
           GROUP BY tender_type`,
-          [
-            auth.tenantId,
-            branchId,
-            startUtc,
-            endUtc,
-            registerId,
-            cashierUserId,
-          ],
-        ),
-        this.db.query<any>(
-          "SELECT count(*) count FROM payments WHERE tenant_id=$1 AND branch_id=$2 AND status='FAILED' AND created_at >= $3 AND created_at < $4",
-          [auth.tenantId, branchId, startUtc, endUtc],
-        ),
-        this.db.query<any>(
-          "SELECT count(*) sessions,COALESCE(sum(variance_minor),0) variance,count(*) FILTER(WHERE status IN ('OPEN','CLOSING')) open_sessions FROM cash_sessions WHERE tenant_id=$1 AND branch_id=$2 AND business_date=$3 AND ($4::uuid IS NULL OR register_id=$4) AND ($5::uuid IS NULL OR cashier_user_id=$5)",
-          [auth.tenantId, branchId, businessDate, registerId, cashierUserId],
-        ),
-        this.db.query<any>(
-          "SELECT count(*) count,COALESCE(sum(amount_due_minor),0) due FROM pos_orders WHERE tenant_id=$1 AND branch_id=$2 AND status='PARTIALLY_PAID' AND created_at < $3 AND updated_at >= $4",
-          [auth.tenantId, branchId, endUtc, startUtc],
-        ),
-        this.db.query<any>(
-          "SELECT count(*) count FROM pos_orders o WHERE o.tenant_id=$1 AND o.branch_id=$2 AND o.status='PAID' AND o.paid_at >= $3 AND o.paid_at < $4 AND NOT EXISTS(SELECT 1 FROM invoices i WHERE i.tenant_id=o.tenant_id AND i.pos_order_id=o.id AND i.status='ISSUED')",
-          [auth.tenantId, branchId, startUtc, endUtc],
-        ),
-      ]);
+        [auth.tenantId, branchId, startUtc, endUtc, registerId, cashierUserId],
+      ),
+      this.db.query<any>(
+        `WITH filtered_payments AS (
+             SELECT id,tenant_id,pos_order_id,captured_minor
+               FROM payments p
+              WHERE p.tenant_id=$1 AND p.branch_id=$2 AND p.status='CAPTURED'
+                AND p.captured_at >= $3 AND p.captured_at < $4
+                AND ($5::uuid IS NULL OR p.register_id=$5)
+                AND ($6::uuid IS NULL OR p.created_by_user_id=$6)
+           )
+           SELECT count(DISTINCT fp.pos_order_id) paid_orders,
+                  COALESCE(sum(fp.captured_minor),0) total_collected,
+                  COALESCE((SELECT sum(pa.amount_minor)
+                    FROM payment_allocations pa JOIN filtered_payments p2
+                      ON p2.tenant_id=pa.tenant_id AND p2.id=pa.payment_id
+                   WHERE pa.allocation_type IN ('ORDER_TOTAL','DEPOSIT')),0) service_collected,
+                  COALESCE((SELECT sum(pa.amount_minor)
+                    FROM payment_allocations pa JOIN filtered_payments p3
+                      ON p3.tenant_id=pa.tenant_id AND p3.id=pa.payment_id
+                   WHERE pa.allocation_type='TIP'),0) tip_collected
+             FROM filtered_payments fp`,
+        [auth.tenantId, branchId, startUtc, endUtc, registerId, cashierUserId],
+      ),
+      this.db.query<any>(
+        `SELECT count(*) count FROM payments
+            WHERE tenant_id=$1 AND branch_id=$2 AND status='FAILED'
+              AND created_at >= $3 AND created_at < $4
+              AND ($5::uuid IS NULL OR register_id=$5)
+              AND ($6::uuid IS NULL OR created_by_user_id=$6)`,
+        [auth.tenantId, branchId, startUtc, endUtc, registerId, cashierUserId],
+      ),
+      this.db.query<any>(
+        `SELECT count(*) sessions,COALESCE(sum(expected_cash_minor),0) expected,
+                  COALESCE(sum(declared_cash_minor),0) declared,
+                  COALESCE(sum(variance_minor),0) variance,
+                  count(*) FILTER(WHERE status IN ('OPEN','CLOSING')) open_sessions
+             FROM cash_sessions WHERE tenant_id=$1 AND branch_id=$2 AND business_date=$3
+              AND ($4::uuid IS NULL OR register_id=$4)
+              AND ($5::uuid IS NULL OR cashier_user_id=$5)`,
+        [auth.tenantId, branchId, businessDate, registerId, cashierUserId],
+      ),
+      this.db.query<any>(
+        `SELECT count(*) count,COALESCE(sum(o.amount_due_minor),0) due
+             FROM pos_orders o WHERE o.tenant_id=$1 AND o.branch_id=$2
+              AND o.status='PARTIALLY_PAID' AND o.created_at < $3 AND o.updated_at >= $4
+              AND ($5::uuid IS NULL OR o.register_id=$5)
+              AND ($6::uuid IS NULL OR EXISTS(
+                SELECT 1 FROM payments p WHERE p.tenant_id=o.tenant_id AND p.pos_order_id=o.id
+                  AND p.created_by_user_id=$6 AND p.status='CAPTURED'
+                  AND p.captured_at >= $4 AND p.captured_at < $3))`,
+        [auth.tenantId, branchId, endUtc, startUtc, registerId, cashierUserId],
+      ),
+      this.db.query<any>(
+        `SELECT count(*) count FROM pos_orders o
+            WHERE o.tenant_id=$1 AND o.branch_id=$2 AND o.status='PAID'
+              AND o.paid_at >= $3 AND o.paid_at < $4
+              AND ($5::uuid IS NULL OR o.register_id=$5)
+              AND ($6::uuid IS NULL OR EXISTS(
+                SELECT 1 FROM payments p WHERE p.tenant_id=o.tenant_id AND p.pos_order_id=o.id
+                  AND p.created_by_user_id=$6 AND p.status='CAPTURED'
+                  AND p.captured_at >= $3 AND p.captured_at < $4))
+              AND NOT EXISTS(SELECT 1 FROM invoices i WHERE i.tenant_id=o.tenant_id AND i.pos_order_id=o.id AND i.status='ISSUED')`,
+        [auth.tenantId, branchId, startUtc, endUtc, registerId, cashierUserId],
+      ),
+    ]);
     const order = orders.rows[0],
-      session = sessions.rows[0];
+      session = sessions.rows[0],
+      collected = allocations.rows[0];
     const mix = Object.fromEntries(
       payments.rows.map((row) => [
         row.tender_type,
@@ -101,13 +159,25 @@ export class FinancialReportService {
       timezone: branch.timezone,
       currency: branch.currency,
       range: { startUtc, endUtc },
+      filters: {
+        branchId,
+        businessDate,
+        registerId,
+        cashierUserId,
+        cashierSemantics: "PAYMENT_CAPTURE_ACTOR",
+      },
       orders: Number(order.orders),
+      paidOrderCount: Number(collected.paid_orders),
       grossSalesMinor: minorNumber(order.gross),
+      serviceSalesMinor: minorNumber(order.net_sales),
       discountMinor: minorNumber(order.discounts),
       taxMinor: minorNumber(order.tax),
       tipMinor: minorNumber(order.tips),
       netSalesMinor: minorNumber(order.net_sales),
-      netCollectedMinor: minorNumber(order.collected),
+      serviceCollectedMinor: minorNumber(collected.service_collected),
+      tipCollectedMinor: minorNumber(collected.tip_collected),
+      totalCollectedMinor: minorNumber(collected.total_collected),
+      netCollectedMinor: minorNumber(collected.total_collected),
       paymentMix: {
         CASH: mix.CASH ?? { amountMinor: 0, count: 0 },
         CARD_EXTERNAL: mix.CARD_EXTERNAL ?? { amountMinor: 0, count: 0 },
@@ -119,6 +189,8 @@ export class FinancialReportService {
       partialAmountDueMinor: minorNumber(partials.rows[0].due),
       cashSessions: Number(session.sessions),
       openCashSessions: Number(session.open_sessions),
+      cashExpectedMinor: minorNumber(session.expected),
+      cashDeclaredMinor: minorNumber(session.declared),
       cashVarianceMinor: Number(session.variance),
       unissuedInvoices: Number(unissued.rows[0].count),
       generatedAt: new Date().toISOString(),
@@ -156,8 +228,8 @@ export class FinancialReportService {
     return {
       branches,
       totals: {
-        paidOrders: total("orders"),
-        todaySalesMinor: total("netSalesMinor"),
+        paidOrders: total("paidOrderCount"),
+        todaySalesMinor: total("serviceSalesMinor"),
         tipsMinor: total("tipMinor"),
         openCashSessions: total("openCashSessions"),
         cashVarianceMinor: total("cashVarianceMinor"),

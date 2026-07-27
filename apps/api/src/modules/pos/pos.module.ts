@@ -8,6 +8,7 @@ import { FinancialReportService } from "./financial-report.service.js";
 import { PaymentWebhookService } from "./payment-webhook.service.js";
 import { PosPricingService } from "./pos-pricing.service.js";
 import { PosService } from "./pos.service.js";
+import { RegisterDeviceAuthorizationService } from "./register-device-authorization.service.js";
 import {
   AppointmentPosController,
   CashSessionController,
@@ -34,6 +35,7 @@ import {
   providers: [
     PosPricingService,
     FinancialEvidenceService,
+    RegisterDeviceAuthorizationService,
     PosService,
     CashSessionService,
     FinancialReportService,

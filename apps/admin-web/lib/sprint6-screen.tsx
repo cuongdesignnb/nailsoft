@@ -240,7 +240,9 @@ function PosHome() {
           <p key={item.id}>
             <a href={`/admin/pos/cash-sessions/${item.id}`}>
               {item.registerCode ?? "Register"} ·{" "}
-              {money(item.expectedCashMinor, item.currency)}
+              {item.blindCount
+                ? "Expected cash hidden"
+                : money(item.expectedCashMinor, item.currency)}
             </a>
           </p>
         ))}
@@ -307,7 +309,22 @@ function Orders() {
 }
 function Order({ orderId }: { orderId: string }) {
   const order = useData(`/v1/pos-orders/${orderId}`),
+    registers = useData("/v1/pos-registers"),
     [message, setMessage] = useState("");
+  async function assignRegister(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      await command(`/v1/pos-orders/${orderId}/assign-register`, {
+        version: order.data.version,
+        registerId: new FormData(event.currentTarget).get("registerId"),
+      });
+      setMessage("Register assigned to this checkout.");
+      await order.load();
+    } catch (reason: any) {
+      setMessage(reason.message);
+      await order.load();
+    }
+  }
   async function finalize() {
     try {
       await command(`/v1/pos-orders/${orderId}/finalize`, {
@@ -395,6 +412,29 @@ function Order({ orderId }: { orderId: string }) {
           </section>
           {order.data.status === "DRAFT" && (
             <div className="detail-grid">
+              <form className="form-grid" onSubmit={assignRegister}>
+                <h2>Checkout register</h2>
+                <select
+                  name="registerId"
+                  defaultValue={order.data.registerId ?? ""}
+                  required
+                >
+                  <option value="">Select register</option>
+                  {registers.state === "ready" &&
+                    registers.data
+                      .filter(
+                        (item: any) =>
+                          item.branchId === order.data.branchId &&
+                          item.status === "ACTIVE",
+                      )
+                      .map((item: any) => (
+                        <option key={item.id} value={item.id}>
+                          {item.code} · {item.name}
+                        </option>
+                      ))}
+                </select>
+                <button>Assign register</button>
+              </form>
               <form className="form-grid" onSubmit={discount}>
                 <h2>Discount</h2>
                 <select name="discountType">
@@ -412,7 +452,12 @@ function Order({ orderId }: { orderId: string }) {
             </div>
           )}
           {order.data.status === "DRAFT" && (
-            <button onClick={() => void finalize()}>Finalize order</button>
+            <button
+              disabled={!order.data.registerId}
+              onClick={() => void finalize()}
+            >
+              Finalize order
+            </button>
           )}
           {["READY_FOR_PAYMENT", "PARTIALLY_PAID"].includes(
             order.data.status,
@@ -572,11 +617,15 @@ function Payment({ orderId }: { orderId: string }) {
                 Open cash session
                 <select name="cashSessionId">
                   <option value="">Select</option>
-                  {(sessions.data ?? []).map((item: any) => (
-                    <option key={item.id} value={item.id}>
-                      {item.registerCode ?? item.id}
-                    </option>
-                  ))}
+                  {(sessions.data ?? [])
+                    .filter(
+                      (item: any) => item.registerId === order.data.registerId,
+                    )
+                    .map((item: any) => (
+                      <option key={item.id} value={item.id}>
+                        {item.registerCode ?? item.id}
+                      </option>
+                    ))}
                 </select>
               </label>
               <label>
@@ -786,11 +835,19 @@ function CashSession({
       {message && <p role="status">{message}</p>}
       {data.state === "ready" && (
         <>
+          {data.data.blindCount && (
+            <p role="status">
+              Blind count is active. Expected cash and variance remain hidden
+              until this session is closed.
+            </p>
+          )}
           <div className="money-grid">
             <article>
               <small>Expected</small>
               <strong>
-                {money(data.data.expectedCashMinor, data.data.currency)}
+                {data.data.expectedCashMinor == null
+                  ? "Hidden"
+                  : money(data.data.expectedCashMinor, data.data.currency)}
               </strong>
             </article>
             <article>
@@ -815,7 +872,10 @@ function CashSession({
             {data.data.movements.map((item: any) => (
               <p key={item.id}>
                 {item.movementType} · {item.direction} ·{" "}
-                {money(item.amountMinor, item.currency)} · {item.reasonCode}
+                {item.amountMinor == null
+                  ? "Hidden"
+                  : money(item.amountMinor, item.currency)}{" "}
+                · {item.reasonCode}
               </p>
             ))}
           </section>

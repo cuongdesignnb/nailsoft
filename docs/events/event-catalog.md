@@ -78,7 +78,7 @@ All are committed with the authoritative transaction. Payloads contain identifie
 
 The following events use the existing safe outbox envelope and contain refetch identifiers plus minor-unit/currency summaries only:
 
-- `pos.order_created`, `pos.order_recalculated`, `pos.order_finalized`, `pos.order_partially_paid`, `pos.order_paid`, `pos.order_voided`
+- `pos.order_created`, `pos.register_assigned`, `pos.order_recalculated`, `pos.order_finalized`, `pos.order_partially_paid`, `pos.order_paid`, `pos.order_voided`
 - `pos.discount_applied`, `pos.discount_approved`, `pos.tip_set`
 - `payment.captured`, `payment.failed`
 - `invoice.issued`, `invoice.delivery_requested`

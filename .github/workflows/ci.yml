@@ -89,6 +89,12 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint5-eta-timezone.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 6 payment and cash concurrency integration
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint6-pos-payment-cash.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 6 register/device authorization integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint6-register-device-binding.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 6 cash attribution and reconciliation integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint6-register-cash-attribution.test.ts tests/integration/sprint6-reconciliation-filters.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 6 blind count integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint6-blind-cash-count.test.ts --maxWorkers=1 --minWorkers=1
       - name: Reset focused regression fixture
         run: pnpm db:reset && pnpm db:seed
       - name: Public booking tenant-scoped deep integration
@@ -154,6 +160,20 @@ jobs:
           done
       - name: Sprint 6 authenticated POS and mobile E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint6-pos-ui.spec.ts
+      - name: Sprint 6 closure authenticated E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/e2e/sprint6-device-binding-deep.spec.ts \
+            tests/e2e/sprint6-register-attribution-deep.spec.ts \
+            tests/e2e/sprint6-blind-close-deep.spec.ts \
+            tests/e2e/sprint6-reconciliation-deep.spec.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec playwright test "$spec"
+          done
       - name: Scheduling and booking load smoke
         env:
           LOAD_DURATION_SECONDS: 2

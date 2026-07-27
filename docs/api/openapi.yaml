@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.8.0,
-    description: Sprint 6 POS,
+    version: 0.8.1,
+    description: Sprint 6 POS closure with authenticated-device register trust,
     invoice,
     payment,
     tip and cash-session API plus Sprint 5 operations and prior booking lifecycle,
@@ -1784,6 +1784,28 @@ paths:
           },
         responses: { "200": { description: Ready for payment or paid } },
       }
+  /pos-orders/{orderId}/assign-register:
+    post:
+      {
+        tags: [pos],
+        summary: Assign an active branch register to an unpaid draft using the authenticated device binding,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/AssignRegister" } },
+              },
+          },
+        responses:
+          {
+            "200": { description: Register assigned },
+            "403": { description: Authenticated device is not bound },
+            "409": { description: Version or immutable-attribution conflict },
+          },
+      }
   /pos-orders/{orderId}/payments:
     get:
       {
@@ -1910,6 +1932,18 @@ paths:
         summary: Read append-only cash movements,
         responses: { "200": { description: Movements } },
       }
+  /cash-sessions/{sessionId}/closing-review:
+    get:
+      {
+        tags: [cash-sessions],
+        summary: Manager/Owner review of expected,
+        declared and variance amounts,
+        responses:
+          {
+            "200": { description: Unredacted closing review },
+            "403": { description: Variance approval permission required },
+          },
+      }
     post:
       {
         tags: [cash-sessions],
@@ -1954,7 +1988,20 @@ paths:
       {
         tags: [financial],
         summary: Branch-local half-open daily reconciliation,
-        responses: { "200": { description: Reconciliation } },
+        responses:
+          {
+            "200":
+              {
+                description: Register/cashier-attributed reconciliation,
+                content:
+                  {
+                    application/json:
+                      {
+                        schema: { $ref: "#/components/schemas/Reconciliation" },
+                      },
+                  },
+              },
+          },
       }
   /financial/summary:
     get:
@@ -2001,6 +2048,13 @@ components:
       additionalProperties: false
       required: [version]
       properties: { version: { type: integer, minimum: 1 } }
+    AssignRegister:
+      type: object
+      additionalProperties: false
+      required: [version, registerId]
+      properties:
+        version: { type: integer, minimum: 1 }
+        registerId: { type: string, format: uuid }
     PosOrderCreate:
       type: object
       additionalProperties: false
@@ -2117,8 +2171,52 @@ components:
           registerId: { type: string, format: uuid },
           cashDrawerId: { type: string, format: uuid },
           openingFloatMinor: { type: integer, minimum: 0 },
-          deviceId: { type: string },
+          deviceId:
+            {
+              type: string,
+              deprecated: true,
+              description: Compatibility-only input; ignored for authorization. The server resolves device_id from auth.sessionId.,
+            },
         }
+    Reconciliation:
+      type: object
+      required:
+        [
+          paidOrderCount,
+          serviceSalesMinor,
+          discountMinor,
+          taxMinor,
+          tipMinor,
+          serviceCollectedMinor,
+          tipCollectedMinor,
+          totalCollectedMinor,
+          paymentMix,
+          cashExpectedMinor,
+          cashDeclaredMinor,
+          cashVarianceMinor,
+          filters,
+        ]
+      properties:
+        paidOrderCount: { type: integer, minimum: 0 }
+        serviceSalesMinor: { type: integer }
+        discountMinor: { type: integer }
+        taxMinor: { type: integer }
+        tipMinor: { type: integer }
+        serviceCollectedMinor: { type: integer }
+        tipCollectedMinor: { type: integer }
+        totalCollectedMinor: { type: integer }
+        paymentMix: { type: object }
+        cashExpectedMinor: { type: integer }
+        cashDeclaredMinor: { type: integer }
+        cashVarianceMinor: { type: integer }
+        filters:
+          type: object
+          properties:
+            branchId: { type: string, format: uuid }
+            businessDate: { type: string, format: date }
+            registerId: { type: [string, "null"], format: uuid }
+            cashierUserId: { type: [string, "null"], format: uuid }
+            cashierSemantics: { const: PAYMENT_CAPTURE_ACTOR }
     WalkInCreate:
       type: object
       required: [branchId, displayName, items]

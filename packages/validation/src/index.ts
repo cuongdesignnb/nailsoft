@@ -276,6 +276,9 @@ export const posOrderCreateSchema = z
 export const posOrderVersionSchema = z
   .object({ version: z.number().int().positive() })
   .strict();
+export const posAssignRegisterSchema = posOrderVersionSchema
+  .extend({ registerId: uuidSchema })
+  .strict();
 export const posManualLineSchema = posOrderVersionSchema
   .extend({
     lineType: z.enum(["MANUAL_SERVICE", "ADJUSTMENT"]),

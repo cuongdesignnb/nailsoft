@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   idempotencyKeySchema,
+  cashSessionOpenSchema,
+  posAssignRegisterSchema,
   posPaymentSchema,
   publicCreateAppointmentSchema,
 } from "./index";
@@ -11,6 +13,29 @@ describe("idempotency key", () => {
 });
 
 describe("Sprint 6 payment boundary", () => {
+  it("accepts only version and register for assignment", () => {
+    const valid = {
+      version: 1,
+      registerId: "70000000-0000-4000-8000-000000000001",
+    };
+    expect(posAssignRegisterSchema.safeParse(valid).success).toBe(true);
+    expect(
+      posAssignRegisterSchema.safeParse({ ...valid, deviceId: "spoofed" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("parses legacy cash-open deviceId only as ignored compatibility input", () => {
+    expect(
+      cashSessionOpenSchema.safeParse({
+        registerId: "70000000-0000-4000-8000-000000000001",
+        cashDrawerId: "70000000-0000-4000-8000-000000000002",
+        openingFloatMinor: 0,
+        deviceId: "not-authoritative",
+      }).success,
+    ).toBe(true);
+  });
+
   it("accepts the explicit cash contract", () => {
     expect(
       posPaymentSchema.safeParse({

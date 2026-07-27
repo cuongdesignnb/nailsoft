@@ -2,98 +2,106 @@
 
 ## Status
 
-Sprint 6 implementation and local QA are complete. Product status remains `READY FOR FINAL CI / ACCEPTANCE`; it must not be changed to `DONE` until GitHub Actions succeeds for the exact final commit and BA/Product Owner accepts the checkpoint.
+Sprint 6 closure implementation and local QA are complete. Product status is `IN PROGRESS` while the exact closure commit awaits its final GitHub Actions result and BA/Product Owner acceptance. Sprint 7 has not started.
 
 ## Git
 
 - Branch: `main`
-- Start checkpoint: `cb0377d1d818597dcda8e4cfd864de9c538a0b4a`
-- Migrations `0001-0011`: unchanged
-- Final commit, origin alignment, Actions run and clean-tree evidence are reported from immutable Git metadata after the final push.
+- Sprint 6 closure checkpoint: `b52e4b723414e16d3cb01ca9439ca3caab77317e`
+- Sprint 6 feature commit: `8a6556d375ebb6f421d84d2693b6321906bb74c9`
+- Migrations `0001-0012`: unchanged
+- Closure migration: `0013_sprint6_financial_attribution_hardening`
+- Final commit, `origin/main` alignment, Actions run and clean-tree evidence are recorded from immutable Git metadata after the final push.
 
-## Migration and seed
+## Register trust boundary
 
-- Added reversible migration `0012_pos_invoice_payment_cash_session`.
-- Fresh migrate, rollback to `0011`, and re-migrate passed locally.
-- Tables cover registers/devices, drawers/sessions/movements, tax profiles, orders/lines/discounts/approvals/pricing revisions, tips/allocations, payments/attempts/allocations, invoices/lines/deliveries, append-only order history, financial events and webhook evidence.
-- Composite tenant foreign keys, branch/register scope, partial unique active-order/session constraints and immutable captured-payment/invoice guards are database enforced.
-- Deterministic seed includes Cashier and Accountant roles/users plus draft, ready, partial, paid and zero-total orders, split payments, tips, movements, reconciliation and invoice evidence. It contains no real PII.
+- Register authorization is derived exclusively from the authenticated `auth.sessionId` and its active `device_sessions.device_id` relation.
+- Client-supplied `deviceId` is accepted only for legacy request compatibility and is ignored for authorization.
+- Register-bound POS creation, register assignment, finalization, payment and every cash-session command require an active same-tenant, same-user, same-branch device session and a non-revoked register binding when the register requires one.
+- Owner/Manager roles have no implicit device-binding bypass.
+- Spoofed device identifiers, inactive/revoked sessions and unbound devices map to explicit domain errors instead of HTTP 500.
 
-## POS and pricing
+## Register and cash attribution
 
-- Appointment checkout creates at most one active order and snapshots completed/cancelled service evidence without mutating booking snapshots.
-- Integer-minor-unit pricing implements line/order discounts, tax snapshots, tips, deterministic rounding and exact tip allocation.
-- Every repricing appends a pricing revision; the first successful capture locks pricing.
-- Discount thresholds create an approval request. Approval, repricing and audit evidence are transactional.
-- Finalization supports positive and zero-total orders; appointment state derives `CHECKED_OUT`/`PAID` from PostgreSQL financial evidence.
+- Added command-specific `POST /v1/pos-orders/{orderId}/assign-register` for unlocked DRAFT orders with no payment evidence.
+- A non-DRAFT order must have one immutable register; database triggers block later register changes after finalization or payment evidence.
+- Every captured payment has an immutable `register_id`, including cash and external-reference payments.
+- Cash capture requires the cash session, payment and order to share the same register.
+- Split cash tender remains tied to the original cash session; mismatches return `PAYMENT_REGISTER_MISMATCH` or `PAYMENT_CASH_SESSION_MISMATCH`.
+- Migration backfill selects deterministic same-branch attribution and fails closed when no valid attribution exists.
 
-## Payments, invoice and cash
+## Blind cash count
 
-- Cash and permissioned external-reference capture use strict discriminated request schemas and reject sensitive card fields.
-- Partial and split tender, change calculation, idempotent replay, payment-attempt evidence and overpayment protection are implemented.
-- Concurrent final capture yields one capture/invoice; loser requests map to a domain conflict instead of HTTP 500.
-- Invoice numbering is branch-local and concurrency-safe; issued invoices and lines are immutable.
-- Receipt print view and disabled-provider delivery queue are available without exposing payment secrets.
-- Cash sessions implement open, movement, begin closing, blind declaration, variance policy, dual-control close and manager reopen. Cash out/drop cannot make expected cash negative.
-- Daily reconciliation and owner financial summary are PostgreSQL projections; Redis remains transport/cache only.
-- Deposit allocation is represented as a financial-evidence foundation only. No new production deposit gateway, refund or reversal workflow was introduced.
+- An owning Cashier sees `blindCount=true` while a session is `OPEN` or `CLOSING`.
+- Expected cash, variance, variance reason/approval and movement amounts are API-redacted; clients cannot sum movements to reconstruct expected cash.
+- Blind enforcement applies to list, detail, movement-list and command responses, not only the Admin Web presentation.
+- A Manager/Owner with `cash_session.approve_variance` uses the separate closing-review endpoint to see reconciliation evidence.
+- Closed sessions reveal expected, declared and variance values according to permission scope.
 
-## Authorization and security
+## Financial reconciliation
 
-- Granular Sprint 6 permissions cover POS, discount approval, payment, invoice, register, cash session and reconciliation commands.
-- Owner and branch Manager are branch-scoped operators; Cashier handles POS/cash; Accountant is read-only; Receptionist has limited read access; Technician and Marketing have no financial access by default.
-- Platform Super Admin remains denied salon financial data without a Support Access Grant.
-- Tenant/branch isolation, idempotency keys, optimistic versions, row/advisory locks, audit logs and durable outbox apply to sensitive commands.
-- Provider raw body/signature boundary, opaque references, log redaction and no-card-data validation are documented and tested.
+- Daily reconciliation uses captured payment evidence as the collection source of truth and invoice evidence for service sales, discount, tax and tip composition.
+- Filters include tenant, branch, business date, immutable register attribution, capture actor/cashier, payment method, payment status, invoice status and cash-session status.
+- Register filtering includes both cash and external-reference payments.
+- Cashier attribution uses immutable capture actor (`payments.created_by_user_id`) rather than current session owner.
+- Response includes paid order count, service sales, discount, tax, tip, service/tip/total collected, payment mix, expected/declared/variance cash and applied-filter metadata.
+- Payment allocation joins aggregate before projection so captured amounts are not duplicated.
 
-## API and realtime
+## Migration and deterministic seed
 
-- Orders: create/list/detail/history, line, recalculate, discount, tip, finalize, payment and void commands.
-- Payments/invoices: list/detail, immutable print and delivery request.
-- Registers/cash: register list; cash-session list/detail/open/movement/closing/declaration/reopen/close.
-- Reporting: daily reconciliation and financial summary.
-- OpenAPI version `0.8.0` contains Sprint 6 request/response schemas and command routes.
-- Financial outbox events route tenant-, branch-, register-, session-, order- and appointment-scoped refetch signals without PII.
+- Fresh migrate through `0013`: passed.
+- Rollback from `0013` to `0012`: passed with captured payments and issued invoices preserved.
+- Re-migrate to `0013`: passed with data preserved.
+- Composite tenant/register foreign keys, non-null captured-payment attribution, immutable order attribution and reporting indexes are database-enforced.
+- Seed assigns deterministic register attribution to every Sprint 6 order/payment and contains no real PII.
 
-## UI and mobile
+## API, UI and realtime
 
-- Admin Web provides real POS checkout, discount/tip/finalization/payment, receipt, register, cash-session, reconciliation and permission-state screens.
-- Screens include loading, empty, error, retry, offline, validation, version-conflict, permission-denied and success states.
-- Owner Mobile consumes the real read-only financial summary API and refetches on realtime invalidation.
-- Cashier deep E2E validates the real UI against the authenticated API and PostgreSQL. Staff Mobile has no unauthorized financial actions.
+- OpenAPI version `0.8.1` documents register assignment, immutable payment attribution, manager closing review, blind fields and expanded reconciliation filters/response.
+- Admin Web requires or assigns an authorized register before finalization and filters cash-session selection by the order register.
+- Cash-session screens render redacted values as `Hidden`, never as a misleading zero.
+- Existing transactional audit, durable outbox and realtime refetch signals remain in place; PostgreSQL is the source of truth.
 
 ## Tests and local QA
 
 - Lint: 13/13 packages passed.
 - Typecheck: 13/13 packages passed in strict mode.
-- Unit/mobile: 25 files, 70 tests passed, including 7 pricing tests and Sprint 6 mobile scope.
+- Unit/mobile: 25 files, 72 tests passed.
 - Contract: 1/1 OpenAPI contract test passed.
-- Full PostgreSQL regression: Sprint 1-6 integration suite passed.
-- Sprint 6 integration/concurrency/security: 7/7 passed.
-- Authenticated Sprint 6 E2E: 3/3 passed after deterministic reset.
+- Full PostgreSQL integration/regression suite: passed, including Sprint 1-6 tests.
+- Closure integration: device binding, register/cash attribution, reconciliation filters and blind count passed.
+- Closure authenticated deep E2E: 4/4 passed.
+- Existing authenticated Sprint 6 POS UI E2E: 3/3 passed.
 - Build: 13/13 packages passed, including Admin Web, API, Worker, Booking Web and both Expo web exports.
-- Formatting was applied to every Sprint 6 changed text/source file. Repository-wide Prettier check still reports pre-existing formatting debt outside the Sprint 6 change set and is not represented as green.
+- Docker was used only for QA, then stopped. Final `docker compose ps` output was empty.
 
 ## Performance
 
 - Dataset: deterministic local QA fixture; this is not a production performance claim.
-- Concurrency 2 local p95: order list 6.56 ms, financial summary 8.93 ms, daily reconciliation 9.22 ms, invoice list 5.98 ms.
-- Error rate: 0% for the four Sprint 6 smoke scenarios.
-- Production-like 100k-order/200k-payment benchmark and hot-order soak remain release blockers in the technical-debt register.
+- Duration: 2-second measurement per scenario after 1-second warm-up, concurrency 2.
+- POS order list: 598 requests, p95 8.32 ms, error rate 0%.
+- Financial summary: 433 requests, p95 10.78 ms, error rate 0%.
+- Daily reconciliation: 501 requests, p95 9.33 ms, error rate 0%.
+- Invoice list: 646 requests, p95 7.48 ms, error rate 0%.
+- Production-like 100k-order/200k-payment benchmark and hot-order soak remain release technical debt; local numbers are not a production SLA claim.
 
 ## Architecture decisions
 
-- ADR 0028: POS Order Aggregate.
-- ADR 0029: Money, Tax and Rounding.
-- ADR 0030: Payment Idempotency and Provider Boundary.
-- ADR 0031: Invoice Immutability and Numbering.
-- ADR 0032: Cash Session Reconciliation.
-- Existing multi-tenancy, authentication, idempotency, durable outbox, realtime and offline ADRs remain authoritative.
+- ADR 0032 updated: cash-session reconciliation and blind-count visibility.
+- ADR 0033 added: authenticated register-device trust and immutable financial attribution.
+- Existing multi-tenancy, authentication, idempotency, durable outbox, realtime, POS aggregate, money/tax, payment boundary and invoice immutability ADRs remain authoritative.
 
-## Local run
+## Technical debt and risk
+
+- Production payment terminal/provider integration remains disabled and must not be simulated as completed.
+- Production e-invoice filing remains outside the current implementation.
+- Production-scale reconciliation/load evidence remains a release-stage activity.
+- Refund, reversal and chargeback workflows require separately approved scope and financial evidence design.
+
+## Local QA run
 
 ```bash
-# Docker is used only during QA and is stopped when QA completes.
+# Docker is enabled only for database-backed QA and is stopped afterward.
 docker compose up -d
 pnpm db:reset
 pnpm db:seed
@@ -103,15 +111,18 @@ pnpm test:unit
 pnpm test:integration
 pnpm test:contract
 pnpm test:e2e tests/e2e/sprint6-pos-ui.spec.ts
+pnpm test:e2e tests/e2e/sprint6-*-deep.spec.ts
 pnpm load:smoke
 pnpm build
 docker compose down
+docker compose ps
 ```
 
 ## Scope confirmation
 
-- Refund and Credit Note are not implemented.
+- Refund, Credit Note, reversal and chargeback are not implemented.
 - Commission and Payroll are not implemented.
 - Inventory deduction, Voucher, Membership/Package and Gift Card are not implemented.
-- Production card terminal/provider and e-invoice filing are not faked; they remain explicit release configuration or later approved scope.
+- Marketing and AI are not implemented.
+- Production card terminal/provider and e-invoice filing are not faked.
 - Sprint 7 has not started.

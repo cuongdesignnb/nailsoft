@@ -20,6 +20,7 @@ import { BookingIdempotencyService } from "../booking/booking-idempotency.servic
 import type { AccessClaims } from "../identity/auth.types.js";
 import { FinancialEvidenceService } from "./financial-evidence.service.js";
 import { minorNumber } from "./pos-pricing.service.js";
+import { RegisterDeviceAuthorizationService } from "./register-device-authorization.service.js";
 
 @Injectable()
 export class CashSessionService {
@@ -29,6 +30,8 @@ export class CashSessionService {
     private readonly idem: BookingIdempotencyService,
     @Inject(FinancialEvidenceService)
     private readonly evidence: FinancialEvidenceService,
+    @Inject(RegisterDeviceAuthorizationService)
+    private readonly registerDevice: RegisterDeviceAuthorizationService,
   ) {}
 
   async registers(auth: AccessClaims, query: any) {
@@ -78,7 +81,7 @@ export class CashSessionService {
         `SELECT cs.*,r.code register_code,d.code drawer_code FROM cash_sessions cs JOIN pos_registers r ON r.tenant_id=cs.tenant_id AND r.id=cs.register_id JOIN cash_drawers d ON d.tenant_id=cs.tenant_id AND d.id=cs.cash_drawer_id WHERE cs.tenant_id=$1 AND ${where} ORDER BY opened_at DESC,id LIMIT 200`,
         values,
       )
-    ).rows.map(sessionView);
+    ).rows.map((row) => sessionView(row, auth));
   }
 
   async detail(auth: AccessClaims, id: string) {
@@ -86,14 +89,22 @@ export class CashSessionService {
     return { ...session, movements: await this.movements(auth, id) };
   }
 
+  async closingReview(auth: AccessClaims, id: string) {
+    const row = await this.sessionRow(auth, id);
+    return {
+      ...sessionView(row, auth, true),
+      movements: await this.movements(auth, id),
+    };
+  }
+
   async movements(auth: AccessClaims, id: string) {
-    await this.session(auth, id);
+    const session = await this.session(auth, id);
     return (
       await this.db.query<any>(
         "SELECT * FROM cash_movements WHERE tenant_id=$1 AND cash_session_id=$2 ORDER BY occurred_at,id",
         [auth.tenantId, id],
       )
-    ).rows.map(movementView);
+    ).rows.map((row) => movementView(row, session.blindCount));
   }
 
   async open(
@@ -125,6 +136,12 @@ export class CashSessionService {
                 message: "Active register not found",
               });
             this.assertBranch(auth, register.branch_id);
+            await this.registerDevice.assertRegisterAccess({
+              auth,
+              registerId: body.registerId,
+              branchId: register.branch_id,
+              client,
+            });
             if (register.branch_status !== "ACTIVE")
               throw new ConflictException({
                 code: "FINANCIAL_BRANCH_INACTIVE",
@@ -146,22 +163,6 @@ export class CashSessionService {
                 code: "CASH_SESSION_CURRENCY_MISMATCH",
                 message: "Drawer currency differs from branch currency",
               });
-            if (register.device_binding_required) {
-              if (!body.deviceId)
-                throw new ForbiddenException({
-                  code: "FINANCIAL_PERMISSION_DENIED",
-                  message: "Register requires a bound device",
-                });
-              const binding = await client.query(
-                "SELECT 1 FROM pos_register_device_bindings WHERE tenant_id=$1 AND register_id=$2 AND device_id=$3 AND status='ACTIVE'",
-                [auth.tenantId, body.registerId, body.deviceId],
-              );
-              if (!binding.rowCount)
-                throw new ForbiddenException({
-                  code: "FINANCIAL_PERMISSION_DENIED",
-                  message: "Device is not bound to this register",
-                });
-            }
             const opening = BigInt(body.openingFloatMinor);
             const threshold = BigInt(
               register.tax_policy_json?.cashVarianceThresholdMinor ?? 5000,
@@ -220,7 +221,7 @@ export class CashSessionService {
               opening,
               { businessDate },
             );
-            return sessionView(row);
+            return sessionView(row, auth);
           },
         }),
       )
@@ -299,7 +300,7 @@ export class CashSessionService {
           },
         );
         return {
-          session: sessionView(updated),
+          session: sessionView(updated, auth),
           movement: movementView(movement),
         };
       },
@@ -351,7 +352,7 @@ export class CashSessionService {
           requestId,
           key,
         );
-        return sessionView(updated);
+        return sessionView(updated, auth);
       },
     );
   }
@@ -412,7 +413,7 @@ export class CashSessionService {
           declared,
           { denominationCount: body.denominations?.length ?? 0 },
         );
-        return sessionView(updated);
+        return sessionView(updated, auth);
       },
     );
   }
@@ -457,7 +458,7 @@ export class CashSessionService {
           requestId,
           key,
         );
-        return sessionView(updated);
+        return sessionView(updated, auth);
       },
     );
   }
@@ -526,7 +527,7 @@ export class CashSessionService {
           BigInt(updated.declared_cash_minor),
           { varianceMinor: variance.toString(), varianceApproved: high },
         );
-        return sessionView(updated);
+        return sessionView(updated, auth);
       },
     );
   }
@@ -549,8 +550,16 @@ export class CashSessionService {
           command,
           key,
           request: { id, ...(request as any) },
-          work: async () =>
-            work(client, await this.lockSession(client, auth, id)),
+          work: async () => {
+            const session = await this.lockSession(client, auth, id);
+            await this.registerDevice.assertRegisterAccess({
+              auth,
+              registerId: session.register_id,
+              branchId: session.branch_id,
+              client,
+            });
+            return work(client, session);
+          },
         }),
       )
     ).data;
@@ -580,7 +589,7 @@ export class CashSessionService {
       });
     return row;
   }
-  private async session(auth: AccessClaims, id: string) {
+  private async sessionRow(auth: AccessClaims, id: string) {
     this.assertTenant(auth);
     const row = (
       await this.db.query<any>(
@@ -595,7 +604,10 @@ export class CashSessionService {
       });
     this.assertBranch(auth, row.branch_id);
     this.assertOwn(auth, row);
-    return sessionView(row);
+    return row;
+  }
+  private async session(auth: AccessClaims, id: string) {
+    return sessionView(await this.sessionRow(auth, id), auth);
   }
   private async refreshExpected(
     client: PoolClient,
@@ -691,7 +703,15 @@ const state = () =>
     message: "Cash session state does not allow this command",
   });
 const abs = (value: bigint) => (value < 0n ? -value : value);
-function sessionView(row: any) {
+function sessionView(row: any, auth: AccessClaims, reveal = false) {
+  const blind =
+    !reveal &&
+    auth.roles.includes("CASHIER") &&
+    !auth.roles.some(
+      (role) => role === "SALON_OWNER" || role === "BRANCH_MANAGER",
+    ) &&
+    row.cashier_user_id === auth.userId &&
+    ["OPEN", "CLOSING"].includes(row.status);
   return {
     id: row.id,
     branchId: row.branch_id,
@@ -704,30 +724,31 @@ function sessionView(row: any) {
     timezone: row.timezone,
     currency: row.currency,
     status: row.status,
+    blindCount: blind,
     openedAt: row.opened_at,
     openingFloatMinor: minorNumber(row.opening_float_minor),
-    expectedCashMinor: minorNumber(row.expected_cash_minor),
+    expectedCashMinor: blind ? null : minorNumber(row.expected_cash_minor),
     declaredCashMinor:
       row.declared_cash_minor == null
         ? null
         : minorNumber(row.declared_cash_minor),
     varianceMinor:
-      row.variance_minor == null ? null : Number(row.variance_minor),
+      blind || row.variance_minor == null ? null : Number(row.variance_minor),
     varianceThresholdMinor: minorNumber(row.variance_threshold_minor),
-    varianceReason: row.variance_reason,
-    varianceApprovedByUserId: row.variance_approved_by_user_id,
+    varianceReason: blind ? null : row.variance_reason,
+    varianceApprovedByUserId: blind ? null : row.variance_approved_by_user_id,
     closingStartedAt: row.closing_started_at,
     closedAt: row.closed_at,
     version: Number(row.version),
   };
 }
-function movementView(row: any) {
+function movementView(row: any, blind = false) {
   return {
     id: row.id,
     cashSessionId: row.cash_session_id,
     movementType: row.movement_type,
     direction: row.direction,
-    amountMinor: minorNumber(row.amount_minor),
+    amountMinor: blind ? null : minorNumber(row.amount_minor),
     currency: row.currency,
     relatedPaymentId: row.related_payment_id,
     reasonCode: row.reason_code,
