@@ -10,8 +10,8 @@ Sprint 7 foundation and financial-correctness closure are implemented and have p
 
 - Branch: `main`
 - Start checkpoint: `c1fd26a3ca41aacd5c90267aeb3bfa2fc48dcc41`
-- Feature commit: pending local commit
-- Closure commit: pending local commit
+- Feature commit: `5131df12cc0315c4f674f534e4be91d548aa5df8`
+- Closure commit: the commit containing this closure report; its exact hash is recorded by the final evidence commit
 - Final evidence commit: the commit containing the final CI evidence in this report
 - HEAD/origin: aligned at the start checkpoint; final values are recorded after push
 - Working tree: pending final evidence commit
