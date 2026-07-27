@@ -2,19 +2,22 @@
 
 ## Status
 
-`READY FOR CI` — implementation and local QA are complete. Sprint 8 is not authorized. Final acceptance remains gated on GitHub Actions for the exact final commit.
+`DONE` — implementation, local QA and implementation CI are complete. The evidence-only commit containing this report must also pass CI before handoff. Sprint 8 is not authorized.
 
 ## Git
 
 - Branch: `main`
 - Start checkpoint: `e8b77d4c942a3f7d38228d95c0ae4a4d62485df9`
-- Final commit: pending commit/push
-- origin/main: start checkpoint until final push
-- Working tree: Sprint 7 changes ready to commit
+- Implementation commit: `85da93fdc9d3df51932dbfa3576635b93666dbd7`
+- Closure evidence commit: the commit containing this report; resolved in the final handoff
+- origin/main: aligned after the closure evidence push
+- Working tree: clean after the evidence commit
 
 ## CI and Docker
 
-- Final GitHub Actions run: pending exact final commit
+- Implementation GitHub Actions run: `30261748456` — `SUCCESS` in 13m0s for `85da93fdc9d3df51932dbfa3576635b93666dbd7`
+- Run URL: `https://github.com/cuongdesignnb/nailsoft/actions/runs/30261748456`
+- Closure evidence CI: exact evidence commit run is verified in the final handoff
 - Local lint: 13/13 packages passed
 - Local typecheck: 13/13 packages passed
 - Local unit: 27 files / 80 tests passed
@@ -41,10 +44,11 @@
 - Admin Web refund, credit note, rule, entry, period, adjustment and reporting screens with loading, empty, error, retry, permission and online-only command states.
 - Owner Mobile approval/summary and Staff Mobile own earnings/net tips routes.
 
-## Evidence pending before DONE
+## Performance
 
-- Exact final commit GitHub Actions success and clean working tree.
-- Production-like performance evidence remains a release blocker in the technical-debt register; local/CI load smoke is capacity evidence only and is not represented as a production claim.
+- CI Sprint 7 financial load smoke passed with zero errors/timeouts.
+- p95: refund list `6.41 ms`, net-sales report `6.54 ms`, commission entries `5.89 ms`, credit-note list `6.15 ms`.
+- This is deterministic CI smoke evidence, not a production-scale claim. The production-like benchmark remains a release blocker in the technical-debt register.
 
 ## Scope confirmation
 
