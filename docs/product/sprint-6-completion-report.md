@@ -2,16 +2,26 @@
 
 ## Status
 
-Sprint 6 closure implementation and local QA are complete. Product status is `IN PROGRESS` while the exact closure commit awaits its final GitHub Actions result and BA/Product Owner acceptance. Sprint 7 has not started.
+Sprint 6 closure implementation, local QA and closure CI are complete. Product status is `IN PROGRESS` pending BA/Product Owner acceptance. All technical closure criteria are met; Sprint 7 has not started.
 
 ## Git
 
 - Branch: `main`
 - Sprint 6 closure checkpoint: `b52e4b723414e16d3cb01ca9439ca3caab77317e`
 - Sprint 6 feature commit: `8a6556d375ebb6f421d84d2693b6321906bb74c9`
+- Sprint 6 closure implementation commit: `3c3688ea924ad85d0c1d13867cd5310f2900b8e6`
 - Migrations `0001-0012`: unchanged
 - Closure migration: `0013_sprint6_financial_attribution_hardening`
-- Final commit, `origin/main` alignment, Actions run and clean-tree evidence are recorded from immutable Git metadata after the final push.
+- Closure implementation commit was aligned with `origin/main` and its working tree was clean before this evidence-only report update.
+
+## Closure CI
+
+- Run ID: `30243405219`
+- URL: <https://github.com/cuongdesignnb/nailsoft/actions/runs/30243405219>
+- Commit: `3c3688ea924ad85d0c1d13867cd5310f2900b8e6`
+- Status: `SUCCESS`
+- Duration: 11m51s
+- Evidence-report HEAD must also pass CI before final handoff.
 
 ## Register trust boundary
 
@@ -73,7 +83,7 @@ Sprint 6 closure implementation and local QA are complete. Product status is `IN
 - Closure authenticated deep E2E: 4/4 passed.
 - Existing authenticated Sprint 6 POS UI E2E: 3/3 passed.
 - Build: 13/13 packages passed, including Admin Web, API, Worker, Booking Web and both Expo web exports.
-- Docker was used only for QA, then stopped. Final `docker compose ps` output was empty.
+- Docker was used only for QA, then stopped. Final `docker compose ps` output was empty: `DOCKER_SERVICES_RUNNING=0`.
 
 ## Performance
 
