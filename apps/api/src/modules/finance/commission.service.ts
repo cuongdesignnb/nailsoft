@@ -65,8 +65,23 @@ export class CommissionService {
     const body = commissionRuleSchema.parse(input);
     if (body.branchId) this.assertBranch(auth, body.branchId);
     return this.db
-      .transaction((client) =>
-        this.idem.execute(client, {
+      .transaction(async (client) => {
+        // GiST exclusion checks can choose a deadlock victim when two
+        // overlapping rules are inserted at exactly the same time. Serialize
+        // only the normalized scope/priority so the loser deterministically
+        // reaches the exclusion constraint and maps to the domain conflict.
+        const normalizedScope = [
+          auth.tenantId,
+          body.branchId ?? "*",
+          body.staffId ?? "*",
+          body.serviceId ?? "*",
+          String(body.priority),
+        ].join(":");
+        await client.query(
+          "SELECT pg_advisory_xact_lock(hashtextextended($1,0))",
+          [`commission-rule:${normalizedScope}`],
+        );
+        return this.idem.execute(client, {
           tenantId: auth.tenantId,
           actorScope: `user:${auth.userId}`,
           command: "commission.rule.create",
@@ -76,7 +91,7 @@ export class CommissionService {
             const row = (
               await client.query<any>(
                 `INSERT INTO commission_rules(tenant_id,branch_id,staff_id,service_id,rule_code,rule_type,base_mode,percent_basis_points,fixed_minor,currency,
-             priority,policy_json,effective_from,effective_to,created_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+             priority,policy_json,effective_from,effective_to,status,created_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'ACTIVE',$15) RETURNING *`,
                 [
                   auth.tenantId,
                   body.branchId ?? null,
@@ -106,8 +121,8 @@ export class CommissionService {
             );
             return ruleView(row);
           },
-        }),
-      )
+        });
+      })
       .then((x) => ({ ...x.data, idempotencyReplayed: x.replayed }));
   }
   async supersedeRule(
@@ -164,8 +179,8 @@ export class CommissionService {
             const row = (
               await client.query<any>(
                 `INSERT INTO commission_rules(tenant_id,branch_id,staff_id,service_id,rule_code,rule_type,base_mode,percent_basis_points,fixed_minor,currency,
-             priority,policy_json,effective_from,effective_to,created_by_user_id,supersedes_rule_id,version)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+             priority,policy_json,effective_from,effective_to,status,created_by_user_id,supersedes_rule_id,version)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'ACTIVE',$15,$16,$17) RETURNING *`,
                 [
                   auth.tenantId,
                   body.branchId ?? null,
