@@ -5,6 +5,8 @@ erDiagram
   invoices ||--o{ refunds : "corrected by"
   refunds ||--|{ refund_items : contains
   payments ||--o{ refund_payment_allocations : "original tender"
+  pos_registers ||--o{ refund_payment_allocations : "immutable original register"
+  cash_sessions ||--o{ refund_payment_allocations : "original and execution sessions"
   refunds ||--|{ refund_payment_allocations : executes
   refunds ||--o{ refund_attempts : records
   refunds ||--|{ refund_status_history : transitions
@@ -20,3 +22,5 @@ erDiagram
 ```
 
 Every relationship is tenant-scoped through composite foreign keys. Original invoice/payment/tip/earning evidence is never updated by refund flows.
+
+Migration `0015_sprint7_financial_correctness_hardening` adds immutable cash attribution, tenant-scoped provider references, `commission_entries.adjustment_request_id`, conditional invoice/adjustment attribution, one-entry-per-adjustment uniqueness and the active commission-rule range exclusion constraint. `staff_net_tip` now includes only allocations belonging to an `ACTIVE` tip version.

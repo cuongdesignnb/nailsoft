@@ -14,8 +14,33 @@ import {
   externalRefundExecutionSchema,
   refundCreateSchema,
 } from "@nailsoft/validation";
+import {
+  branchFiscalYear,
+  refundWindowEvidence,
+} from "../src/modules/finance/financial-time.js";
 
 describe("Sprint 7 refund domain", () => {
+  it("uses branch-local calendar days for refund windows and fiscal years", () => {
+    expect(branchFiscalYear("2026-12-31T17:30:00Z", "Asia/Ho_Chi_Minh")).toBe(
+      2027,
+    );
+    const before = refundWindowEvidence(
+      "2026-03-07T15:00:00Z",
+      "America/New_York",
+      1,
+      new Date("2026-03-09T03:59:59Z"),
+    );
+    const after = refundWindowEvidence(
+      "2026-03-07T15:00:00Z",
+      "America/New_York",
+      1,
+      new Date("2026-03-09T04:00:00Z"),
+    );
+    expect(before.localDeadlineDate).toBe("2026-03-08");
+    expect(before.outOfWindow).toBe(false);
+    expect(after.outOfWindow).toBe(true);
+  });
+
   it("allows only command state transitions and keeps terminal states terminal", () => {
     expect(canTransitionRefund("DRAFT", "PENDING_APPROVAL")).toBe(true);
     expect(canTransitionRefund("UNKNOWN", "PROCESSING")).toBe(true);

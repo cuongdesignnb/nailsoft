@@ -2599,6 +2599,13 @@ components:
               },
           }
         tipAmountMinor: { type: integer, minimum: 0, default: 0 }
+        overrideReason:
+          {
+            type: string,
+            minLength: 3,
+            maxLength: 1000,
+            description: Required with refund.override_window when the branch-local calendar window has elapsed,
+          }
         paymentPreferences:
           {
             type: array,
@@ -2625,7 +2632,6 @@ components:
               {
                 reasonCode: { type: string, maxLength: 80 },
                 reasonText: { type: string, minLength: 3, maxLength: 2000 },
-                overrideReason: { type: string, minLength: 3, maxLength: 1000 },
               },
           }
     CashRefundExecution:

@@ -69,19 +69,23 @@ export class PaymentWebhookService {
     }
     const event = refundEvent(payload);
     return this.db.transaction(async (client) => {
-      const allocation = event.providerRefundId
-        ? (
-            await client.query<{
-              tenant_id: string;
-              refund_id: string;
-              status: string;
-            }>(
-              `SELECT a.tenant_id,a.refund_id,a.status FROM refund_payment_allocations a
-                 WHERE a.provider=$1 AND a.provider_refund_id=$2 FOR UPDATE`,
-              [provider, event.providerRefundId],
-            )
-          ).rows[0]
-        : undefined;
+      // Provider references are only unique inside a tenant. The signed event
+      // must carry that opaque tenant scope; otherwise we deliberately ignore
+      // it instead of selecting an arbitrary tenant's allocation.
+      const allocation =
+        event.providerRefundId && event.tenantId
+          ? (
+              await client.query<{
+                tenant_id: string;
+                refund_id: string;
+                status: string;
+              }>(
+                `SELECT a.tenant_id,a.refund_id,a.status FROM refund_payment_allocations a
+                 WHERE a.tenant_id=$1 AND a.provider=$2 AND a.provider_refund_id=$3 FOR UPDATE`,
+                [event.tenantId, provider, event.providerRefundId],
+              )
+            ).rows[0]
+          : undefined;
       const status = allocation && event.kind ? "PROCESSED" : "IGNORED";
       const result = await client.query(
         `INSERT INTO payment_provider_events(tenant_id,provider,provider_event_id,signature_hash,status,safe_metadata_json)
@@ -114,7 +118,12 @@ export class PaymentWebhookService {
 
 function refundEvent(payload: unknown) {
   if (!payload || typeof payload !== "object")
-    return { type: "unknown", kind: null, providerRefundId: null };
+    return {
+      type: "unknown",
+      kind: null,
+      providerRefundId: null,
+      tenantId: null,
+    };
   const value = payload as Record<string, unknown>;
   const data =
     value.data && typeof value.data === "object"
@@ -134,5 +143,6 @@ function refundEvent(payload: unknown) {
     kind,
     providerRefundId:
       typeof data.providerRefundId === "string" ? data.providerRefundId : null,
+    tenantId: typeof data.tenantId === "string" ? data.tenantId : null,
   };
 }

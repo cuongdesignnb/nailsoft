@@ -13,6 +13,13 @@ All routes are under `/v1`, require bearer authentication and tenant context, an
 
 The plan response is authoritative for service/tax/tip components, original-tender allocations, balance and approval requirement. Execution responses include the immutable credit-note reference after completion.
 
+Closure invariants:
+
+- Refund-window validation runs at plan, create, approval and execution using branch timezone and calendar days. Out-of-window operations require `refund.override_window`, a reason and immutable actor/deadline evidence.
+- Cash allocations preserve `originalRegisterId`/`originalCashSessionId`; execution may use a new OPEN session only on that same register. Cross-register requests fail with `CASH_REFUND_REGISTER_MISMATCH` before any movement or credit note.
+- External provider name must match the original captured provider. Provider refund references are unique and resolved by `tenant + provider + providerRefundId`; signed webhooks without tenant scope are acknowledged but ignored.
+- Refund and credit-note fiscal year is derived in the branch timezone.
+
 ## Commission
 
 - Rule read/create/supersede/deactivate under `/commission-rules`.
@@ -20,6 +27,13 @@ The plan response is authoritative for service/tax/tip components, original-tend
 - Period create/read/review/reopen/lock/statements under `/commission-periods`.
 - Adjustment list/create/approve/reject/cancel under `/commission-adjustments`.
 - Signed `/payment-providers/{provider}/webhook` accepts opaque refund result events with timestamp and event-ID replay protection; unmatched references are acknowledged without exposing provider payloads.
+
+Commission closure invariants:
+
+- Active rules with the same normalized tenant/branch/staff/service scope, priority and overlapping effective range are rejected as `COMMISSION_RULE_OVERLAP`.
+- Manual-adjustment approval atomically inserts exactly one `commission_entries.adjustment_request_id` entry before the request becomes `APPROVED`; no prior invoice/earning is required.
+- A locked period accepts only its currency and exact date scope, blocks unresolved conflicts/refund reversals/adjustments, and hashes stable canonical decimal strings without JavaScript `Number` arithmetic.
+- A staff statement reads only `tenant + period + staff`; its entry sum is verified against the locked payable snapshot before response.
 
 ## Reporting
 

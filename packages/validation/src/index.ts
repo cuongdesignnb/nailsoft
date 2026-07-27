@@ -443,13 +443,13 @@ export const refundPlanSchema = z
       .array(refundPaymentPreferenceSchema)
       .max(20)
       .optional(),
+    overrideReason: z.string().trim().min(3).max(1000).optional(),
   })
   .strict();
 export const refundCreateSchema = refundPlanSchema
   .extend({
     reasonCode: z.string().trim().min(1).max(80),
     reasonText: z.string().trim().min(3).max(2000),
-    overrideReason: z.string().trim().min(3).max(1000).optional(),
   })
   .strict();
 export const refundVersionSchema = z

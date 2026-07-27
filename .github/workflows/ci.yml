@@ -97,6 +97,22 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint6-blind-cash-count.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 7 refund, commission, locked-period and security integration
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint7-refund-commission.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 7 financial correctness closure integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint7-cash-refund-register.test.ts \
+            tests/integration/sprint7-tip-version-integrity.test.ts \
+            tests/integration/sprint7-adjustment-posting.test.ts \
+            tests/integration/sprint7-period-statement-lock.test.ts \
+            tests/integration/sprint7-refund-window-numbering.test.ts \
+            tests/integration/sprint7-rule-overlap.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
       - name: Reset focused regression fixture
         run: pnpm db:reset && pnpm db:seed
       - name: Public booking tenant-scoped deep integration
@@ -183,6 +199,21 @@ jobs:
           for spec in \
             tests/e2e/sprint7-refund.spec.ts \
             tests/e2e/sprint7-commission.spec.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec playwright test "$spec"
+          done
+      - name: Sprint 7 financial correctness closure deep E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/e2e/sprint7-cash-refund-attribution-deep.spec.ts \
+            tests/e2e/sprint7-tip-refund-deep.spec.ts \
+            tests/e2e/sprint7-adjustment-deep.spec.ts \
+            tests/e2e/sprint7-period-statement-deep.spec.ts \
+            tests/e2e/sprint7-refund-window-deep.spec.ts
           do
             pnpm db:reset
             pnpm db:seed

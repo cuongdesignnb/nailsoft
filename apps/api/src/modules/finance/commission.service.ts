@@ -119,6 +119,7 @@ export class CommissionService {
   ) {
     await this.rule(auth, id);
     const body = commissionRuleSchema.parse(input);
+    if (body.branchId) this.assertBranch(auth, body.branchId);
     return this.db
       .transaction((client) =>
         this.idem.execute(client, {
@@ -138,6 +139,23 @@ export class CommissionService {
               throw new ConflictException({
                 code: "COMMISSION_RULE_STATUS_INVALID",
                 message: "Only active rule may be superseded",
+              });
+            if (new Date(body.effectiveFrom) <= new Date(old.effective_from))
+              throw new ConflictException({
+                code: "COMMISSION_RULE_RANGE_INVALID",
+                message:
+                  "A superseding rule must start after the current rule starts",
+              });
+            const sameScope =
+              (body.branchId ?? null) === old.branch_id &&
+              (body.staffId ?? null) === old.staff_id &&
+              (body.serviceId ?? null) === old.service_id &&
+              body.priority === old.priority;
+            if (!sameScope)
+              throw new ConflictException({
+                code: "COMMISSION_RULE_SCOPE_MISMATCH",
+                message:
+                  "A superseding rule must retain normalized scope and priority",
               });
             await client.query(
               "UPDATE commission_rules SET status='INACTIVE',effective_to=LEAST(COALESCE(effective_to,$3),$3) WHERE tenant_id=$1 AND id=$2",
@@ -448,14 +466,76 @@ export class CommissionService {
                 code: "COMMISSION_PERIOD_LOCK_CONFLICT",
                 message: "Period must be current REVIEW version",
               });
+            const currencyMismatch = await client.query(
+              `SELECT 1 FROM commission_entries
+               WHERE tenant_id=$1 AND currency<>$2
+                 AND (period_id=$3 OR (period_id IS NULL AND business_date BETWEEN $4 AND $5))
+               LIMIT 1`,
+              [
+                auth.tenantId,
+                period.currency,
+                id,
+                period.start_date,
+                period.end_date,
+              ],
+            );
+            if (currencyMismatch.rowCount)
+              throw new ConflictException({
+                code: "COMMISSION_CURRENCY_MISMATCH",
+                message: "Every entry in a locked period must use its currency",
+              });
             const unresolved = await client.query(
-              "SELECT 1 FROM commission_generation_conflicts WHERE tenant_id=$1 AND status='OPEN' LIMIT 1",
-              [auth.tenantId],
+              `SELECT 1 FROM commission_generation_conflicts c
+               JOIN invoices i ON i.tenant_id=c.tenant_id AND i.id=c.invoice_id
+               JOIN branches b ON b.tenant_id=i.tenant_id AND b.id=i.branch_id
+               WHERE c.tenant_id=$1 AND c.status='OPEN'
+                 AND (i.issued_at AT TIME ZONE b.timezone)::date BETWEEN $2 AND $3
+               LIMIT 1`,
+              [auth.tenantId, period.start_date, period.end_date],
             );
             if (unresolved.rowCount)
               throw new ConflictException({
                 code: "COMMISSION_UNRESOLVED_CONFLICT",
                 message: "Resolve commission conflicts before lock",
+              });
+            const unassignedAdjustment = await client.query(
+              `SELECT 1 FROM commission_adjustment_requests a
+               WHERE a.tenant_id=$1 AND (a.target_period_id=$2 OR a.posting_period_id=$2)
+                 AND (
+                   a.status='PENDING' OR
+                   (a.status='APPROVED' AND NOT EXISTS(
+                     SELECT 1 FROM commission_entries e
+                     WHERE e.tenant_id=a.tenant_id AND e.adjustment_request_id=a.id
+                   ))
+                 ) LIMIT 1`,
+              [auth.tenantId, id],
+            );
+            if (unassignedAdjustment.rowCount)
+              throw new ConflictException({
+                code: "COMMISSION_ADJUSTMENT_UNRESOLVED",
+                message:
+                  "Resolve relevant adjustments and post every approval before lock",
+              });
+            const missingRefundReversal = await client.query(
+              `SELECT 1 FROM commission_entries earning
+               JOIN refunds r ON r.tenant_id=earning.tenant_id AND r.invoice_id=earning.invoice_id AND r.status='COMPLETED'
+               JOIN refund_items ri ON ri.tenant_id=r.tenant_id AND ri.refund_id=r.id
+                 AND ri.invoice_line_id=earning.invoice_line_id AND ri.taxable_refund_minor>0
+               WHERE earning.tenant_id=$1 AND earning.entry_type='EARNING'
+                 AND earning.business_date BETWEEN $2 AND $3
+                 AND NOT EXISTS(
+                   SELECT 1 FROM commission_entries reversal
+                   WHERE reversal.tenant_id=earning.tenant_id
+                     AND reversal.original_entry_id=earning.id AND reversal.refund_id=r.id
+                     AND reversal.entry_type IN('REFUND_REVERSAL','LOCKED_PERIOD_REFUND_ADJUSTMENT')
+                 ) LIMIT 1`,
+              [auth.tenantId, period.start_date, period.end_date],
+            );
+            if (missingRefundReversal.rowCount)
+              throw new ConflictException({
+                code: "COMMISSION_REFUND_REVERSAL_MISSING",
+                message:
+                  "A relevant completed refund lacks commission reversal",
               });
             await client.query(
               "UPDATE commission_entries SET period_id=$2,status='LOCKED' WHERE tenant_id=$1 AND period_id IS NULL AND business_date BETWEEN $3 AND $4",
@@ -470,10 +550,18 @@ export class CommissionService {
                 [auth.tenantId, id],
               )
             ).rows;
+            const canonicalRows = rows.map((row: any) => ({
+              staffId: row.staff_id,
+              currency: row.currency,
+              earningMinor: String(row.earning),
+              refundReversalMinor: String(row.refund),
+              manualAdjustmentMinor: String(row.adjustment),
+              payableMinor: String(row.payable),
+            }));
             const hash = createHash("sha256")
-              .update(JSON.stringify(rows))
+              .update(canonicalJson(canonicalRows))
               .digest("hex");
-            for (const row of rows)
+            for (const [index, row] of rows.entries())
               await client.query(
                 `INSERT INTO commission_period_staff_snapshots(tenant_id,period_id,staff_id,currency,earning_minor,refund_reversal_minor,manual_adjustment_minor,payable_minor,detail_hash)
            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
@@ -487,29 +575,44 @@ export class CommissionService {
                   row.adjustment,
                   row.payable,
                   createHash("sha256")
-                    .update(JSON.stringify(row))
+                    .update(canonicalJson(canonicalRows[index]))
                     .digest("hex"),
                 ],
               );
             const totals = rows.reduce(
               (x: any, row: any) => ({
-                earningMinor: x.earningMinor + Number(row.earning),
-                refundReversalMinor: x.refundReversalMinor + Number(row.refund),
-                adjustmentMinor: x.adjustmentMinor + Number(row.adjustment),
-                payableMinor: x.payableMinor + Number(row.payable),
+                earningMinor: x.earningMinor + BigInt(row.earning),
+                refundReversalMinor: x.refundReversalMinor + BigInt(row.refund),
+                adjustmentMinor: x.adjustmentMinor + BigInt(row.adjustment),
+                payableMinor: x.payableMinor + BigInt(row.payable),
               }),
               {
-                earningMinor: 0,
-                refundReversalMinor: 0,
-                adjustmentMinor: 0,
-                payableMinor: 0,
+                earningMinor: 0n,
+                refundReversalMinor: 0n,
+                adjustmentMinor: 0n,
+                payableMinor: 0n,
               },
             );
+            const totalsSnapshot = {
+              schemaVersion: 1,
+              formulaVersion: "SPRINT7_COMMISSION_V1",
+              currency: period.currency,
+              earningMinor: totals.earningMinor.toString(),
+              refundReversalMinor: totals.refundReversalMinor.toString(),
+              adjustmentMinor: totals.adjustmentMinor.toString(),
+              payableMinor: totals.payableMinor.toString(),
+            };
             const updated = (
               await client.query<any>(
                 `UPDATE commission_periods SET status='LOCKED',totals_snapshot_json=$3,integrity_hash=$4,locked_at=now(),locked_by_user_id=$5,version=version+1,updated_at=now()
            WHERE tenant_id=$1 AND id=$2 RETURNING *`,
-                [auth.tenantId, id, JSON.stringify(totals), hash, auth.userId],
+                [
+                  auth.tenantId,
+                  id,
+                  JSON.stringify(totalsSnapshot),
+                  hash,
+                  auth.userId,
+                ],
               )
             ).rows[0];
             await this.event(
@@ -559,9 +662,27 @@ export class CommissionService {
         code: "COMMISSION_STATEMENT_NOT_FOUND",
         message: "Statement not found",
       });
+    const entries = (
+      await this.db.query<any>(
+        `SELECT e.*,sp.display_name FROM commission_entries e
+         JOIN staff_profiles sp ON sp.tenant_id=e.tenant_id AND sp.id=e.staff_id
+         WHERE e.tenant_id=$1 AND e.period_id=$2 AND e.staff_id=$3
+         ORDER BY e.business_date,e.created_at,e.id`,
+        [auth.tenantId, periodId, staffId],
+      )
+    ).rows;
+    const payable = entries.reduce(
+      (sum, entry) => sum + BigInt(entry.commission_minor),
+      0n,
+    );
+    if (payable !== BigInt(snapshot.payable_minor))
+      throw new ConflictException({
+        code: "COMMISSION_STATEMENT_INTEGRITY_MISMATCH",
+        message: "Statement entries do not equal locked payable snapshot",
+      });
     return {
       ...snapshotView(snapshot),
-      entries: await this.entries(auth, { staffId }, own),
+      entries: entries.map(entryView),
     };
   }
 
@@ -602,10 +723,44 @@ export class CommissionService {
                 code: "COMMISSION_PERIOD_NOT_FOUND",
                 message: "Target period not found",
               });
+            if (target.currency !== body.currency)
+              throw new ConflictException({
+                code: "COMMISSION_CURRENCY_MISMATCH",
+                message: "Adjustment currency must match target period",
+              });
             if (target.status === "LOCKED" && !body.postingPeriodId)
               throw new ConflictException({
                 code: "LOCKED_PERIOD_POSTING_PERIOD_REQUIRED",
                 message: "Locked-period adjustment requires a posting period",
+              });
+            const postingId = body.postingPeriodId ?? body.targetPeriodId;
+            const posting = (
+              await client.query<any>(
+                "SELECT * FROM commission_periods WHERE tenant_id=$1 AND id=$2",
+                [auth.tenantId, postingId],
+              )
+            ).rows[0];
+            if (!posting || posting.status !== "OPEN")
+              throw new ConflictException({
+                code: "COMMISSION_POSTING_PERIOD_NOT_OPEN",
+                message: "Adjustment posting period must be explicitly open",
+              });
+            if (posting.currency !== body.currency)
+              throw new ConflictException({
+                code: "COMMISSION_CURRENCY_MISMATCH",
+                message: "Adjustment currency must match posting period",
+              });
+            if (
+              !(
+                await client.query(
+                  "SELECT 1 FROM staff_profiles WHERE tenant_id=$1 AND id=$2",
+                  [auth.tenantId, body.staffId],
+                )
+              ).rowCount
+            )
+              throw new NotFoundException({
+                code: "STAFF_NOT_FOUND",
+                message: "Staff not found",
               });
             const row = (
               await client.query<any>(
@@ -677,45 +832,75 @@ export class CommissionService {
                 code: "COMMISSION_DUAL_CONTROL_REQUIRED",
                 message: "Requester cannot decide own adjustment",
               });
-            const status = approve ? "APPROVED" : "REJECTED";
-            const updated = (
-              await client.query<any>(
-                "UPDATE commission_adjustment_requests SET status=$3,decided_by_user_id=$4,decision_reason=$5,decided_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING *",
-                [auth.tenantId, id, status, auth.userId, body.reason],
-              )
-            ).rows[0];
             if (approve) {
               const postingId = row.posting_period_id ?? row.target_period_id;
               const period = (
                 await client.query<any>(
-                  "SELECT * FROM commission_periods WHERE tenant_id=$1 AND id=$2",
+                  "SELECT * FROM commission_periods WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
                   [auth.tenantId, postingId],
                 )
               ).rows[0];
-              if (!period || period.status === "LOCKED")
+              if (!period || period.status !== "OPEN")
                 throw new ConflictException({
-                  code: "COMMISSION_POSTING_PERIOD_LOCKED",
+                  code: "COMMISSION_POSTING_PERIOD_NOT_OPEN",
                   message: "Posting period must be open",
                 });
-              await client.query(
-                `INSERT INTO commission_entries(tenant_id,branch_id,staff_id,invoice_id,entry_type,business_date,currency,base_minor,commission_minor,
-               contribution_basis_json,rule_snapshot_json,source_snapshot_json,generation_key,status,period_id)
-             SELECT $1,anchor.branch_id,$2,anchor.invoice_id,'MANUAL_ADJUSTMENT',CURRENT_DATE,$3,0,$4,'{}','{}',$5,$6,'REVIEWED',$7
-               FROM LATERAL(SELECT branch_id,invoice_id FROM commission_entries WHERE tenant_id=$1 AND staff_id=$2 ORDER BY business_date DESC,created_at DESC LIMIT 1) anchor`,
-                [
-                  auth.tenantId,
-                  row.staff_id,
-                  row.currency,
-                  row.amount_minor,
-                  JSON.stringify({
-                    adjustmentRequestId: id,
-                    targetPeriodId: row.target_period_id,
-                  }),
-                  `adjustment:${id}`,
-                  postingId,
-                ],
-              );
+              if (period.currency !== row.currency)
+                throw new ConflictException({
+                  code: "COMMISSION_CURRENCY_MISMATCH",
+                  message: "Adjustment currency must match posting period",
+                });
+              const branch = (
+                await client.query<any>(
+                  `SELECT branch_id FROM staff_branch_assignments
+                   WHERE tenant_id=$1 AND staff_id=$2 AND status='ACTIVE'
+                     AND effective_from<=CURRENT_DATE
+                     AND (effective_to IS NULL OR effective_to>=CURRENT_DATE)
+                   ORDER BY is_primary DESC,effective_from DESC,id LIMIT 1`,
+                  [auth.tenantId, row.staff_id],
+                )
+              ).rows[0];
+              if (!branch)
+                throw new ConflictException({
+                  code: "COMMISSION_ADJUSTMENT_BRANCH_REQUIRED",
+                  message: "Staff requires an active branch assignment",
+                });
+              const entry = (
+                await client.query<any>(
+                  `INSERT INTO commission_entries(tenant_id,branch_id,staff_id,invoice_id,adjustment_request_id,entry_type,business_date,currency,base_minor,commission_minor,
+                   contribution_basis_json,rule_snapshot_json,source_snapshot_json,generation_key,status,period_id)
+                 VALUES($1,$2,$3,NULL,$4,'MANUAL_ADJUSTMENT',$5,$6,0,$7,'{}','{}',$8,$9,'REVIEWED',NULL)
+                 RETURNING id`,
+                  [
+                    auth.tenantId,
+                    branch.branch_id,
+                    row.staff_id,
+                    id,
+                    period.start_date,
+                    row.currency,
+                    row.amount_minor,
+                    JSON.stringify({
+                      adjustmentRequestId: id,
+                      targetPeriodId: row.target_period_id,
+                      postingPeriodId: postingId,
+                    }),
+                    `adjustment:${id}`,
+                  ],
+                )
+              ).rows[0];
+              if (!entry)
+                throw new ConflictException({
+                  code: "COMMISSION_ADJUSTMENT_ENTRY_REQUIRED",
+                  message: "Approval did not create a commission entry",
+                });
             }
+            const status = approve ? "APPROVED" : "REJECTED";
+            const updated = (
+              await client.query<any>(
+                "UPDATE commission_adjustment_requests SET status=$3,decided_by_user_id=$4,decision_reason=$5,decided_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 AND status='PENDING' RETURNING *",
+                [auth.tenantId, id, status, auth.userId, body.reason],
+              )
+            ).rows[0];
             await this.event(
               client,
               auth,
@@ -978,3 +1163,15 @@ const adjustmentView = (r: any) => ({
   decisionReason: r.decision_reason,
   createdAt: r.created_at,
 });
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object")
+    return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value))
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .join(",")}}`;
+}

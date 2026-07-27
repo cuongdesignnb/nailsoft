@@ -25,6 +25,7 @@ import {
   prorateMinor,
   type RefundStatus,
 } from "./refund-state-machine.js";
+import { branchFiscalYear, refundWindowEvidence } from "./financial-time.js";
 
 @Injectable()
 export class RefundService {
@@ -71,7 +72,10 @@ export class RefundService {
               body,
               true,
             );
-            const fiscalYear = new Date().getUTCFullYear();
+            const fiscalYear = branchFiscalYear(
+              new Date(),
+              plan.branchTimezone,
+            );
             const counter = (
               await client.query<any>(
                 `INSERT INTO refund_counters(tenant_id,branch_id,fiscal_year,last_number) VALUES($1,$2,$3,1)
@@ -136,8 +140,8 @@ export class RefundService {
               );
             for (const allocation of plan.paymentAllocations)
               await client.query(
-                `INSERT INTO refund_payment_allocations(tenant_id,refund_id,original_payment_id,tender_type,planned_minor,refund_register_id,cash_session_id,provider)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+                `INSERT INTO refund_payment_allocations(tenant_id,refund_id,original_payment_id,tender_type,planned_minor,refund_register_id,cash_session_id,original_register_id,original_cash_session_id,provider)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$6,$7,$8)`,
                 [
                   auth.tenantId,
                   refund.id,
@@ -319,6 +323,7 @@ export class RefundService {
             )
               this.invalid(refund.status, "PROCESSING");
             await this.assertActiveExecutionBranch(client, refund);
+            await this.assertExecutionWithinRefundWindow(client, refund);
             const allocations = (
               await client.query<any>(
                 "SELECT * FROM refund_payment_allocations WHERE tenant_id=$1 AND refund_id=$2 AND tender_type='CASH' AND status<>'COMPLETED' FOR UPDATE",
@@ -361,12 +366,22 @@ export class RefundService {
               branchId: refund.branch_id,
               client,
             });
+            if (
+              allocations.some(
+                (row: any) => row.original_register_id !== session.register_id,
+              )
+            )
+              throw new ConflictException({
+                code: "CASH_REFUND_REGISTER_MISMATCH",
+                message:
+                  "Cash refund must be executed on the original payment register",
+              });
             const amount = allocations.reduce(
-              (sum: number, row: any) =>
-                sum + Number(row.planned_minor) - Number(row.completed_minor),
-              0,
+              (sum: bigint, row: any) =>
+                sum + BigInt(row.planned_minor) - BigInt(row.completed_minor),
+              0n,
             );
-            if (Number(session.expected_cash_minor) < amount)
+            if (BigInt(session.expected_cash_minor) < amount)
               throw new ConflictException({
                 code: "CASH_REFUND_INSUFFICIENT_DRAWER",
                 message: "Cash drawer cannot become negative",
@@ -392,9 +407,9 @@ export class RefundService {
               [auth.tenantId, session.id, amount],
             );
             await client.query(
-              `UPDATE refund_payment_allocations SET completed_minor=planned_minor,status='COMPLETED',completed_at=now(),refund_register_id=$3,cash_session_id=$4,updated_at=now()
+              `UPDATE refund_payment_allocations SET completed_minor=planned_minor,status='COMPLETED',completed_at=now(),execution_cash_session_id=$3,updated_at=now()
            WHERE tenant_id=$1 AND refund_id=$2 AND tender_type='CASH' AND status<>'COMPLETED'`,
-              [auth.tenantId, refund.id, session.register_id, session.id],
+              [auth.tenantId, refund.id, session.id],
             );
             await this.history(
               client,
@@ -449,6 +464,7 @@ export class RefundService {
             )
               this.invalid(refund.status, "PROCESSING");
             await this.assertActiveExecutionBranch(client, refund);
+            await this.assertExecutionWithinRefundWindow(client, refund);
             const allocations = (
               await client.query<any>(
                 "SELECT * FROM refund_payment_allocations WHERE tenant_id=$1 AND refund_id=$2 AND tender_type<>'CASH' AND status<>'COMPLETED' FOR UPDATE",
@@ -465,6 +481,15 @@ export class RefundService {
                 code: "REFUND_PROVIDER_REFERENCE_REQUIRED",
                 message:
                   "Record one provider refund reference per original payment allocation",
+              });
+            if (
+              String(allocations[0].provider ?? "").toUpperCase() !==
+              body.provider.toUpperCase()
+            )
+              throw new ConflictException({
+                code: "REFUND_PROVIDER_MISMATCH",
+                message:
+                  "Refund provider must match the original captured payment provider",
               });
             await this.lockOriginalFinancials(client, refund);
             await this.revalidateBalances(client, refund);
@@ -575,6 +600,16 @@ export class RefundService {
                 code: "REFUND_APPROVAL_LIMIT_EXCEEDED",
                 message: "Refund exceeds approval limit",
               });
+            const policySnapshot =
+              to === "APPROVED"
+                ? await this.enforceRefundWindow(
+                    client,
+                    auth,
+                    refund,
+                    reason ?? undefined,
+                    "APPROVAL",
+                  )
+                : refund.policy_snapshot_json;
             const metadata =
               to === "APPROVED"
                 ? ",approved_minor=requested_minor,approved_by_user_id=$5,approved_at=now(),approval_reason=$6"
@@ -587,8 +622,16 @@ export class RefundService {
                       : "";
             const updated = (
               await client.query<any>(
-                `UPDATE refunds SET status=$3,version=version+1,updated_at=now()${metadata} WHERE tenant_id=$1 AND id=$2 AND version=$4 RETURNING *`,
-                [auth.tenantId, id, to, version, auth.userId, reason],
+                `UPDATE refunds SET status=$3,version=version+1,updated_at=now(),policy_snapshot_json=$7${metadata} WHERE tenant_id=$1 AND id=$2 AND version=$4 RETURNING *`,
+                [
+                  auth.tenantId,
+                  id,
+                  to,
+                  version,
+                  auth.userId,
+                  reason,
+                  JSON.stringify(policySnapshot),
+                ],
               )
             ).rows[0];
             if (!updated) this.versionConflict();
@@ -629,7 +672,7 @@ export class RefundService {
   ) {
     const invoice = (
       await client.query<any>(
-        `SELECT i.*,o.customer_id,b.code branch_code,COALESCE(bs.tax_policy_json,'{}'::jsonb) policy
+        `SELECT i.*,o.customer_id,b.code branch_code,b.timezone branch_timezone,COALESCE(bs.tax_policy_json,'{}'::jsonb) policy
        FROM invoices i JOIN pos_orders o ON o.tenant_id=i.tenant_id AND o.id=i.pos_order_id
        JOIN branches b ON b.tenant_id=i.tenant_id AND b.id=i.branch_id
        JOIN branch_settings bs ON bs.tenant_id=i.tenant_id AND bs.branch_id=i.branch_id
@@ -787,9 +830,17 @@ export class RefundService {
       allowTenderSubstitution: false,
       ...(invoice.policy?.refundPolicy ?? {}),
     };
+    const policyWithWindow = await this.enforceRefundWindow(
+      client,
+      auth,
+      { ...invoice, policy_snapshot_json: policy },
+      body.overrideReason,
+      lock ? "CREATE" : "PLAN",
+    );
     return {
       branchId: invoice.branch_id,
       branchCode: invoice.branch_code,
+      branchTimezone: invoice.branch_timezone,
       posOrderId: invoice.pos_order_id,
       customerId: invoice.customer_id,
       currency: invoice.currency,
@@ -806,7 +857,7 @@ export class RefundService {
       tipRefundMinor: body.tipAmountMinor,
       items,
       paymentAllocations,
-      policy,
+      policy: policyWithWindow,
       approval: { required: true, reasonCodes: ["DUAL_CONTROL"] },
     };
   }
@@ -874,13 +925,13 @@ export class RefundService {
       ).rowCount
     )
       return;
-    const fiscalYear = new Date().getUTCFullYear();
     const branch = (
       await client.query<any>(
-        "SELECT code FROM branches WHERE tenant_id=$1 AND id=$2",
+        "SELECT code,timezone FROM branches WHERE tenant_id=$1 AND id=$2",
         [auth.tenantId, refund.branch_id],
       )
     ).rows[0];
+    const fiscalYear = branchFiscalYear(new Date(), branch.timezone);
     const counter = (
       await client.query<any>(
         `INSERT INTO credit_note_counters(tenant_id,branch_id,fiscal_year,last_number) VALUES($1,$2,$3,1)
@@ -964,7 +1015,7 @@ export class RefundService {
     const allocations = (
       await client.query<any>(
         `SELECT a.*,GREATEST(0,a.amount_minor-COALESCE((SELECT sum(rta.amount_minor) FROM refund_tip_allocations rta JOIN refund_items ri ON ri.tenant_id=rta.tenant_id AND ri.id=rta.refund_item_id JOIN refunds r ON r.tenant_id=ri.tenant_id AND r.id=ri.refund_id WHERE rta.tenant_id=a.tenant_id AND rta.original_tip_allocation_id=a.id AND r.status='COMPLETED'),0)) remaining
-       FROM pos_tip_allocations a JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id WHERE t.tenant_id=$1 AND t.pos_order_id=$2 ORDER BY a.id`,
+       FROM pos_tip_allocations a JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id WHERE t.tenant_id=$1 AND t.pos_order_id=$2 AND t.status='ACTIVE' ORDER BY a.id`,
         [auth.tenantId, refund.pos_order_id],
       )
     ).rows;
@@ -998,14 +1049,23 @@ export class RefundService {
          entry_type,business_date,currency,base_minor,commission_minor,contribution_basis_json,rule_snapshot_json,source_snapshot_json,generation_key,status,period_id)
        SELECT e.tenant_id,e.branch_id,e.staff_id,e.invoice_id,e.invoice_line_id,e.service_session_id,e.id,$2,c.id,
          CASE WHEN p.status='LOCKED' THEN 'LOCKED_PERIOD_REFUND_ADJUSTMENT' ELSE 'REFUND_REVERSAL' END,CURRENT_DATE,e.currency,
-         -round(e.base_minor*(ri.total_refund_minor::numeric/NULLIF(il.net_minor,0)))::bigint,
-         -round(e.commission_minor*(ri.total_refund_minor::numeric/NULLIF(il.net_minor,0)))::bigint,e.contribution_basis_json,e.rule_snapshot_json,
+         -LEAST(abs(e.base_minor),round(abs(e.base_minor)*(ri.taxable_refund_minor::numeric/NULLIF(il.net_minor-il.tax_minor,0)))::bigint),
+         -LEAST(GREATEST(abs(e.commission_minor)-prior.reversed_minor,0),round(abs(e.commission_minor)*(ri.taxable_refund_minor::numeric/NULLIF(il.net_minor-il.tax_minor,0)))::bigint),e.contribution_basis_json,e.rule_snapshot_json,
          jsonb_build_object('refundId',$2,'creditNoteId',c.id,'originalEntryId',e.id),concat('refund:',$2,':entry:',e.id),
          CASE WHEN p.status='LOCKED' THEN 'GENERATED' ELSE e.status END,CASE WHEN p.status='LOCKED' THEN NULL ELSE e.period_id END
        FROM commission_entries e JOIN refund_items ri ON ri.tenant_id=e.tenant_id AND ri.invoice_line_id=e.invoice_line_id
        JOIN invoice_lines il ON il.tenant_id=e.tenant_id AND il.id=e.invoice_line_id JOIN credit_notes c ON c.tenant_id=e.tenant_id AND c.refund_id=$2
        LEFT JOIN commission_periods p ON p.tenant_id=e.tenant_id AND p.id=e.period_id
-       WHERE e.tenant_id=$1 AND ri.refund_id=$2 AND e.entry_type='EARNING' ON CONFLICT DO NOTHING`,
+       CROSS JOIN LATERAL(
+         SELECT COALESCE(sum(abs(previous.commission_minor)),0)::bigint reversed_minor
+         FROM commission_entries previous
+         WHERE previous.tenant_id=e.tenant_id AND previous.original_entry_id=e.id
+           AND previous.entry_type IN('REFUND_REVERSAL','LOCKED_PERIOD_REFUND_ADJUSTMENT')
+       ) prior
+       WHERE e.tenant_id=$1 AND ri.refund_id=$2 AND e.entry_type='EARNING'
+         AND ri.taxable_refund_minor>0 AND (il.net_minor-il.tax_minor)>0
+         AND GREATEST(abs(e.commission_minor)-prior.reversed_minor,0)>0
+       ON CONFLICT DO NOTHING`,
       [auth.tenantId, refund.id],
     );
   }
@@ -1017,7 +1077,7 @@ export class RefundService {
       [auth.tenantId, id],
     );
     const allocations = await client.query<any>(
-      "SELECT id,original_payment_id,tender_type,planned_minor,completed_minor,status,provider,provider_refund_id,completed_at FROM refund_payment_allocations WHERE tenant_id=$1 AND refund_id=$2 ORDER BY created_at,id",
+      "SELECT id,original_payment_id,tender_type,planned_minor,completed_minor,status,original_register_id,original_cash_session_id,execution_cash_session_id,provider,provider_refund_id,completed_at FROM refund_payment_allocations WHERE tenant_id=$1 AND refund_id=$2 ORDER BY created_at,id",
       [auth.tenantId, id],
     );
     const note = await client.query<any>(
@@ -1121,6 +1181,100 @@ export class RefundService {
         code: "REFUND_BRANCH_INACTIVE",
         message: "Refund execution requires an active branch",
       });
+  }
+  private async enforceRefundWindow(
+    client: PoolClient,
+    auth: AccessClaims,
+    refundOrInvoice: any,
+    overrideReason: string | undefined,
+    phase: "PLAN" | "CREATE" | "APPROVAL",
+  ) {
+    const context = refundOrInvoice.issued_at
+      ? {
+          issued_at: refundOrInvoice.issued_at,
+          timezone: refundOrInvoice.branch_timezone,
+        }
+      : (
+          await client.query<any>(
+            `SELECT i.issued_at,b.timezone FROM invoices i
+             JOIN branches b ON b.tenant_id=i.tenant_id AND b.id=i.branch_id
+             WHERE i.tenant_id=$1 AND i.id=$2`,
+            [refundOrInvoice.tenant_id, refundOrInvoice.invoice_id],
+          )
+        ).rows[0];
+    if (!context)
+      throw new NotFoundException({
+        code: "INVOICE_NOT_FOUND",
+        message: "Invoice not found",
+      });
+    const policy = { ...(refundOrInvoice.policy_snapshot_json ?? {}) };
+    const evidence = refundWindowEvidence(
+      context.issued_at,
+      context.timezone,
+      Number(policy.refundWindowDays ?? 30),
+    );
+    policy.refundWindowEvidence = evidence;
+    if (!evidence.outOfWindow) return policy;
+    if (
+      !overrideReason ||
+      !(await this.hasPermission(client, auth, "refund.override_window"))
+    )
+      throw new ForbiddenException({
+        code: "REFUND_WINDOW_OVERRIDE_REQUIRED",
+        message:
+          "Refund is outside the branch-local refund window; permission and reason are required",
+      });
+    policy.refundWindowOverride = {
+      phase,
+      reason: overrideReason,
+      actorUserId: auth.userId,
+      approvedAt: new Date().toISOString(),
+      evidence,
+    };
+    return policy;
+  }
+  private async assertExecutionWithinRefundWindow(
+    client: PoolClient,
+    refund: any,
+  ) {
+    const context = (
+      await client.query<any>(
+        `SELECT i.issued_at,b.timezone FROM invoices i
+         JOIN branches b ON b.tenant_id=i.tenant_id AND b.id=i.branch_id
+         WHERE i.tenant_id=$1 AND i.id=$2`,
+        [refund.tenant_id, refund.invoice_id],
+      )
+    ).rows[0];
+    const evidence = refundWindowEvidence(
+      context.issued_at,
+      context.timezone,
+      Number(refund.policy_snapshot_json?.refundWindowDays ?? 30),
+    );
+    if (
+      evidence.outOfWindow &&
+      !refund.policy_snapshot_json?.refundWindowOverride?.reason
+    )
+      throw new ForbiddenException({
+        code: "REFUND_WINDOW_OVERRIDE_REQUIRED",
+        message:
+          "Refund execution is outside the branch-local refund window and lacks approved override evidence",
+      });
+  }
+  private async hasPermission(
+    client: PoolClient,
+    auth: AccessClaims,
+    permission: string,
+  ) {
+    return Boolean(
+      (
+        await client.query(
+          `SELECT 1 FROM membership_roles mr
+           JOIN role_permissions rp ON rp.role=mr.role
+           WHERE mr.membership_id=$1 AND rp.permission_code=$2 LIMIT 1`,
+          [auth.membershipId, permission],
+        )
+      ).rowCount,
+    );
   }
   private async history(
     client: PoolClient,

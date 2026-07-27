@@ -43,6 +43,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
         "APPOINTMENT_ALREADY_ARRIVED",
       walk_in_entries_tenant_id_branch_id_local_queue_date_queue_number_key:
         "WALK_IN_QUEUE_CONFLICT",
+      commission_rules_active_scope_no_overlap: "COMMISSION_RULE_OVERLAP",
+      refund_allocations_tenant_provider_reference_unique:
+        "REFUND_PROVIDER_REFERENCE_CONFLICT",
+      commission_entries_one_adjustment_request:
+        "COMMISSION_ADJUSTMENT_ALREADY_POSTED",
     };
     const status =
       databaseCode === "23505" ||

@@ -8,11 +8,15 @@ Capacity fixture: 100,000 invoices, 300,000 lines, 150,000 payments, 50,000 refu
 
 GitHub Actions run `30261748456` used concurrency `2`, a one-second warm-up and a two-second measurement window against the deterministic CI fixture. Error rate and timeouts were zero for every scenario.
 
-| Scenario | Requests | Throughput/sec | p95 | p99 |
-| --- | ---: | ---: | ---: | ---: |
-| Refund list | 815 | 407.5 | 6.41 ms | 8.08 ms |
-| Net-sales report | 753 | 376.5 | 6.54 ms | 7.59 ms |
-| Commission entries | 874 | 437.0 | 5.89 ms | 8.42 ms |
-| Credit-note list | 845 | 422.5 | 6.15 ms | 8.67 ms |
+| Scenario           | Requests | Throughput/sec |     p95 |     p99 |
+| ------------------ | -------: | -------------: | ------: | ------: |
+| Refund list        |      815 |          407.5 | 6.41 ms | 8.08 ms |
+| Net-sales report   |      753 |          376.5 | 6.54 ms | 7.59 ms |
+| Commission entries |      874 |          437.0 | 5.89 ms | 8.42 ms |
+| Credit-note list   |      845 |          422.5 | 6.15 ms | 8.67 ms |
 
 These results prove the CI smoke path only. The production-scale dataset and contention benchmark remain a release blocker in the technical-debt register.
+
+## Financial-correctness closure
+
+The Sprint 7 closure adds database constraints and indexes for cash attribution, tenant-scoped provider references, adjustment linkage, commission-rule overlap and period/statement queries. Local closure QA passed without introducing a new production-scale performance claim. The accepted load-smoke evidence above remains the current baseline; production-like capacity and contention testing remains a release gate.
