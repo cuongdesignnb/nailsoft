@@ -6,15 +6,15 @@ Status: IN PROGRESS — TECHNICALLY READY; PENDING FINAL GITHUB ACTIONS AND BA/P
 
 - Branch: `main`
 - Start checkpoint: `44c10065ed3f39f2887947028cb3830833ef3ff3`
-- Feature commit: `44c10065ed3f39f2887947028cb3830833ef3ff3`
-- Closure commit: identity of the commit containing this report, recorded in the final handoff
-- Final evidence commit: same closure commit unless QA requires a follow-up correction
-- `origin/main`: recorded after the exact commit passes GitHub Actions
-- Working tree: must be clean before acceptance request
+- Feature/closure commit: `1799fe244d7ebb11a944c1c8f547ef15e2d11adf`
+- Final evidence commit: identity of the commit containing this evidence update, recorded in the final handoff
+- `origin/main`: verified equal to the final evidence commit in the final handoff
+- Working tree: verified clean after publishing the final evidence commit
 
 ## CI and Docker
 
-- Final GitHub Actions run ID/URL/status: pending exact closure commit.
+- Closure GitHub Actions: run [`30326541998`](https://github.com/cuongdesignnb/nailsoft/actions/runs/30326541998), commit `1799fe244d7ebb11a944c1c8f547ef15e2d11adf`, `SUCCESS` in 19m38s.
+- Exact final evidence-commit CI is recorded in the final handoff because a commit cannot include the result of its own future run.
 - Local Docker was used only for QA and was shut down afterward; final `docker compose ps` returned no services (`DOCKER_SERVICES_RUNNING=0`).
 - Containers belonging to other projects are not changed.
 
@@ -73,7 +73,8 @@ Status: IN PROGRESS — TECHNICALLY READY; PENDING FINAL GITHUB ACTIONS AND BA/P
 - Existing Sprint 1–7 regression, contract, mobile, load-smoke and build lanes remain enabled.
 - Local QA: lint passed; typecheck passed; 29 unit files/91 tests passed; contract passed; all 40 PostgreSQL integration files passed; all five new authenticated closure E2E scenarios passed; build passed for all 13 packages.
 - Migration QA: fresh migrate/seed, rollback to `0016`, re-migrate to `0017` and deterministic seed replay passed.
-- Exact final GitHub Actions evidence: pending the closure commit.
+- Exact closure-code GitHub Actions evidence: run `30326541998`, `SUCCESS`.
+- Final evidence-commit CI: verified and recorded in the final handoff.
 
 ## Scope confirmation
 
