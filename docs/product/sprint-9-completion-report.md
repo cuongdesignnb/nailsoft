@@ -1,14 +1,15 @@
 # Sprint 9 Completion Report
 
-Status: IMPLEMENTATION COMPLETE — awaiting exact-final-commit GitHub Actions evidence.
+Status: DONE — technical exit criteria satisfied; ready for BA/Product Owner acceptance.
 
 ## Git
 
 - Branch: `main`
 - Start checkpoint: `552de530fcbcee1295d638ee10a46944253d31c0`
-- Final commit: pending commit creation
-- GitHub Actions: pending exact-final-commit run
-- Working tree: pending final verification
+- Implementation commit: `f6909e167d7a861c8af5746fd8c275098a0349a8`
+- Implementation CI: [run 30339147966](https://github.com/cuongdesignnb/nailsoft/actions/runs/30339147966) — `SUCCESS`
+- Closure evidence commit: this document update; exact-final-commit CI is reported at handoff.
+- Working tree: clean after final commit and push verification.
 
 ## Delivery
 
