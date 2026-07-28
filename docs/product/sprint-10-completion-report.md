@@ -1,14 +1,15 @@
 # Sprint 10 Closure Report
 
-Status: `READY FOR EXACT-COMMIT CI` — closure implementation and local QA are complete. BA/PO acceptance remains blocked only until GitHub Actions succeeds for the exact final commit.
+Status: `READY FOR BA/PO ACCEPTANCE` — closure implementation, contract hotfix and exact-hotfix-commit CI are complete. Formal BA/PO acceptance has not yet been recorded.
 
 ## Git
 
 - Branch: `main`.
 - Start checkpoint and foundation commit: `8966925bfbf2745e28c18ef9c3690e42a7feda16`.
 - Foundation CI: run `30369302098`, `SUCCESS`.
-- Closure implementation commit: pending final QA commit.
-- Final evidence commit: pending exact-commit CI evidence.
+- Closure implementation commit: `28e4a51343a8617472fbc7be1b96c07a9a8168cc`.
+- Loyalty contract hotfix commit: `8b316fb95ed07d0b2ddf9fd472340d10f570279e`.
+- Final evidence commit: this report commit; its immutable SHA and exact CI run are recorded in the final handoff because a commit cannot embed its own hash.
 - `origin/main`, clean working tree and Docker-off evidence are recorded at final handoff.
 
 ## Migration
@@ -69,7 +70,7 @@ Status: `READY FOR EXACT-COMMIT CI` — closure implementation and local QA are 
 - Added ten required PostgreSQL/API integration files and eight authenticated closure E2E files.
 - Added unit coverage for current-due caps and cumulative proportional restoration.
 - Added CI lanes for correctness, funding/refund, authorization/fraud and closure E2E while retaining Sprint 1–10 regression.
-- Unit: `34` files / `114` tests passed.
+- Unit: `35` files / `122` tests passed, including `8/8` targeted Loyalty Adjustment contract tests.
 - Contract: `2` files / `3` tests passed.
 - Sprint 10 mobile/contract smoke: `2` files / `4` tests passed.
 - PostgreSQL integration regression: all `55` integration files passed with deterministic reset/seed before every file.
@@ -79,7 +80,7 @@ Status: `READY FOR EXACT-COMMIT CI` — closure implementation and local QA are 
 - Typecheck: `13/13` packages passed.
 - Build: `13/13` packages passed.
 - `git diff --check`: passed; only the repository's Windows line-ending notices remain.
-- Exact-final-commit GitHub Actions evidence: pending commit and push.
+- Exact-hotfix-commit GitHub Actions: run `30383280979`, `SUCCESS`, commit `8b316fb95ed07d0b2ddf9fd472340d10f570279e`.
 
 ## Scope confirmation
 
@@ -87,3 +88,26 @@ Status: `READY FOR EXACT-COMMIT CI` — closure implementation and local QA are 
 - Marketing automation, AI and General Ledger were not implemented.
 - PostgreSQL remains authoritative.
 - Docker was used only for QA, then stopped with `docker compose down`; verified `DOCKER_SERVICES_RUNNING=0` without deleting volumes.
+
+## Sprint 8 Contract Regression Hotfix
+
+- Sprint 10 closure commit:
+  `28e4a51343a8617472fbc7be1b96c07a9a8168cc`
+- Failed CI:
+  `30379014826`
+- Failed step:
+  `Sprint 8 authenticated wallet and dual-control E2E`
+- Root cause:
+  `loyaltyAdjustmentSchema` accidentally required `branchId`.
+- Product impact:
+  Validation-only regression in Sprint 8 Loyalty Adjustment contract.
+- Hotfix:
+  Removed `branchId` from `loyaltyAdjustmentSchema` while preserving all required Sprint 8 fields and strict unknown-field rejection.
+- Stored-value branch attribution:
+  Preserved for Customer Credit, Stored Value and Gift Card operations.
+- Hotfix commit:
+  `8b316fb95ed07d0b2ddf9fd472340d10f570279e`
+- Final evidence commit:
+  This report commit; its immutable SHA is recorded in the final handoff.
+- Final CI:
+  `30383280979` — `SUCCESS` for the exact hotfix commit.
