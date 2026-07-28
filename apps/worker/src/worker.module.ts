@@ -15,6 +15,8 @@ import { BenefitMaintenancePoller } from "./benefit-maintenance.poller.js";
 import { BenefitMaintenanceProcessor } from "./benefit-maintenance.processor.js";
 import { InventoryMaintenancePoller } from "./inventory-maintenance.poller.js";
 import { InventoryMaintenanceProcessor } from "./inventory-maintenance.processor.js";
+import { StoredValueMaintenancePoller } from "./stored-value-maintenance.poller.js";
+import { StoredValueMaintenanceProcessor } from "./stored-value-maintenance.processor.js";
 
 @Module({
   providers: [
@@ -34,6 +36,8 @@ import { InventoryMaintenanceProcessor } from "./inventory-maintenance.processor
     BenefitMaintenancePoller,
     InventoryMaintenanceProcessor,
     InventoryMaintenancePoller,
+    StoredValueMaintenanceProcessor,
+    StoredValueMaintenancePoller,
   ],
   exports: [OutboxRepository, OutboxEventRouter, OutboxProcessor],
 })

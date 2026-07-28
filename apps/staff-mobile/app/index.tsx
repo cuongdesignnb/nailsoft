@@ -108,6 +108,7 @@ export default function Home() {
             "packageCoverage",
             "myMaterials",
             "materialUsage",
+            "storedValueAccess",
             "upcomingAppointments",
             "myCalendar",
             "myBusy",

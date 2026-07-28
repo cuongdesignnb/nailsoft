@@ -439,6 +439,9 @@ export const refundPlanSchema = z
   .object({
     items: z.array(refundLineSchema).min(1).max(100),
     tipAmountMinor: moneyMinorSchema.default(0),
+    refundDestination: z
+      .enum(["ORIGINAL_TENDER", "CUSTOMER_CREDIT"])
+      .default("ORIGINAL_TENDER"),
     paymentPreferences: z
       .array(refundPaymentPreferenceSchema)
       .max(20)
@@ -1049,5 +1052,76 @@ export const retailReturnDecisionSchema = z
     quantity: inventoryQuantitySchema,
     reasonCode: z.string().trim().min(1).max(80),
     note: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+
+export const giftCardProductSchema = z
+  .object({
+    productCode: z.string().trim().min(2).max(80),
+    name: z.record(z.string(), z.string().trim().min(1)),
+    amountMode: z.enum(["FIXED", "OPEN"]),
+    cardForm: z.enum(["PHYSICAL", "DIGITAL", "BOTH"]),
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    minimumAmountMinor: moneyMinorStringSchema,
+    maximumAmountMinor: moneyMinorStringSchema,
+    fixedDenominationsMinor: z
+      .array(moneyMinorStringSchema)
+      .max(50)
+      .default([]),
+    maximumBalanceMinor: moneyMinorStringSchema,
+    reloadable: z.boolean().default(false),
+    assignmentPolicy: z
+      .enum(["BEARER", "CUSTOMER_REQUIRED", "BEARER_OR_CUSTOMER"])
+      .default("BEARER_OR_CUSTOMER"),
+    pinRequired: z.boolean().default(true),
+    legalPolicyId: uuidSchema.optional().nullable(),
+    branchScope: z.record(z.string(), z.unknown()).default({}),
+    eligibilityPolicy: z.record(z.string(), z.unknown()).default({}),
+    refundPolicy: z.record(z.string(), z.unknown()).default({}),
+    replacementPolicy: z.record(z.string(), z.unknown()).default({}),
+    limitsPolicy: z.record(z.string(), z.unknown()).default({}),
+  })
+  .strict();
+export const giftCardLineSchema = z
+  .object({
+    productId: uuidSchema,
+    amountMinor: moneyMinorStringSchema,
+    customerId: uuidSchema.optional().nullable(),
+    form: z.enum(["PHYSICAL", "DIGITAL"]),
+    deliveryChannel: z.enum(["EMAIL", "SMS", "PRINT", "NONE"]).default("NONE"),
+  })
+  .strict();
+export const storedValueLookupSchema = z
+  .object({
+    number: z.string().trim().min(12).max(64),
+    pin: z.string().trim().min(4).max(12).optional(),
+  })
+  .strict();
+export const storedValueReserveSchema = z
+  .object({
+    requestedMinor: moneyMinorStringSchema,
+    number: z.string().trim().min(12).max(64).optional(),
+    pin: z.string().trim().min(4).max(12).optional(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+export const storedValueVersionSchema = z
+  .object({
+    version: z.number().int().positive(),
+    reason: z.string().trim().min(3).max(1000).optional(),
+  })
+  .strict();
+export const customerCreditAdjustmentSchema = z
+  .object({
+    customerId: uuidSchema,
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    adjustmentType: z.enum([
+      "MANUAL_CREDIT",
+      "MANUAL_DEBIT",
+      "SERVICE_RECOVERY_CREDIT",
+    ]),
+    amountMinor: moneyMinorStringSchema,
+    reasonCode: z.string().trim().min(2).max(80),
+    note: z.string().trim().min(3).max(2000),
   })
   .strict();

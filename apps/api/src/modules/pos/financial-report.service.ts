@@ -55,11 +55,17 @@ export class FinancialReportService {
       unissued,
     ] = await Promise.all([
       this.db.query<any>(
-        `SELECT count(*) orders,COALESCE(sum(i.subtotal_minor),0) gross,
-                  COALESCE(sum(i.discount_minor),0) discounts,COALESCE(sum(i.tax_minor),0) tax,
-                  COALESCE(sum(i.tip_minor),0) tips,COALESCE(sum(i.total_minor),0) net_sales
+        `SELECT count(*) orders,COALESCE(sum(revenue.gross),0) gross,
+                  COALESCE(sum(revenue.discount),0) discounts,COALESCE(sum(revenue.tax),0) tax,
+                  COALESCE(sum(i.tip_minor),0) tips,COALESCE(sum(revenue.net),0) net_sales
              FROM invoices i
              JOIN pos_orders o ON o.tenant_id=i.tenant_id AND o.id=i.pos_order_id
+             JOIN LATERAL (
+               SELECT COALESCE(sum(round(il.unit_price_minor*il.quantity)::bigint),0) gross,COALESCE(sum(il.discount_minor),0) discount,
+                      COALESCE(sum(il.tax_minor),0) tax,COALESCE(sum(il.net_minor),0) net
+                 FROM invoice_lines il JOIN pos_order_lines pol ON pol.tenant_id=il.tenant_id AND pol.id=il.source_order_line_id
+                WHERE il.tenant_id=i.tenant_id AND il.invoice_id=i.id AND pol.line_type<>'GIFT_CARD'
+             ) revenue ON true
             WHERE i.tenant_id=$1 AND i.branch_id=$2 AND i.status='ISSUED'
               AND i.issued_at >= $3 AND i.issued_at < $4
               AND ($5::uuid IS NULL OR o.register_id=$5)

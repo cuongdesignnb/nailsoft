@@ -21,6 +21,7 @@ import { BenefitsTransactionService } from "../benefits/benefits-transaction.ser
 import type { AccessClaims } from "../identity/auth.types.js";
 import { FinancialEvidenceService } from "../pos/financial-evidence.service.js";
 import { RegisterDeviceAuthorizationService } from "../pos/register-device-authorization.service.js";
+import { StoredValueService } from "../stored-value/stored-value.service.js";
 import {
   assertRefundTransition,
   prorateMinor,
@@ -40,6 +41,8 @@ export class RefundService {
     private readonly evidence: FinancialEvidenceService,
     @Inject(RegisterDeviceAuthorizationService)
     private readonly registerDevice: RegisterDeviceAuthorizationService,
+    @Inject(StoredValueService)
+    private readonly storedValue: StoredValueService,
   ) {}
 
   async plan(auth: AccessClaims, invoiceId: string, input: unknown) {
@@ -91,8 +94,8 @@ export class RefundService {
             const refund = (
               await client.query<any>(
                 `INSERT INTO refunds(tenant_id,branch_id,invoice_id,pos_order_id,customer_id,refund_reference,currency,requested_minor,
-             service_refund_minor,tax_refund_minor,tip_refund_minor,reason_code,reason_text,policy_snapshot_json,requested_by_user_id)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+             service_refund_minor,tax_refund_minor,tip_refund_minor,reason_code,reason_text,policy_snapshot_json,requested_by_user_id,refund_destination)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
                 [
                   auth.tenantId,
                   plan.branchId,
@@ -109,6 +112,7 @@ export class RefundService {
                   body.reasonText,
                   JSON.stringify(plan.policy),
                   auth.userId,
+                  body.refundDestination,
                 ],
               )
             ).rows[0];
@@ -154,6 +158,32 @@ export class RefundService {
                   allocation.registerId,
                   allocation.cashSessionId,
                   allocation.provider,
+                ],
+              );
+            for (const allocation of plan.storedValueAllocations)
+              await client.query(
+                `INSERT INTO refund_stored_value_plans(tenant_id,refund_id,settlement_allocation_id,account_id,planned_minor,currency)
+                 VALUES($1,$2,$3,$4,$5,$6)`,
+                [
+                  auth.tenantId,
+                  refund.id,
+                  allocation.settlementAllocationId,
+                  allocation.accountId,
+                  allocation.plannedMinor,
+                  allocation.currency,
+                ],
+              );
+            for (const allocation of plan.giftCardPurchaseAllocations)
+              await client.query(
+                `INSERT INTO gift_card_purchase_refund_plans(tenant_id,refund_id,gift_card_id,account_id,planned_minor,currency)
+                 VALUES($1,$2,$3,$4,$5,$6)`,
+                [
+                  auth.tenantId,
+                  refund.id,
+                  allocation.giftCardId,
+                  allocation.accountId,
+                  allocation.plannedMinor,
+                  allocation.currency,
                 ],
               );
             await this.history(
@@ -664,6 +694,29 @@ export class RefundService {
               requestId,
               key,
             );
+            if (to === "APPROVED") {
+              const external = await client.query(
+                "SELECT 1 FROM refund_payment_allocations WHERE tenant_id=$1 AND refund_id=$2 LIMIT 1",
+                [auth.tenantId, id],
+              );
+              const stored = await client.query(
+                "SELECT 1 FROM refund_stored_value_plans WHERE tenant_id=$1 AND refund_id=$2 AND status='PENDING' LIMIT 1",
+                [auth.tenantId, id],
+              );
+              if (
+                !external.rowCount &&
+                (stored.rowCount ||
+                  updated.refund_destination === "CUSTOMER_CREDIT")
+              )
+                return this.finalizeIfComplete(
+                  client,
+                  auth,
+                  updated,
+                  requestId,
+                  key,
+                  "refund.stored_value_executed",
+                );
+            }
             return this.detailTx(client, auth, id);
           },
         }),
@@ -707,7 +760,14 @@ export class RefundService {
       });
     const lines = (
       await client.query<any>(
-        `SELECT l.*,b.refundable_minor FROM invoice_lines l JOIN invoice_line_refund_balance b ON b.tenant_id=l.tenant_id AND b.invoice_line_id=l.id
+        `SELECT l.*,b.refundable_minor,pol.line_type source_line_type,pol.gift_card_id,gc.source_payment_id gift_card_funding_payment_id,
+                sva.id stored_value_account_id,sva.available_minor gift_card_available_minor,
+                sva.reserved_minor gift_card_reserved_minor,sva.redeemed_minor gift_card_redeemed_minor
+           FROM invoice_lines l
+           JOIN invoice_line_refund_balance b ON b.tenant_id=l.tenant_id AND b.invoice_line_id=l.id
+           LEFT JOIN pos_order_lines pol ON pol.tenant_id=l.tenant_id AND pol.id=l.source_order_line_id
+           LEFT JOIN gift_cards gc ON gc.tenant_id=pol.tenant_id AND gc.id=pol.gift_card_id
+           LEFT JOIN stored_value_accounts sva ON sva.tenant_id=pol.tenant_id AND sva.gift_card_id=pol.gift_card_id
        WHERE l.tenant_id=$1 AND l.invoice_id=$2 AND l.id=ANY($3::uuid[])`,
         [auth.tenantId, invoiceId, body.items.map((x: any) => x.invoiceLineId)],
       )
@@ -717,6 +777,47 @@ export class RefundService {
         code: "REFUND_LINE_NOT_FOUND",
         message: "Invoice line not found",
       });
+    const giftCardPurchaseLines = lines.filter(
+      (line: any) => line.source_line_type === "GIFT_CARD",
+    );
+    if (
+      giftCardPurchaseLines.length > 0 &&
+      giftCardPurchaseLines.length !== lines.length
+    )
+      throw new ConflictException({
+        code: "GIFT_CARD_PARTIAL_USE_MANUAL_REVIEW",
+        message: "Gift-card funding refunds must be reviewed separately",
+      });
+    if (
+      giftCardPurchaseLines.length > 0 &&
+      body.refundDestination !== "ORIGINAL_TENDER"
+    )
+      throw new ConflictException({
+        code: "GIFT_CARD_PURCHASE_REFUND_NOT_ALLOWED",
+        message: "Gift-card funding can only return to its funding tender",
+      });
+    for (const line of giftCardPurchaseLines) {
+      const selected = body.items.find(
+        (item: any) => item.invoiceLineId === line.id,
+      );
+      if (
+        !line.gift_card_id ||
+        !line.stored_value_account_id ||
+        !line.gift_card_funding_payment_id ||
+        selected.amountMinor !== Number(line.net_minor) ||
+        BigInt(line.gift_card_reserved_minor ?? 0) !== 0n ||
+        BigInt(line.gift_card_redeemed_minor ?? 0) !== 0n ||
+        BigInt(line.gift_card_available_minor ?? 0) !== BigInt(line.net_minor)
+      )
+        throw new ConflictException({
+          code:
+            BigInt(line.gift_card_redeemed_minor ?? 0) > 0n
+              ? "GIFT_CARD_PARTIAL_USE_MANUAL_REVIEW"
+              : "GIFT_CARD_PURCHASE_REFUND_NOT_ALLOWED",
+          message:
+            "Only a fully unused gift card can be refunded automatically",
+        });
+    }
     const items = body.items.map((selected: any) => {
       const line = lines.find((x: any) => x.id === selected.invoiceLineId);
       if (selected.amountMinor > Number(line.refundable_minor))
@@ -792,6 +893,24 @@ export class RefundService {
         code: "REFUND_BALANCE_EXCEEDED",
         message: "Refund exceeds captured balance",
       });
+    if (body.refundDestination === "CUSTOMER_CREDIT") {
+      if (!invoice.customer_id)
+        throw new ConflictException({
+          code: "CUSTOMER_CREDIT_REFUND_CONFLICT",
+          message: "Customer credit requires an identified customer",
+        });
+      if (body.tipAmountMinor > 0)
+        throw new ConflictException({
+          code: "STORED_VALUE_TIP_NOT_ALLOWED",
+          message: "Customer credit cannot be issued for a tip refund",
+        });
+      if (body.paymentPreferences?.length)
+        throw new ConflictException({
+          code: "CUSTOMER_CREDIT_REFUND_CONFLICT",
+          message:
+            "Original-tender allocations cannot be combined with customer credit",
+        });
+    }
     const payments = (
       await client.query<any>(
         `SELECT p.*,b.refundable_minor FROM payments p JOIN payment_refund_balance b ON b.tenant_id=p.tenant_id AND b.payment_id=p.id
@@ -799,17 +918,66 @@ export class RefundService {
         [auth.tenantId, invoice.pos_order_id],
       )
     ).rows;
-    let remaining = requestedMinor;
+    const storedSources = (
+      await client.query<any>(
+        `SELECT s.id,s.account_id,s.currency,
+                GREATEST(0,s.amount_minor
+                  -COALESCE((SELECT sum(r.amount_minor) FROM stored_value_refund_allocations r WHERE r.tenant_id=s.tenant_id AND r.settlement_allocation_id=s.id),0)
+                  -COALESCE((SELECT sum(p.planned_minor) FROM refund_stored_value_plans p WHERE p.tenant_id=s.tenant_id AND p.settlement_allocation_id=s.id AND p.status='PENDING'),0)) refundable_minor
+           FROM stored_value_settlement_allocations s
+          WHERE s.tenant_id=$1 AND s.order_id=$2 ORDER BY s.created_at,s.id`,
+        [auth.tenantId, invoice.pos_order_id],
+      )
+    ).rows;
+    const issueCustomerCredit = body.refundDestination === "CUSTOMER_CREDIT";
+    const refundGiftCardPurchase = giftCardPurchaseLines.length > 0;
+    let storedRemaining = issueCustomerCredit
+      ? 0
+      : refundGiftCardPurchase
+        ? 0
+        : requestedMinor - body.tipAmountMinor;
+    const storedValueAllocations: any[] = [];
+    for (const source of storedSources) {
+      if (storedRemaining <= 0) break;
+      const amount = Math.min(storedRemaining, Number(source.refundable_minor));
+      if (amount <= 0) continue;
+      storedValueAllocations.push({
+        settlementAllocationId: source.id,
+        accountId: source.account_id,
+        plannedMinor: amount,
+        currency: source.currency,
+      });
+      storedRemaining -= amount;
+    }
+    let remaining = issueCustomerCredit
+      ? 0
+      : requestedMinor -
+        storedValueAllocations.reduce(
+          (sum, item) => sum + item.plannedMinor,
+          0,
+        );
+    const giftCardFundingPaymentIds = new Set(
+      giftCardPurchaseLines.map(
+        (line: any) => line.gift_card_funding_payment_id,
+      ),
+    );
+    const eligiblePayments = refundGiftCardPurchase
+      ? payments.filter((payment: any) =>
+          giftCardFundingPaymentIds.has(payment.id),
+        )
+      : payments;
     const preferences = body.paymentPreferences?.length
       ? body.paymentPreferences
-      : payments.map((p: any) => ({
+      : eligiblePayments.map((p: any) => ({
           paymentId: p.id,
           amountMinor: Math.min(remaining, Number(p.refundable_minor)),
         }));
     const paymentAllocations: any[] = [];
     for (const preference of preferences) {
       if (remaining <= 0 || preference.amountMinor <= 0) continue;
-      const payment = payments.find((p: any) => p.id === preference.paymentId);
+      const payment = eligiblePayments.find(
+        (p: any) => p.id === preference.paymentId,
+      );
       if (!payment || preference.amountMinor > Number(payment.refundable_minor))
         throw new ConflictException({
           code: "REFUND_PAYMENT_BALANCE_EXCEEDED",
@@ -868,6 +1036,21 @@ export class RefundService {
       tipRefundMinor: body.tipAmountMinor,
       items,
       paymentAllocations,
+      storedValueAllocations,
+      giftCardPurchaseAllocations: giftCardPurchaseLines.map((line: any) => ({
+        giftCardId: line.gift_card_id,
+        accountId: line.stored_value_account_id,
+        plannedMinor: Number(line.net_minor),
+        currency: invoice.currency,
+      })),
+      refundDestination: body.refundDestination,
+      customerCreditAllocation: issueCustomerCredit
+        ? {
+            customerId: invoice.customer_id,
+            amountMinor: requestedMinor,
+            currency: invoice.currency,
+          }
+        : null,
       policy: policyWithWindow,
       approval: { required: true, reasonCodes: ["DUAL_CONTROL"] },
     };
@@ -881,14 +1064,72 @@ export class RefundService {
     key: string,
     event: string,
   ) {
-    const sums = (
+    let sums = (
       await client.query<any>(
         `SELECT count(*) FILTER(WHERE status<>'COMPLETED') pending,COALESCE(sum(completed_minor),0) completed FROM refund_payment_allocations
        WHERE tenant_id=$1 AND refund_id=$2`,
         [auth.tenantId, refund.id],
       )
     ).rows[0];
-    const status = Number(sums.pending) === 0 ? "COMPLETED" : "PROCESSING";
+    if (Number(sums.pending) === 0) {
+      await this.issueCreditNote(client, auth, refund, requestId);
+      await this.storedValue.restoreRefundAllocations(
+        client,
+        auth,
+        refund,
+        requestId,
+      );
+      if (refund.refund_destination === "CUSTOMER_CREDIT")
+        await this.storedValue.issueRefundCustomerCreditTx(
+          client,
+          auth,
+          refund,
+          requestId,
+        );
+      await this.storedValue.cancelGiftCardPurchaseRefundsTx(
+        client,
+        auth,
+        refund,
+        requestId,
+      );
+    }
+    const storedSums = (
+      await client.query<any>(
+        `SELECT count(*) FILTER(WHERE status<>'COMPLETED') pending,COALESCE(sum(completed_minor),0) completed FROM refund_stored_value_plans WHERE tenant_id=$1 AND refund_id=$2`,
+        [auth.tenantId, refund.id],
+      )
+    ).rows[0];
+    const customerCreditCompleted = BigInt(
+      (
+        await client.query<any>(
+          `SELECT COALESCE(sum(amount_minor),0) completed FROM stored_value_refund_allocations
+           WHERE tenant_id=$1 AND refund_id=$2 AND destination='CUSTOMER_CREDIT'`,
+          [auth.tenantId, refund.id],
+        )
+      ).rows[0].completed,
+    );
+    const purchasePlanPending = Number(
+      (
+        await client.query<any>(
+          `SELECT count(*) FILTER(WHERE status<>'COMPLETED') pending
+             FROM gift_card_purchase_refund_plans WHERE tenant_id=$1 AND refund_id=$2`,
+          [auth.tenantId, refund.id],
+        )
+      ).rows[0].pending,
+    );
+    sums = {
+      pending:
+        Number(sums.pending) + Number(storedSums.pending) + purchasePlanPending,
+      completed:
+        BigInt(sums.completed) +
+        BigInt(storedSums.completed) +
+        customerCreditCompleted,
+    };
+    const status =
+      Number(sums.pending) === 0 &&
+      BigInt(sums.completed) === BigInt(refund.requested_minor)
+        ? "COMPLETED"
+        : "PROCESSING";
     const updated = (
       await client.query<any>(
         `UPDATE refunds SET status=$3,completed_minor=$4,processing_at=COALESCE(processing_at,now()),completed_at=CASE WHEN $3='COMPLETED' THEN now() ELSE NULL END,

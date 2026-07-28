@@ -10,6 +10,7 @@ export interface PricingLineInput {
   taxMode: TaxMode;
   rateBasisPoints: number;
   roundingMode: RoundingMode;
+  discountEligible?: boolean;
 }
 
 export interface PricingLineResult {
@@ -61,10 +62,12 @@ export class PosPricingService {
         code: "DISCOUNT_EXCEEDS_AMOUNT",
         message: "Discount exceeds eligible amount",
       });
-    const eligible = lines.map((line) => ({
-      id: line.id,
-      amount: line.grossMinor - line.lineDiscountMinor,
-    }));
+    const eligible = lines
+      .filter((line) => line.discountEligible !== false)
+      .map((line) => ({
+        id: line.id,
+        amount: line.grossMinor - line.lineDiscountMinor,
+      }));
     const orderAllocations = allocateProRata(orderDiscountMinor, eligible);
     const results = lines.map((line): PricingLineResult => {
       const discountMinor =

@@ -109,8 +109,19 @@ Membership and package: `membership.tier_created`, `membership.assigned`, `membe
 Closure semantics: `membership.updated` also signals automatic downgrade or no-qualifying-tier removal after rolling paid-minus-refunded recomputation. `benefits.refund_reversed` identifies the refund and affected application/allocation only; exact monetary, points, unit and fractional-use evidence remains in append-only PostgreSQL allocation rows. Benefit Worker jobs use bounded retries and `DEAD_LETTER`; job errors never become business events.
 
 Payloads contain tenant/branch and aggregate IDs, version/status and `refetch: true`; voucher codes, customer contacts, ledger notes and qualification detail are forbidden. Worker fans out minimal `voucher.updated`, `loyalty.updated`, `membership.updated`, `package.updated` and `benefits.wallet_invalidated` signals to authorized tenant/branch rooms. Clients refetch PostgreSQL-backed APIs.
+
 # Sprint 9 inventory events
 
 `inventory.item_created`, `inventory.item_archived`, `inventory.location_created`, `inventory.supplier_created`, `inventory.recipe_created`, `inventory.purchase_order_created`, `inventory.purchase_order_submitted`, `inventory.purchase_order_approved`, `inventory.receipt_created`, `inventory.receipt_posted`, `inventory.transfer_created`, `inventory.transfer_shipped`, `inventory.transfer_received`, `inventory.adjustment_requested`, `inventory.adjustment_posted`, `inventory.count_created`, `inventory.count_submitted`, `inventory.count_approved`, `inventory.count_posted`, `inventory.service_reserved`, `inventory.service_shortage`, `inventory.service_consumed`, `inventory.service_released`, `inventory.product_reserved`, `inventory.return_inspected`, `inventory.alert_acknowledged`, `inventory.reservation_expired`, `inventory.export_requested`.
 
 Payloads contain aggregate/branch identifiers and `refetch: true`, never supplier contacts, barcode values, customer PII or cost evidence.
+
+# Sprint 10 stored-value events
+
+Gift card: `gift_card.product_created`, `gift_card.issuance_pending`, `gift_card.activated`, `gift_card.reloaded`, `gift_card.suspended`, `gift_card.reactivated`, `gift_card.cancelled`, `gift_card.replaced`, `gift_card.updated`.
+
+Settlement: `stored_value.reserved`, `stored_value.redeemed`, `stored_value.released`, `stored_value.refund_restored`, `stored_value.export_requested`, `stored_value.reconciliation_exception_opened`, `stored_value.legal_policy_approved`.
+
+Customer credit: `customer_credit.adjustment_requested`, `customer_credit.adjustment_approved`, `customer_credit.adjustment_rejected`, `customer_credit.adjustment_cancelled`, `customer_credit.issued_from_refund`.
+
+All events are committed with audit and the financial transaction. Payloads contain only tenant/branch/aggregate IDs, currency, minor-unit summaries and `refetch: true`; they never contain card number/hash, PIN/hash, customer contact or legal notes. Worker fan-out emits `gift_card.updated`, `customer_credit.updated`, `stored_value.wallet_invalidated`, `stored_value.liability_invalidated` or `stored_value.reconciliation_invalidated`. PostgreSQL remains authoritative.

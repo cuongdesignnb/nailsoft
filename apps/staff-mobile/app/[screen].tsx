@@ -35,6 +35,7 @@ const titles: Record<string, string> = {
   packageCoverage: "Appointment package coverage",
   myMaterials: "My material requirements",
   materialUsage: "My actual material usage",
+  storedValueAccess: "Stored-value access",
 };
 function pathFor(screen: string, id?: string) {
   if (screen === "staffToday") return "/v1/staff/me/today";
@@ -48,6 +49,7 @@ function pathFor(screen: string, id?: string) {
     return id ? `/v1/appointments/${id}/benefits` : null;
   if (screen === "myMaterials" || screen === "materialUsage")
     return "/v1/staff/me/materials";
+  if (screen === "storedValueAccess") return "/v1/gift-cards";
   if (["profile", "branches", "skills", "createLeave"].includes(screen))
     return "/v1/staff/me";
   if (screen === "shifts") return "/v1/shifts";

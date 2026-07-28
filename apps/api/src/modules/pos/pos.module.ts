@@ -4,6 +4,7 @@ import { BookingModule } from "../booking/booking.module.js";
 import { BenefitsModule } from "../benefits/benefits.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
 import { InventoryModule } from "../inventory/inventory.module.js";
+import { StoredValueModule } from "../stored-value/stored-value.module.js";
 import { CashSessionService } from "./cash-session.service.js";
 import { FinancialEvidenceService } from "./financial-evidence.service.js";
 import { FinancialReportService } from "./financial-report.service.js";
@@ -23,7 +24,14 @@ import {
 } from "./pos.controller.js";
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, BookingModule, BenefitsModule, InventoryModule],
+  imports: [
+    DatabaseModule,
+    IdentityModule,
+    BookingModule,
+    BenefitsModule,
+    InventoryModule,
+    StoredValueModule,
+  ],
   controllers: [
     AppointmentPosController,
     PosOrderController,

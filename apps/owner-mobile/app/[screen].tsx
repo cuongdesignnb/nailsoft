@@ -54,6 +54,12 @@ const titles: Record<string, string> = {
   inventoryApprovals: "Purchase order approvals",
   inventoryVariances: "Inventory variances",
   inventoryValuation: "Inventory valuation",
+  storedValueLiability: "Stored-value liability",
+  storedValueIssuance: "Gift-card issuance",
+  storedValueRedemption: "Stored-value redemption",
+  customerCreditOutstanding: "Customer credit outstanding",
+  storedValueApprovals: "Pending credit adjustments",
+  storedValueExceptions: "Stored-value reconciliation exceptions",
 };
 function endpoint(screen: string, id?: string) {
   if (screen === "operationalSummary")
@@ -81,6 +87,17 @@ function endpoint(screen: string, id?: string) {
     return `/v1/inventory/adjustments?branchId=${branch}`;
   if (screen === "inventoryValuation")
     return `/v1/inventory/reports/valuation?branchId=${branch}`;
+  if (screen === "storedValueLiability")
+    return "/v1/stored-value/reports/liability";
+  if (screen === "storedValueIssuance")
+    return "/v1/stored-value/reports/issuance";
+  if (screen === "storedValueRedemption")
+    return "/v1/stored-value/reports/redemption";
+  if (screen === "customerCreditOutstanding")
+    return "/v1/stored-value/reports/customer-credit";
+  if (screen === "storedValueApprovals") return "/v1/stored-value-adjustments";
+  if (screen === "storedValueExceptions")
+    return "/v1/stored-value/reports/exceptions";
   if (screen === "appointmentsToday")
     return `/v1/appointments?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-11T00:00:00%2B07:00`;
   if (screen === "appointments")
@@ -164,6 +181,12 @@ export default function OwnerScreen() {
         "inventoryApprovals",
         "inventoryVariances",
         "inventoryValuation",
+        "storedValueLiability",
+        "storedValueIssuance",
+        "storedValueRedemption",
+        "customerCreditOutstanding",
+        "storedValueApprovals",
+        "storedValueExceptions",
       ].includes(screen)
     )
       return;
@@ -188,6 +211,11 @@ export default function OwnerScreen() {
       "membership.updated",
       "package.updated",
       "benefits.wallet_invalidated",
+      "gift_card.updated",
+      "customer_credit.updated",
+      "stored_value.wallet_invalidated",
+      "stored_value.liability_invalidated",
+      "stored_value.reconciliation_invalidated",
     ].forEach((event) => socket.on(event, () => void load()));
     return () => {
       socket.disconnect();

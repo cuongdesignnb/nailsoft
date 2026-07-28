@@ -367,15 +367,12 @@ const scenarios = [
     name: "benefit-wallet",
     setup: async (worker) => auth(`load-benefit-wallet-${worker}`),
     run: (state) =>
-      request(
-        "/v1/customers/60000000-0000-4000-8000-000000000001/packages",
-        {
-          headers: {
-            authorization: `Bearer ${state.accessToken}`,
-            "x-tenant-id": state.tenantId,
-          },
+      request("/v1/customers/60000000-0000-4000-8000-000000000001/packages", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
         },
-      ),
+      }),
   },
   {
     name: "voucher-campaigns",
@@ -420,22 +417,99 @@ const scenarios = [
   {
     name: "inventory-stock",
     setup: async (worker) => auth(`load-inventory-stock-${worker}`),
-    run: (state) => request("/v1/inventory/stock?branchId=20000000-0000-4000-8000-000000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+    run: (state) =>
+      request(
+        "/v1/inventory/stock?branchId=20000000-0000-4000-8000-000000000001",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
   },
   {
     name: "inventory-barcode",
     setup: async (worker) => auth(`load-inventory-barcode-${worker}`),
-    run: (state) => request("/v1/inventory/barcodes/8930000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+    run: (state) =>
+      request("/v1/inventory/barcodes/8930000000001", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
   },
   {
     name: "inventory-ledger",
     setup: async (worker) => auth(`load-inventory-ledger-${worker}`),
-    run: (state) => request("/v1/inventory/ledger?branchId=20000000-0000-4000-8000-000000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+    run: (state) =>
+      request(
+        "/v1/inventory/ledger?branchId=20000000-0000-4000-8000-000000000001",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
   },
   {
     name: "inventory-valuation",
     setup: async (worker) => auth(`load-inventory-valuation-${worker}`),
-    run: (state) => request("/v1/inventory/reports/valuation?branchId=20000000-0000-4000-8000-000000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+    run: (state) =>
+      request(
+        "/v1/inventory/reports/valuation?branchId=20000000-0000-4000-8000-000000000001",
+        {
+          headers: {
+            authorization: `Bearer ${state.accessToken}`,
+            "x-tenant-id": state.tenantId,
+          },
+        },
+      ),
+  },
+  {
+    name: "gift-card-list",
+    setup: async (worker) => auth(`load-gift-cards-${worker}`),
+    run: (state) =>
+      request("/v1/gift-cards", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "stored-value-liability",
+    setup: async (worker) => auth(`load-stored-liability-${worker}`),
+    run: (state) =>
+      request("/v1/stored-value/reports/liability", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "stored-value-reconciliation",
+    setup: async (worker) => auth(`load-stored-reconciliation-${worker}`),
+    run: (state) =>
+      request("/v1/stored-value/reports/reconciliation", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "customer-credit-list",
+    setup: async (worker) => auth(`load-customer-credit-${worker}`),
+    run: (state) =>
+      request("/v1/customer-credit", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
   },
   {
     name: "availability-explain",

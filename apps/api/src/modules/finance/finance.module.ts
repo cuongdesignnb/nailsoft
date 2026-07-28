@@ -4,6 +4,7 @@ import { BookingModule } from "../booking/booking.module.js";
 import { PosModule } from "../pos/pos.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
 import { BenefitsModule } from "../benefits/benefits.module.js";
+import { StoredValueModule } from "../stored-value/stored-value.module.js";
 import { CommissionService } from "./commission.service.js";
 import {
   CommissionController,
@@ -21,6 +22,7 @@ import { RefundService } from "./refund.service.js";
     IdentityModule,
     PosModule,
     BenefitsModule,
+    StoredValueModule,
   ],
   controllers: [
     RefundController,

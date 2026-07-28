@@ -41,10 +41,22 @@ export class FinancialReportingService {
     return this.report(
       auth,
       query,
-      `SELECT i.branch_id,i.currency,COALESCE(sum(i.total_minor),0) gross_invoice_minor,
-              COALESCE(sum(rs.completed_refund_minor),0) refund_minor,
-              COALESCE(sum(i.total_minor-rs.completed_refund_minor),0) net_sales_minor
-         FROM invoices i JOIN invoice_refund_summary rs ON rs.tenant_id=i.tenant_id AND rs.invoice_id=i.id
+      `SELECT i.branch_id,i.currency,COALESCE(sum(revenue.invoice_minor),0) gross_invoice_minor,
+              COALESCE(sum(refunded.refund_minor),0) refund_minor,
+              COALESCE(sum(revenue.invoice_minor-refunded.refund_minor),0) net_sales_minor
+         FROM invoices i
+         JOIN LATERAL (
+           SELECT COALESCE(sum(il.net_minor),0) invoice_minor
+             FROM invoice_lines il JOIN pos_order_lines pol ON pol.tenant_id=il.tenant_id AND pol.id=il.source_order_line_id
+            WHERE il.tenant_id=i.tenant_id AND il.invoice_id=i.id AND pol.line_type<>'GIFT_CARD'
+         ) revenue ON true
+         JOIN LATERAL (
+           SELECT COALESCE(sum(ri.total_refund_minor),0) refund_minor
+             FROM refund_items ri JOIN refunds r ON r.tenant_id=ri.tenant_id AND r.id=ri.refund_id
+             JOIN invoice_lines il ON il.tenant_id=ri.tenant_id AND il.id=ri.invoice_line_id
+             JOIN pos_order_lines pol ON pol.tenant_id=il.tenant_id AND pol.id=il.source_order_line_id
+            WHERE r.tenant_id=i.tenant_id AND r.invoice_id=i.id AND r.status='COMPLETED' AND pol.line_type<>'GIFT_CARD'
+         ) refunded ON true
         WHERE i.tenant_id=$1 AND ($2::uuid IS NULL OR i.branch_id=$2) AND i.issued_at >= COALESCE($3::timestamptz,'-infinity')
           AND i.issued_at < COALESCE($4::timestamptz,'infinity') GROUP BY i.branch_id,i.currency ORDER BY i.branch_id,i.currency`,
     );

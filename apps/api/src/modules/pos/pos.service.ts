@@ -24,6 +24,7 @@ import { DatabaseService } from "../../infrastructure/database.service.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
 import { BenefitsTransactionService } from "../benefits/benefits-transaction.service.js";
 import { InventoryOperationsService } from "../inventory/inventory-operations.service.js";
+import { StoredValueService } from "../stored-value/stored-value.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
 import { FinancialEvidenceService } from "./financial-evidence.service.js";
 import { ManualExternalProvider } from "./payment-provider.js";
@@ -49,6 +50,8 @@ export class PosService {
     private readonly benefits: BenefitsTransactionService,
     @Inject(InventoryOperationsService)
     private readonly inventory: InventoryOperationsService,
+    @Inject(StoredValueService)
+    private readonly storedValue: StoredValueService,
   ) {}
 
   async createFromAppointment(
@@ -478,8 +481,8 @@ export class PosService {
           client,
           auth,
           id,
-          "DRAFT",
-          "DRAFT",
+          order.status,
+          order.status,
           requestId,
           "REGISTER_ASSIGNED",
         );
@@ -839,7 +842,17 @@ export class PosService {
       requestId,
       async (client, order) => {
         this.assertVersion(order, body.version);
-        this.assertDraft(order);
+        if (
+          order.finalized_at ||
+          !["DRAFT", "PARTIALLY_PAID", "READY_FOR_PAYMENT"].includes(
+            order.status,
+          )
+        )
+          throw new ConflictException({
+            code: "POS_ORDER_STATUS_INVALID",
+            message: "Order cannot be finalized",
+          });
+        const fromStatus = order.status;
         await this.assertBranchActive(client, auth.tenantId, order.branch_id);
         this.assertOrderRegister(order);
         await this.registerDevice.assertRegisterAccess({
@@ -856,6 +869,11 @@ export class PosService {
             [auth.tenantId, id],
           )
         ).rows[0];
+        await this.storedValue.revalidateOrderApplications(
+          client,
+          auth,
+          priced,
+        );
         await this.validateTipInvariant(
           client,
           auth,
@@ -883,7 +901,7 @@ export class PosService {
           client,
           auth,
           id,
-          "DRAFT",
+          fromStatus,
           updated.status,
           requestId,
           "FINALIZED",
@@ -906,6 +924,13 @@ export class PosService {
             requestId,
           );
           await this.inventory.commitOrderProducts(client, auth, id);
+          await this.storedValue.commitOrderApplications(
+            client,
+            auth,
+            updated,
+            invoice?.id ?? null,
+            requestId,
+          );
         }
         await this.recordOrder(
           client,
@@ -960,6 +985,7 @@ export class PosService {
             )
           ).rows[0],
         );
+        await this.storedValue.revalidateOrderApplications(client, auth, order);
         const due = BigInt(order.amount_due_minor);
         const captured = this.pricing.assertMoney(
           body.amountToApplyMinor,
@@ -1189,6 +1215,20 @@ export class PosService {
             requestId,
           );
           await this.inventory.commitOrderProducts(client, auth, id);
+          await this.storedValue.commitOrderApplications(
+            client,
+            auth,
+            updated,
+            invoice?.id ?? null,
+            requestId,
+          );
+          await this.storedValue.activateFundedGiftCards(
+            client,
+            auth,
+            updated,
+            paymentId,
+            requestId,
+          );
           await this.checkoutAppointment(
             client,
             auth,
@@ -1269,6 +1309,18 @@ export class PosService {
           key,
         );
         await this.inventory.releaseOrderProducts(client, auth, id);
+        await this.storedValue.releaseOrderApplications(
+          client,
+          auth,
+          id,
+          requestId,
+        );
+        await this.storedValue.cancelPendingOrderCards(
+          client,
+          auth,
+          id,
+          requestId,
+        );
         await client.query(
           "UPDATE invoices SET status='VOIDED_BEFORE_PAYMENT',voided_at=now(),voided_by_user_id=$3,void_reason=$4,version=version+1,updated_at=now() WHERE tenant_id=$1 AND pos_order_id=$2 AND status='DRAFT'",
           [auth.tenantId, id, auth.userId, body.reason],
@@ -1681,6 +1733,7 @@ export class PosService {
         id: line.id,
         grossMinor: BigInt(line.gross_minor),
         lineDiscountMinor: lineDiscount,
+        discountEligible: line.line_type !== "GIFT_CARD",
         taxMode: tax.calculationMode,
         rateBasisPoints: tax.rateBasisPoints,
         roundingMode: tax.roundingMode,
@@ -1783,7 +1836,7 @@ export class PosService {
     if (lineId) {
       const line = (
         await client.query<any>(
-          "SELECT gross_minor,discount_minor FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND id=$3 AND status='ACTIVE'",
+          "SELECT line_type,gross_minor,discount_minor FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND id=$3 AND status='ACTIVE'",
           [auth.tenantId, orderId, lineId],
         )
       ).rows[0];
@@ -1792,11 +1845,16 @@ export class PosService {
           code: "POS_LINE_NOT_FOUND",
           message: "Order line not found",
         });
+      if (line.line_type === "GIFT_CARD")
+        throw new ConflictException({
+          code: "GIFT_CARD_DISCOUNT_NOT_ALLOWED",
+          message: "Gift-card funding lines are not discount eligible",
+        });
       return BigInt(line.gross_minor) - BigInt(line.discount_minor);
     }
     const row = (
       await client.query<any>(
-        "SELECT COALESCE(sum(gross_minor-discount_minor),0) eligible FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE'",
+        "SELECT COALESCE(sum(gross_minor-discount_minor) FILTER (WHERE line_type<>'GIFT_CARD'),0) eligible FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE'",
         [auth.tenantId, orderId],
       )
     ).rows[0];

@@ -219,9 +219,13 @@ describe.sequential(
         }>(
           `SELECT COALESCE(sum(captured_minor),0)::text total,
                 COALESCE(sum(captured_minor) FILTER(WHERE tender_type='CASH'),0)::text cash,
-                (SELECT COALESCE(sum(total_minor),0)::text FROM invoices
-                  WHERE tenant_id=$1 AND branch_id=$2 AND status='ISSUED'
-                    AND issued_at >= $3 AND issued_at < $4) service_sales,
+                (SELECT COALESCE(sum(il.net_minor),0)::text
+                   FROM invoices i
+                   JOIN invoice_lines il ON il.tenant_id=i.tenant_id AND il.invoice_id=i.id
+                   JOIN pos_order_lines pol ON pol.tenant_id=il.tenant_id AND pol.id=il.source_order_line_id
+                  WHERE i.tenant_id=$1 AND i.branch_id=$2 AND i.status='ISSUED'
+                    AND i.issued_at >= $3 AND i.issued_at < $4
+                    AND pol.line_type<>'GIFT_CARD') service_sales,
                 (SELECT COALESCE(sum(tip_minor),0)::text FROM invoices
                   WHERE tenant_id=$1 AND branch_id=$2 AND status='ISSUED'
                     AND issued_at >= $3 AND issued_at < $4) tips

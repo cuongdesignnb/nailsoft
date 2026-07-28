@@ -1,6 +1,6 @@
 # Sprint 9 Completion Report
 
-Status: DONE — technical exit criteria satisfied; ready for BA/Product Owner acceptance.
+Status: DONE — accepted by BA/Product Owner as the Sprint 10 start checkpoint.
 
 ## Git
 
@@ -8,6 +8,9 @@ Status: DONE — technical exit criteria satisfied; ready for BA/Product Owner a
 - Start checkpoint: `552de530fcbcee1295d638ee10a46944253d31c0`
 - Implementation commit: `f6909e167d7a861c8af5746fd8c275098a0349a8`
 - Implementation CI: [run 30339147966](https://github.com/cuongdesignnb/nailsoft/actions/runs/30339147966) — `SUCCESS`
+- Accepted CI hotfix commit: `c248f1b1d0fe35ab415551c30c1acfcf8d809724`.
+- Accepted final evidence commit: `eccc1d0c5b32acb48504ab15747e7be1895a628c`.
+- Accepted final CI: [run 30349195280](https://github.com/cuongdesignnb/nailsoft/actions/runs/30349195280) — `SUCCESS`.
 - Closure evidence commit: this document update; exact SHA and CI are reported at handoff because a commit cannot contain its own hash.
 - Working tree: clean after final commit and push verification.
 

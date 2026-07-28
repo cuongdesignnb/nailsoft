@@ -37,6 +37,11 @@ try {
   );
   if (sprint9.rowCount)
     await c.query(await readFile("infra/seeds/sprint9.sql", "utf8"));
+  const sprint10 = await c.query(
+    "SELECT 1 FROM schema_migrations WHERE version='0019_gift_card_customer_credit_stored_value'",
+  );
+  if (sprint10.rowCount)
+    await c.query(await readFile("infra/seeds/sprint10.sql", "utf8"));
 } finally {
   await c.end();
 }

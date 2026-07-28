@@ -141,7 +141,10 @@ export class BenefitsTransactionService {
           )
         ).rows[0];
         if (!code) this.notFound("VOUCHER_NOT_FOUND");
-        if (code.code_customer_id && code.code_customer_id !== order.customer_id)
+        if (
+          code.code_customer_id &&
+          code.code_customer_id !== order.customer_id
+        )
           this.conflict("BENEFIT_CUSTOMER_MISMATCH");
         const candidate = (
           await this.eligibility.forOrder(auth, orderId)
@@ -165,7 +168,8 @@ export class BenefitsTransactionService {
         ).rows[0];
         if (
           code.per_customer_use_limit &&
-          Number(usage.active_reservations) + Number(usage.net_committed_uses) >=
+          Number(usage.active_reservations) +
+            Number(usage.net_committed_uses) >=
             Number(code.per_customer_use_limit)
         )
           this.conflict("VOUCHER_USAGE_LIMIT_REACHED");
@@ -270,11 +274,27 @@ export class BenefitsTransactionService {
           )
         ).rows[0];
         if (!program) this.notFound("LOYALTY_ACCOUNT_NOT_FOUND");
-        const redemptionPoints = BigInt(program.redemption_points),
+        const eligibleLineTotal = BigInt(
+            (
+              await c.query<any>(
+                "SELECT COALESCE(sum(net_minor),0) amount FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE' AND line_type<>'GIFT_CARD'",
+                [auth.tenantId, order.id],
+              )
+            ).rows[0].amount,
+          ),
+          priorBenefits = BigInt(
+            (
+              await c.query<any>(
+                "SELECT COALESCE(sum(amount_minor),0) amount FROM pos_order_benefit_applications WHERE tenant_id=$1 AND pos_order_id=$2 AND status='RESERVED'",
+                [auth.tenantId, order.id],
+              )
+            ).rows[0].amount,
+          ),
+          redemptionPoints = BigInt(program.redemption_points),
           redemptionMinor = BigInt(program.redemption_minor),
           serviceDue =
-            BigInt(order.total_minor) > BigInt(order.amount_paid_minor)
-              ? BigInt(order.total_minor) - BigInt(order.amount_paid_minor)
+            eligibleLineTotal > priorBenefits
+              ? eligibleLineTotal - priorBenefits
               : 0n,
           plan = loyaltyRedemptionPlan({
             requestedPoints: BigInt(b.points),
@@ -414,8 +434,14 @@ export class BenefitsTransactionService {
           (x) => x.type === "PERCENT_DISCOUNT" || x.type === "FIXED_DISCOUNT",
         );
         if (!benefit) this.conflict("BENEFIT_NOT_ELIGIBLE");
-        const eligible =
-          BigInt(order.subtotal_minor) - BigInt(order.discount_minor);
+        const eligible = BigInt(
+          (
+            await c.query<any>(
+              "SELECT COALESCE(sum(gross_minor-discount_minor),0) amount FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE' AND line_type<>'GIFT_CARD'",
+              [auth.tenantId, order.id],
+            )
+          ).rows[0].amount,
+        );
         const amount = fixedOrPercentDiscount({
           type: benefit.type === "PERCENT_DISCOUNT" ? "PERCENT" : "FIXED",
           value: BigInt(benefit.value),
@@ -821,9 +847,12 @@ export class BenefitsTransactionService {
           ).rows[0];
           if (
             appointment &&
-            ["CHECKED_IN", "IN_SERVICE", "PARTIALLY_COMPLETED", "COMPLETED"].includes(
-              appointment.status,
-            )
+            [
+              "CHECKED_IN",
+              "IN_SERVICE",
+              "PARTIALLY_COMPLETED",
+              "COMPLETED",
+            ].includes(appointment.status)
           )
             expired = false;
         }
@@ -867,7 +896,11 @@ export class BenefitsTransactionService {
     }
     await this.earnLoyalty(c, auth, order, invoiceId, requestId);
     if (order.customer_id) {
-      await this.recomputeMembershipMetrics(c, auth.tenantId, order.customer_id);
+      await this.recomputeMembershipMetrics(
+        c,
+        auth.tenantId,
+        order.customer_id,
+      );
       await c.query(
         `INSERT INTO benefit_jobs(tenant_id,job_type,aggregate_id,generation_key,run_at,payload_json)
          VALUES($1,'MEMBERSHIP_EVALUATION',$2,$3,now(),$4)
@@ -992,7 +1025,8 @@ export class BenefitsTransactionService {
     ).rows[0];
     const lineTotal = BigInt(allocation.line_total_minor),
       priorRefunded = BigInt(prior.refunded),
-      remainingLine = lineTotal > priorRefunded ? lineTotal - priorRefunded : 0n,
+      remainingLine =
+        lineTotal > priorRefunded ? lineTotal - priorRefunded : 0n,
       currentRefund =
         BigInt(allocation.total_refund_minor) < remainingLine
           ? BigInt(allocation.total_refund_minor)
@@ -1009,8 +1043,7 @@ export class BenefitsTransactionService {
           : 0n,
       desiredPoints =
         lineTotal > 0n
-          ? (BigInt(allocation.allocated_points) * cumulativeRefund) /
-            lineTotal
+          ? (BigInt(allocation.allocated_points) * cumulativeRefund) / lineTotal
           : 0n,
       restoredPoints =
         desiredPoints > BigInt(prior.points)
@@ -1094,7 +1127,8 @@ export class BenefitsTransactionService {
         policy === "RESTORE_UNIT" &&
         Number(prior.units) < Number(allocation.allocated_units)
       ) {
-        restoredUnits = Number(allocation.allocated_units) - Number(prior.units);
+        restoredUnits =
+          Number(allocation.allocated_units) - Number(prior.units);
         const reservation = (
           await c.query<any>(
             "SELECT * FROM package_reservations WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
@@ -1198,10 +1232,7 @@ export class BenefitsTransactionService {
               use,
             ],
           );
-          if (
-            Number(applicationPrior.restored_use) + Number(use) >=
-            0.999999
-          ) {
+          if (Number(applicationPrior.restored_use) + Number(use) >= 0.999999) {
             await c.query(
               "UPDATE voucher_codes SET used_count=GREATEST(used_count-1,0),status=CASE WHEN used_count-1<=0 THEN 'AVAILABLE' ELSE 'PARTIALLY_USED' END,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
               [auth.tenantId, reservation.voucher_code_id],
@@ -1341,7 +1372,8 @@ export class BenefitsTransactionService {
     invoiceId: string | null,
     applications: any[],
   ) {
-    if (!invoiceId && applications.length) this.conflict("BENEFIT_ALLOCATION_MISSING");
+    if (!invoiceId && applications.length)
+      this.conflict("BENEFIT_ALLOCATION_MISSING");
     if (!invoiceId) return;
     const lines = (
       await c.query<any>(
@@ -1403,9 +1435,7 @@ export class BenefitsTransactionService {
             line.invoice_line_id,
             amount.toString(),
             points.toString(),
-            application.benefit_type === "PACKAGE"
-              ? application.units
-              : 0,
+            application.benefit_type === "PACKAGE" ? application.units : 0,
           ],
         );
         remainingAmount -= amount;
@@ -1461,7 +1491,9 @@ export class BenefitsTransactionService {
   }
 
   private appointmentPackageExpiry(endAt: string) {
-    return new Date(new Date(endAt).getTime() + 2 * 60 * 60 * 1000).toISOString();
+    return new Date(
+      new Date(endAt).getTime() + 2 * 60 * 60 * 1000,
+    ).toISOString();
   }
 
   private async allocateLoyaltyLots(
@@ -1621,12 +1653,7 @@ export class BenefitsTransactionService {
         );
         await c.query(
           "UPDATE loyalty_accounts SET reserved_points=reserved_points-$3,available_points=available_points-$4,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-          [
-            auth.tenantId,
-            row.account_id,
-            row.points,
-            expiredPoints.toString(),
-          ],
+          [auth.tenantId, row.account_id, row.points, expiredPoints.toString()],
         );
         await c.query(
           `INSERT INTO loyalty_ledger_entries(tenant_id,account_id,customer_id,reservation_id,pos_order_id,entry_type,reserved_delta,policy_snapshot_json,generation_key,created_by_user_id) VALUES($1,$2,$3,$4,$5,'REDEEM_RELEASE',$6,$7,$8,$9) ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
@@ -1866,8 +1893,18 @@ export class BenefitsTransactionService {
         [auth.tenantId, order.customer_id],
       )
     ).rows[0];
+    const earnBase = BigInt(
+      (
+        await c.query<any>(
+          `SELECT GREATEST(0,
+      COALESCE((SELECT sum(net_minor) FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE' AND line_type<>'GIFT_CARD'),0)
+      -COALESCE((SELECT sum(amount_minor) FROM pos_order_benefit_applications WHERE tenant_id=$1 AND pos_order_id=$2 AND status='COMMITTED'),0)) amount`,
+          [auth.tenantId, order.id],
+        )
+      ).rows[0].amount,
+    );
     let points = loyaltyEarnPoints(
-      BigInt(order.total_minor),
+      earnBase,
       BigInt(program.spend_minor_per_point),
     );
     const membership = (
@@ -2029,7 +2066,8 @@ export class BenefitsTransactionService {
           for (const lot of lots) {
             if (remaining === 0n) break;
             const availablePoints = BigInt(lot.available_points),
-              consumed = availablePoints < remaining ? availablePoints : remaining;
+              consumed =
+                availablePoints < remaining ? availablePoints : remaining;
             await c.query(
               `UPDATE loyalty_point_lots SET available_points=available_points-$3,
                  status=CASE WHEN available_points-$3=0 AND reserved_points=0 THEN 'EXHAUSTED' WHEN available_points-$3=0 THEN 'RESERVED' ELSE 'AVAILABLE' END,

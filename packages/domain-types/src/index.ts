@@ -283,6 +283,38 @@ export interface ServiceSessionSummary {
   version: number;
 }
 
+export type GiftCardStatus =
+  | "PENDING_ACTIVATION"
+  | "ACTIVE"
+  | "SUSPENDED"
+  | "DEPLETED"
+  | "EXPIRED"
+  | "CANCELLED"
+  | "REPLACED";
+export type StoredValueAccountType = "GIFT_CARD" | "CUSTOMER_CREDIT";
+export interface StoredValueBalance {
+  accountId: string;
+  accountType: StoredValueAccountType;
+  currency: string;
+  pendingMinor: string;
+  availableMinor: string;
+  reservedMinor: string;
+  redeemedMinor: string;
+  liabilityMinor: string;
+  version: number;
+}
+export interface GiftCardSummary {
+  id: string;
+  cardReference: string;
+  maskedNumber: string;
+  customerId?: string;
+  status: GiftCardStatus;
+  currency: string;
+  expiresAt?: string;
+  balance: StoredValueBalance;
+  version: number;
+}
+
 export type PosOrderStatus =
   | "DRAFT"
   | "READY_FOR_PAYMENT"

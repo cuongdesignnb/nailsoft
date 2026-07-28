@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.11.0,
-    description: Sprint 9 inventory,
+    version: 0.12.0,
+    description: Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
     supplier and purchase operations plus Sprint 8 voucher,
     loyalty,
     membership and service package benefits plus Sprint 7 refund,
@@ -18,6 +18,262 @@ info:
 servers: [{ url: http://localhost:3001/v1 }]
 security: [{ bearerAuth: [], tenantContext: [] }]
 paths:
+  /gift-card-products:
+    get:
+      {
+        tags: [stored-value],
+        summary: List versioned gift-card products,
+        responses: { "200": { description: Products } },
+      }
+    post:
+      {
+        tags: [stored-value],
+        summary: Create draft gift-card product,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          { "200": { description: Created }, "409": { description: Conflict } },
+      }
+  /gift-card-products/{productId}:
+    get:
+      {
+        tags: [stored-value],
+        summary: Get gift-card product,
+        responses:
+          {
+            "200": { description: Product },
+            "404": { description: Not found },
+          },
+      }
+  /gift-card-products/{productId}/activate:
+    post:
+      {
+        tags: [stored-value],
+        summary: Activate product version,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Activated },
+            "409": { description: Version conflict },
+          },
+      }
+  /gift-card-products/{productId}/supersede:
+    post:
+      {
+        tags: [stored-value],
+        summary: Supersede immutable product policy,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Superseded } },
+      }
+  /gift-cards:
+    get:
+      {
+        tags: [stored-value],
+        summary: List tenant-scoped masked gift cards,
+        responses: { "200": { description: Cards } },
+      }
+  /gift-cards/lookup:
+    post:
+      {
+        tags: [stored-value],
+        summary: Rate-limited masked card lookup,
+        responses:
+          {
+            "200": { description: Masked card and balance },
+            "409": { description: Invalid or locked },
+          },
+      }
+  /gift-cards/{giftCardId}:
+    get:
+      {
+        tags: [stored-value],
+        summary: Get masked gift-card detail,
+        responses: { "200": { description: Card } },
+      }
+  /gift-cards/{giftCardId}/balance:
+    get:
+      {
+        tags: [stored-value],
+        summary: Get authoritative balance projection,
+        responses: { "200": { description: Balance } },
+      }
+  /gift-cards/{giftCardId}/ledger:
+    get:
+      {
+        tags: [stored-value],
+        summary: Get append-only ledger,
+        responses: { "200": { description: Ledger } },
+      }
+  /gift-cards/{giftCardId}/suspend:
+    post:
+      {
+        tags: [stored-value],
+        summary: Suspend active card,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Suspended } },
+      }
+  /gift-cards/{giftCardId}/reactivate:
+    post:
+      {
+        tags: [stored-value],
+        summary: Reactivate suspended card,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Active } },
+      }
+  /gift-cards/{giftCardId}/cancel:
+    post:
+      {
+        tags: [stored-value],
+        summary: Cancel card without deleting history,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Cancelled } },
+      }
+  /gift-cards/{giftCardId}/replace:
+    post:
+      {
+        tags: [stored-value],
+        summary: Atomically replace and transfer liability,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          { "200": { description: Replacement credentials returned once } },
+      }
+  /gift-cards/{giftCardId}/reload:
+    post:
+      {
+        tags: [stored-value],
+        summary: Reload from captured funding payment,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Reloaded } },
+      }
+  /pos-orders/{orderId}/gift-card-lines:
+    post:
+      {
+        tags: [stored-value],
+        summary: Add non-discountable gift-card funding line,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200":
+              { description: Pending activation and display-once credentials },
+          },
+      }
+  /pos-orders/{orderId}/stored-value/eligibility:
+    get:
+      {
+        tags: [stored-value],
+        summary: Get server-derived eligible due excluding tip and gift-card lines,
+        responses: { "200": { description: Eligibility } },
+      }
+  /pos-orders/{orderId}/stored-value:
+    get:
+      {
+        tags: [stored-value],
+        summary: List order stored-value applications,
+        responses: { "200": { description: Applications } },
+      }
+  /pos-orders/{orderId}/stored-value/gift-card:
+    post:
+      {
+        tags: [stored-value],
+        summary: Reserve gift-card balance online,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Reservation },
+            "409": { description: Balance or version conflict },
+          },
+      }
+  /pos-orders/{orderId}/stored-value/customer-credit:
+    post:
+      {
+        tags: [stored-value],
+        summary: Reserve customer-bound credit online,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Reservation } },
+      }
+  /pos-orders/{orderId}/stored-value/{applicationId}/release:
+    post:
+      {
+        tags: [stored-value],
+        summary: Release active reservation,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Released } },
+      }
+  /customers/{customerId}/customer-credit:
+    get:
+      {
+        tags: [stored-value],
+        summary: Get customer-bound credit,
+        responses: { "200": { description: Credit accounts } },
+      }
+  /stored-value-adjustments:
+    get:
+      {
+        tags: [stored-value],
+        summary: List dual-control adjustments,
+        responses: { "200": { description: Adjustments } },
+      }
+    post:
+      {
+        tags: [stored-value],
+        summary: Request customer credit adjustment,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Pending adjustment } },
+      }
+  /stored-value-adjustments/{id}/approve:
+    post:
+      {
+        tags: [stored-value],
+        summary: Independently approve and post adjustment,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Posted },
+            "409": { description: Self-approval or version conflict },
+          },
+      }
+  /refunds/{refundId}/stored-value-plan:
+    post:
+      {
+        tags: [stored-value],
+        summary: Preview exact original stored-value allocation,
+        responses: { "200": { description: Plan } },
+      }
+  /refunds/{refundId}/issue-customer-credit:
+    post:
+      {
+        tags: [stored-value],
+        summary: Issue approved refund destination to customer credit,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Credit issued } },
+      }
+  /customer/me/gift-cards:
+    get:
+      {
+        tags: [customer-wallet],
+        summary: List own assigned gift cards,
+        responses: { "200": { description: Own cards } },
+      }
+  /customer/me/customer-credit:
+    get:
+      {
+        tags: [customer-wallet],
+        summary: Get own customer credit,
+        responses: { "200": { description: Own credit } },
+      }
+  /customer/me/stored-value-history:
+    get:
+      {
+        tags: [customer-wallet],
+        summary: Get own stored-value history,
+        responses: { "200": { description: Own history } },
+      }
+  /stored-value/reports/{kind}:
+    get:
+      {
+        tags: [stored-value],
+        summary: Liability issuance redemption aging or reconciliation report,
+        responses: { "200": { description: Report } },
+      }
   /inventory/items:
     get:
       {
@@ -3238,6 +3494,13 @@ components:
               },
           }
         tipAmountMinor: { type: integer, minimum: 0, default: 0 }
+        refundDestination:
+          {
+            type: string,
+            enum: [ORIGINAL_TENDER, CUSTOMER_CREDIT],
+            default: ORIGINAL_TENDER,
+            description: Mutually exclusive refund destination selected during planning; customer credit cannot include tip or payment preferences,
+          }
         overrideReason:
           {
             type: string,
