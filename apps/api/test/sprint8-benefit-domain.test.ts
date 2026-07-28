@@ -6,6 +6,7 @@ import {
   liability,
   loyaltyEarnPoints,
   loyaltyRedemptionMinor,
+  loyaltyRedemptionPlan,
   normalizeVoucherCode,
   packageBalance,
   voucherCodeHash,
@@ -49,6 +50,29 @@ describe("Sprint 8 benefit domain", () => {
         packageUnitValueMinor: 20_000n,
       }),
     ).toEqual({ loyaltyMinor: 50_000n, packageMinor: 60_000n });
+  });
+  it("never lets loyalty cover tip and reserves only accepted points", () => {
+    expect(
+      loyaltyRedemptionPlan({
+        requestedPoints: 500n,
+        eligibleDueMinor: 25_000n,
+        redemptionPoints: 100n,
+        redemptionMinor: 10_000n,
+      }),
+    ).toEqual({
+      requestedPoints: 500n,
+      acceptedPoints: 200n,
+      appliedMinor: 20_000n,
+      unusedPoints: 300n,
+    });
+    expect(
+      loyaltyRedemptionPlan({
+        requestedPoints: 500n,
+        eligibleDueMinor: 0n,
+        redemptionPoints: 100n,
+        redemptionMinor: 10_000n,
+      }).appliedMinor,
+    ).toBe(0n);
   });
   it("keeps package units exact", () => {
     expect(

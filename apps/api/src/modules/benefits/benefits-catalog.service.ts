@@ -888,30 +888,112 @@ export class BenefitsCatalogService {
     requestId: string,
   ) {
     return this.command(auth, "membership.evaluate", key, input, async (c) => {
+      await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+        `membership:${auth.tenantId}:${customerId}`,
+      ]);
+      const windowDays = Number(
+        (
+          await c.query<any>(
+            `SELECT COALESCE(max(rolling_window_days),365) days
+             FROM membership_tiers
+             WHERE tenant_id=$1 AND status='ACTIVE' AND rolling_window_days IS NOT NULL`,
+            [auth.tenantId],
+          )
+        ).rows[0]?.days ?? 365,
+      );
       const metrics = (
         await c.query<any>(
-          "SELECT * FROM customer_membership_metrics WHERE tenant_id=$1 AND customer_id=$2 FOR UPDATE",
+          "SELECT * FROM sprint8_membership_metrics($1,$2,now(),$3)",
+          [auth.tenantId, customerId, windowDays],
+        )
+      ).rows[0] ?? {
+        spend_minor: 0,
+        visit_count: 0,
+      };
+      const lifetime = (
+        await c.query<any>(
+          "SELECT * FROM sprint8_membership_metrics($1,$2,now(),NULL)",
           [auth.tenantId, customerId],
         )
-      ).rows[0] ?? { rolling_spend_minor: 0, visit_count: 0 };
+      ).rows[0] ?? { spend_minor: 0 };
+      await c.query(
+        `INSERT INTO customer_membership_metrics(
+           tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,window_started_at,last_evaluated_at)
+         VALUES($1,$2,$3,$4,$5,now()-make_interval(days=>$6),now())
+         ON CONFLICT(tenant_id,customer_id) DO UPDATE SET
+           rolling_spend_minor=EXCLUDED.rolling_spend_minor,
+           lifetime_spend_minor=EXCLUDED.lifetime_spend_minor,
+           visit_count=EXCLUDED.visit_count,window_started_at=EXCLUDED.window_started_at,
+           last_evaluated_at=now(),version=customer_membership_metrics.version+1`,
+        [
+          auth.tenantId,
+          customerId,
+          metrics.spend_minor,
+          lifetime.spend_minor,
+          metrics.visit_count,
+          windowDays,
+        ],
+      );
       const tier = (
         await c.query<any>(
-          `SELECT * FROM membership_tiers WHERE tenant_id=$1 AND status='ACTIVE' AND effective_from<=now() AND (effective_to IS NULL OR effective_to>now()) AND ((qualification_type='ROLLING_SPEND' AND qualification_threshold<=$2) OR (qualification_type='VISIT_COUNT' AND qualification_threshold<=$3)) ORDER BY priority DESC LIMIT 1`,
-          [auth.tenantId, metrics.rolling_spend_minor, metrics.visit_count],
+          `SELECT t.*
+           FROM membership_tiers t
+           CROSS JOIN LATERAL sprint8_membership_metrics(
+             $1,$2,now(),CASE WHEN t.qualification_type IN('ROLLING_SPEND','VISIT_COUNT')
+               THEN COALESCE(t.rolling_window_days,365) ELSE NULL END
+           ) m
+           WHERE t.tenant_id=$1 AND t.status='ACTIVE' AND t.effective_from<=now()
+             AND (t.effective_to IS NULL OR t.effective_to>now())
+             AND ((t.qualification_type='ROLLING_SPEND' AND t.qualification_threshold<=m.spend_minor)
+               OR (t.qualification_type='VISIT_COUNT' AND t.qualification_threshold<=m.visit_count))
+           ORDER BY t.priority DESC LIMIT 1`,
+          [auth.tenantId, customerId],
         )
       ).rows[0];
-      if (!tier)
+      const current = (
+        await c.query<any>(
+          `SELECT a.*,t.priority current_priority
+           FROM customer_membership_assignments a
+           JOIN membership_tiers t ON t.tenant_id=a.tenant_id AND t.id=a.tier_id
+           WHERE a.tenant_id=$1 AND a.customer_id=$2 AND a.status='ACTIVE'
+           ORDER BY a.effective_from DESC LIMIT 1 FOR UPDATE OF a`,
+          [auth.tenantId, customerId],
+        )
+      ).rows[0];
+      if (current?.assignment_source === "MANUAL")
         return {
           customerId,
           changed: false,
-          reasonCodes: ["MEMBERSHIP_TIER_NOT_FOUND"],
+          assignmentId: current.id,
+          reasonCodes: ["MANUAL_ASSIGNMENT_PROTECTED"],
         };
-      const current = (
-        await c.query<any>(
-          "SELECT * FROM customer_membership_assignments WHERE tenant_id=$1 AND customer_id=$2 AND status='ACTIVE' ORDER BY effective_from DESC LIMIT 1 FOR UPDATE",
-          [auth.tenantId, customerId],
-        )
-      ).rows[0];
+      if (!tier) {
+        if (!current)
+          return {
+            customerId,
+            changed: false,
+            reasonCodes: ["MEMBERSHIP_TIER_NOT_FOUND"],
+          };
+        await c.query(
+          "UPDATE customer_membership_assignments SET status='SUPERSEDED',effective_to=now(),reason_code='AUTOMATIC_DOWNGRADE_NO_TIER',updated_at=now() WHERE tenant_id=$1 AND id=$2",
+          [auth.tenantId, current.id],
+        );
+        await this.evidence(
+          c,
+          auth,
+          "membership.downgraded",
+          "membership_assignment",
+          current.id,
+          requestId,
+          { customerId, fromTierId: current.tier_id, toTierId: null },
+        );
+        return {
+          customerId,
+          changed: true,
+          assignmentId: null,
+          reasonCodes: ["AUTOMATIC_DOWNGRADE_NO_TIER"],
+        };
+      }
       if (current?.tier_id === tier.id)
         return { customerId, changed: false, assignmentId: current.id };
       if (current)
@@ -926,7 +1008,11 @@ export class BenefitsCatalogService {
         tier.id,
         new Date().toISOString(),
         null,
-        current ? "AUTOMATIC_UPGRADE" : "AUTOMATIC_ASSIGN",
+        current && Number(tier.priority) < Number(current.current_priority)
+          ? "AUTOMATIC_DOWNGRADE"
+          : current
+            ? "AUTOMATIC_UPGRADE"
+            : "AUTOMATIC_ASSIGN",
         requestId,
         current?.id,
       );
@@ -1404,7 +1490,7 @@ export class BenefitsCatalogService {
     try {
       const row = (
         await c.query<any>(
-          `INSERT INTO customer_membership_assignments(id,tenant_id,customer_id,tier_id,status,effective_from,effective_to,benefit_snapshot_json,qualification_snapshot_json,supersedes_assignment_id,reason_code,assigned_by_user_id) VALUES($1,$2,$3,$4,'ACTIVE',$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+          `INSERT INTO customer_membership_assignments(id,tenant_id,customer_id,tier_id,status,effective_from,effective_to,benefit_snapshot_json,qualification_snapshot_json,supersedes_assignment_id,reason_code,assigned_by_user_id,assignment_source) VALUES($1,$2,$3,$4,'ACTIVE',$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
           [
             id,
             auth.tenantId,
@@ -1420,6 +1506,7 @@ export class BenefitsCatalogService {
             supersedes ?? null,
             reason,
             auth.userId,
+            reason.startsWith("MANUAL") ? "MANUAL" : "AUTOMATIC",
           ],
         )
       ).rows[0];

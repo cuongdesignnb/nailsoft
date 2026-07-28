@@ -11,3 +11,11 @@ All internal commands require bearer authentication, tenant context, granular pe
 | Benefits | `/pos-orders/{id}/benefits[/eligibility]`, `/appointments/{id}/benefits`, reports | apply/release and export |
 
 Customer self-service uses `/customer/me/benefits|loyalty|membership|packages`. Booking management uses capability-bound `/public/salons/{slug}/customer-packages` and `/package-reservations`; it never accepts a customer identifier. Responses expose voucher last-four only.
+
+## Closure invariants
+
+- Loyalty commands store `requestedPoints`, `acceptedPoints`, `appliedMinor` and `unusedPoints`; acceptance stops at service due before tip.
+- Package `units` in a request is a compatibility assertion. The matched service/package eligibility row is authoritative; mismatch returns `PACKAGE_UNITS_MISMATCH`.
+- Multiple package applications are allowed only when they cover distinct active order lines.
+- Fixed voucher currency is checked against the server-resolved order/branch currency and returns `VOUCHER_CURRENCY_MISMATCH` on mismatch.
+- Completed refund reversal follows immutable application-to-line allocations. Missing or ambiguous historical allocation fails closed with `BENEFIT_ALLOCATION_MISSING` or `BENEFIT_REVERSAL_CONFLICT`.

@@ -2553,6 +2553,14 @@ paths:
       summary: Read effective membership assignment history
       parameters: [{ name: customerId, in: path, required: true, schema: { type: string, format: uuid } }]
       responses: { "200": { description: Membership history } }
+  /customers/{customerId}/membership/evaluate:
+    post:
+      tags: [benefits]
+      summary: Recompute rolling paid-minus-refunded metrics and upgrade, downgrade or remove the automatic tier
+      parameters:
+        - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses: { "201": { description: Evaluation result }, "409": { description: Concurrent assignment conflict } }
   /service-packages:
     get: { tags: [benefits], summary: List package products, responses: { "200": { description: Products } } }
     post: { tags: [benefits], summary: Create a versioned package product, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], responses: { "201": { description: Product } } }
@@ -2585,7 +2593,17 @@ paths:
         - { name: orderId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: benefitType, in: path, required: true, schema: { enum: [package, membership, voucher, loyalty] } }
         - { $ref: "#/components/parameters/IdempotencyKey" }
-      responses: { "201": { description: Repriced order }, "409": { description: Reservation conflict } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - { $ref: "#/components/schemas/LoyaltyBenefitCommand" }
+                - { $ref: "#/components/schemas/PackageBenefitCommand" }
+      responses:
+        "201": { description: Repriced order with authoritative requested/accepted/applied/unused loyalty contract }
+        "409": { description: Reservation, package-unit, currency or version conflict }
   /customer/me/benefits:
     get: { tags: [benefits], summary: Read the authenticated customer's wallet, responses: { "200": { description: Wallet } } }
   /benefits/reports/liability:
@@ -2724,6 +2742,30 @@ components:
         pointsDelta: { type: integer, not: { const: 0 } }
         reasonCode: { type: string, minLength: 1, maxLength: 80 }
         note: { type: string, minLength: 3, maxLength: 2000 }
+    LoyaltyBenefitCommand:
+      type: object
+      additionalProperties: false
+      required: [version, points]
+      properties:
+        version: { type: integer, minimum: 1 }
+        points: { type: integer, minimum: 1, description: Requested points; server caps accepted points at eligible service due before tip }
+    LoyaltyReservationContract:
+      type: object
+      required: [requestedPoints, acceptedPoints, appliedMinor, unusedPoints]
+      properties:
+        requestedPoints: { type: integer, minimum: 1 }
+        acceptedPoints: { type: integer, minimum: 1 }
+        appliedMinor: { type: integer, minimum: 1 }
+        unusedPoints: { type: integer, minimum: 0 }
+    PackageBenefitCommand:
+      type: object
+      additionalProperties: false
+      required: [version, entitlementId, orderLineId, units]
+      properties:
+        version: { type: integer, minimum: 1 }
+        entitlementId: { type: string, format: uuid }
+        orderLineId: { type: string, format: uuid }
+        units: { type: integer, minimum: 1, description: Compatibility assertion only; server derives authoritative units from the matched eligibility item }
     AppointmentPackageReservation:
       type: object
       additionalProperties: false

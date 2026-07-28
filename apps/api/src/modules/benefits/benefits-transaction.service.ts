@@ -26,7 +26,7 @@ import type { AccessClaims } from "../identity/auth.types.js";
 import {
   fixedOrPercentDiscount,
   loyaltyEarnPoints,
-  loyaltyRedemptionMinor,
+  loyaltyRedemptionPlan,
   voucherCodeHash,
 } from "./benefit-domain.js";
 import { BenefitsEligibilityService } from "./benefits-eligibility.service.js";
@@ -55,7 +55,11 @@ export class BenefitsTransactionService {
     await this.order(auth, id);
     return (
       await this.db.query<any>(
-        `SELECT id,benefit_type "benefitType",source_entity_id "sourceEntityId",reservation_id "reservationId",status,sequence_no "sequenceNo",amount_minor "amountMinor",units,allocation_json "allocation",policy_snapshot_json "policySnapshot",expires_at "expiresAt",version FROM pos_order_benefit_applications WHERE tenant_id=$1 AND pos_order_id=$2 ORDER BY sequence_no`,
+        `SELECT a.id,a.benefit_type "benefitType",a.source_entity_id "sourceEntityId",a.reservation_id "reservationId",a.covered_order_line_id "coveredOrderLineId",a.status,a.sequence_no "sequenceNo",a.amount_minor "amountMinor",a.units,a.allocation_json "allocation",a.policy_snapshot_json "policySnapshot",a.expires_at "expiresAt",a.version,
+          lr.requested_points "requestedPoints",lr.accepted_points "acceptedPoints",lr.unused_points "unusedPoints"
+         FROM pos_order_benefit_applications a
+         LEFT JOIN loyalty_reservations lr ON lr.tenant_id=a.tenant_id AND lr.id=a.reservation_id AND a.benefit_type='LOYALTY'
+         WHERE a.tenant_id=$1 AND a.pos_order_id=$2 ORDER BY a.sequence_no,a.created_at`,
         [auth.tenantId, id],
       )
     ).rows;
@@ -82,6 +86,13 @@ export class BenefitsTransactionService {
       )
     ).rows[0];
     if (!code) return { eligible: false, reasonCodes: ["VOUCHER_INVALID"] };
+    const branch = (
+      await this.db.query<any>(
+        "SELECT currency FROM branch_settings WHERE tenant_id=$1 AND branch_id=$2",
+        [auth.tenantId, b.branchId],
+      )
+    ).rows[0];
+    if (!branch) this.notFound("BRANCH_NOT_FOUND");
     const result = await this.eligibility.evaluate({
       tenantId: auth.tenantId,
       branchId: b.branchId,
@@ -92,7 +103,7 @@ export class BenefitsTransactionService {
         amountMinor: BigInt(x.amountMinor),
       })),
       localDateTime: b.localDateTime,
-      currency: "VND",
+      currency: branch.currency,
     });
     return (
       result.vouchers.find((x: any) => x.id === code.id) ?? {
@@ -122,22 +133,42 @@ export class BenefitsTransactionService {
         const hash = voucherCodeHash(b.code, auth.tenantId);
         const code = (
           await c.query<any>(
-            `SELECT vc.*,ca.* FROM voucher_codes vc JOIN voucher_campaigns ca ON ca.tenant_id=vc.tenant_id AND ca.id=vc.campaign_id WHERE vc.tenant_id=$1 AND vc.code_hash=$2 FOR UPDATE OF vc,ca`,
+            `SELECT vc.id voucher_code_id,vc.campaign_id,vc.customer_id code_customer_id,vc.code_last4,
+              vc.use_limit,vc.reserved_count code_reserved_count,vc.used_count code_used_count,vc.status code_status,
+              ca.* FROM voucher_codes vc JOIN voucher_campaigns ca ON ca.tenant_id=vc.tenant_id AND ca.id=vc.campaign_id
+             WHERE vc.tenant_id=$1 AND vc.code_hash=$2 FOR UPDATE OF vc,ca`,
             [auth.tenantId, hash],
           )
         ).rows[0];
         if (!code) this.notFound("VOUCHER_NOT_FOUND");
-        if (code.customer_id && code.customer_id !== order.customer_id)
+        if (code.code_customer_id && code.code_customer_id !== order.customer_id)
           this.conflict("BENEFIT_CUSTOMER_MISMATCH");
         const candidate = (
           await this.eligibility.forOrder(auth, orderId)
-        ).vouchers.find((x: any) => x.id === code.id);
+        ).vouchers.find((x: any) => x.id === code.voucher_code_id);
         if (!candidate?.eligible)
           throw new ConflictException({
             code: candidate?.reasonCodes?.[0] ?? "BENEFIT_NOT_ELIGIBLE",
             message: "Voucher is not eligible",
             details: candidate?.reasonCodes,
           });
+        await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+          `voucher-customer:${auth.tenantId}:${code.campaign_id}:${order.customer_id}`,
+        ]);
+        const usage = (
+          await c.query<any>(
+            `INSERT INTO voucher_customer_usage(tenant_id,campaign_id,customer_id)
+             VALUES($1,$2,$3) ON CONFLICT(tenant_id,campaign_id,customer_id)
+             DO UPDATE SET updated_at=voucher_customer_usage.updated_at RETURNING *`,
+            [auth.tenantId, code.campaign_id, order.customer_id],
+          )
+        ).rows[0];
+        if (
+          code.per_customer_use_limit &&
+          Number(usage.active_reservations) + Number(usage.net_committed_uses) >=
+            Number(code.per_customer_use_limit)
+        )
+          this.conflict("VOUCHER_USAGE_LIMIT_REACHED");
         const ttl = new Date(Date.now() + 15 * 60000).toISOString(),
           reservationId = randomUUID(),
           applicationId = randomUUID();
@@ -148,8 +179,11 @@ export class BenefitsTransactionService {
         if (!campaignUpdate.rowCount)
           this.conflict("VOUCHER_USAGE_LIMIT_REACHED");
         const codeUpdate = await c.query(
-          `UPDATE voucher_codes SET reserved_count=reserved_count+1,status='RESERVED',version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND reserved_count+used_count<use_limit`,
-          [auth.tenantId, code.id],
+          `UPDATE voucher_codes SET reserved_count=reserved_count+1,
+             status=CASE WHEN used_count=0 THEN 'AVAILABLE' ELSE 'PARTIALLY_USED' END,
+             version=version+1,updated_at=now()
+           WHERE tenant_id=$1 AND id=$2 AND reserved_count+used_count<use_limit`,
+          [auth.tenantId, code.voucher_code_id],
         );
         if (!codeUpdate.rowCount) this.conflict("VOUCHER_RESERVATION_CONFLICT");
         await c.query(
@@ -157,7 +191,7 @@ export class BenefitsTransactionService {
           [
             reservationId,
             auth.tenantId,
-            code.id,
+            code.voucher_code_id,
             code.campaign_id,
             order.customer_id,
             order.branch_id,
@@ -176,13 +210,17 @@ export class BenefitsTransactionService {
             auth.tenantId,
             order.id,
             order.customer_id,
-            code.id,
+            code.voucher_code_id,
             reservationId,
             candidate.calculatedAmountMinor,
             JSON.stringify(candidate.policySnapshot),
             `benefit-voucher:${key}`,
             ttl,
           ],
+        );
+        await c.query(
+          "UPDATE voucher_customer_usage SET active_reservations=active_reservations+1,version=version+1,updated_at=now() WHERE tenant_id=$1 AND campaign_id=$2 AND customer_id=$3",
+          [auth.tenantId, code.campaign_id, order.customer_id],
         );
         await this.reprice(c, auth, order.id);
         await this.evidence(
@@ -225,11 +263,6 @@ export class BenefitsTransactionService {
         if (!account) this.notFound("LOYALTY_ACCOUNT_NOT_FOUND");
         if (BigInt(account.available_points) < 0n)
           this.conflict("LOYALTY_NEGATIVE_BALANCE");
-        if (
-          BigInt(account.available_points) - BigInt(account.reserved_points) <
-          BigInt(b.points)
-        )
-          this.conflict("LOYALTY_INSUFFICIENT_POINTS");
         const program = (
           await c.query<any>(
             "SELECT * FROM loyalty_programs WHERE tenant_id=$1 AND status='ACTIVE' AND effective_from<=now() AND (effective_to IS NULL OR effective_to>now()) ORDER BY effective_from DESC LIMIT 1 FOR SHARE",
@@ -237,17 +270,26 @@ export class BenefitsTransactionService {
           )
         ).rows[0];
         if (!program) this.notFound("LOYALTY_ACCOUNT_NOT_FOUND");
-        let amount = loyaltyRedemptionMinor(
-          BigInt(b.points),
-          BigInt(program.redemption_points),
-          BigInt(program.redemption_minor),
-        );
-        const currentDue =
-          BigInt(order.total_minor) +
-          BigInt(order.tip_minor) -
-          BigInt(order.amount_paid_minor);
-        if (amount > currentDue) amount = currentDue;
+        const redemptionPoints = BigInt(program.redemption_points),
+          redemptionMinor = BigInt(program.redemption_minor),
+          serviceDue =
+            BigInt(order.total_minor) > BigInt(order.amount_paid_minor)
+              ? BigInt(order.total_minor) - BigInt(order.amount_paid_minor)
+              : 0n,
+          plan = loyaltyRedemptionPlan({
+            requestedPoints: BigInt(b.points),
+            eligibleDueMinor: serviceDue,
+            redemptionPoints,
+            redemptionMinor,
+          }),
+          { requestedPoints, acceptedPoints, unusedPoints } = plan,
+          amount = plan.appliedMinor;
         if (amount <= 0n) this.conflict("LOYALTY_REDEMPTION_LIMIT");
+        if (
+          BigInt(account.available_points) - BigInt(account.reserved_points) <
+          acceptedPoints
+        )
+          this.conflict("LOYALTY_INSUFFICIENT_POINTS");
         const reservationId = randomUUID(),
           applicationId = randomUUID(),
           ttl = new Date(Date.now() + 15 * 60000).toISOString(),
@@ -256,26 +298,40 @@ export class BenefitsTransactionService {
             programVersion: program.version,
             redemptionPoints: String(program.redemption_points),
             redemptionMinor: String(program.redemption_minor),
+            requestedPoints: requestedPoints.toString(),
+            acceptedPoints: acceptedPoints.toString(),
+            appliedMinor: amount.toString(),
+            unusedPoints: unusedPoints.toString(),
           };
         await c.query(
           "UPDATE loyalty_accounts SET reserved_points=reserved_points+$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-          [auth.tenantId, account.id, b.points],
+          [auth.tenantId, account.id, acceptedPoints.toString()],
         );
         await c.query(
-          `INSERT INTO loyalty_reservations(id,tenant_id,account_id,customer_id,pos_order_id,points,amount_minor,currency,policy_snapshot_json,generation_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          `INSERT INTO loyalty_reservations(id,tenant_id,account_id,customer_id,pos_order_id,points,requested_points,accepted_points,unused_points,amount_minor,currency,policy_snapshot_json,generation_key,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
           [
             reservationId,
             auth.tenantId,
             account.id,
             order.customer_id,
             order.id,
-            b.points,
+            acceptedPoints.toString(),
+            requestedPoints.toString(),
+            acceptedPoints.toString(),
+            unusedPoints.toString(),
             amount.toString(),
             order.currency,
             JSON.stringify(policy),
             `loyalty-reservation:${key}`,
             ttl,
           ],
+        );
+        await this.allocateLoyaltyLots(
+          c,
+          auth.tenantId,
+          account.id,
+          reservationId,
+          acceptedPoints,
         );
         await c.query(
           `INSERT INTO loyalty_ledger_entries(tenant_id,account_id,customer_id,program_id,reservation_id,pos_order_id,entry_type,reserved_delta,policy_snapshot_json,generation_key,created_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'REDEEM_RESERVE',$7,$8,$9,$10)`,
@@ -286,7 +342,7 @@ export class BenefitsTransactionService {
             program.id,
             reservationId,
             order.id,
-            b.points,
+            acceptedPoints.toString(),
             JSON.stringify(policy),
             `loyalty-reserve:${key}`,
             auth.userId,
@@ -315,7 +371,13 @@ export class BenefitsTransactionService {
           "loyalty_reservation",
           reservationId,
           requestId,
-          { orderId: order.id, points: b.points },
+          {
+            orderId: order.id,
+            requestedPoints: requestedPoints.toString(),
+            acceptedPoints: acceptedPoints.toString(),
+            appliedMinor: amount.toString(),
+            unusedPoints: unusedPoints.toString(),
+          },
         );
         return this.orderView(c, auth, order.id);
       },
@@ -433,7 +495,7 @@ export class BenefitsTransactionService {
         const amount = BigInt(line.net_minor);
         const id = randomUUID();
         await c.query(
-          `INSERT INTO pos_order_benefit_applications(id,tenant_id,pos_order_id,customer_id,benefit_type,source_entity_id,reservation_id,sequence_no,amount_minor,units,allocation_json,policy_snapshot_json,generation_key,expires_at) VALUES($1,$2,$3,$4,'PACKAGE',$5,$6,1,$7,$8,$9,$10,$11,$12)`,
+          `INSERT INTO pos_order_benefit_applications(id,tenant_id,pos_order_id,customer_id,benefit_type,source_entity_id,reservation_id,covered_order_line_id,sequence_no,amount_minor,units,allocation_json,policy_snapshot_json,generation_key,expires_at) VALUES($1,$2,$3,$4,'PACKAGE',$5,$6,$7,1,$8,$9,$10,$11,$12,$13)`,
           [
             id,
             auth.tenantId,
@@ -441,13 +503,14 @@ export class BenefitsTransactionService {
             order.customer_id,
             b.entitlementId,
             reserved.id,
+            line.id,
             amount.toString(),
-            b.units,
+            reserved.units,
             JSON.stringify([
               {
                 orderLineId: line.id,
                 amountMinor: amount.toString(),
-                units: b.units,
+                units: reserved.units,
               },
             ]),
             JSON.stringify(reserved.policy_snapshot_json),
@@ -463,7 +526,7 @@ export class BenefitsTransactionService {
           "package_reservation",
           reserved.id,
           requestId,
-          { orderId: order.id, units: b.units },
+          { orderId: order.id, units: reserved.units },
         );
         return this.orderView(c, auth, order.id);
       },
@@ -541,7 +604,7 @@ export class BenefitsTransactionService {
           "package_reservation",
           row.id,
           requestId,
-          { units: b.units },
+          { units: row.units },
         );
         return row;
       },
@@ -591,8 +654,7 @@ export class BenefitsTransactionService {
           appointmentId: a.id,
           appointmentItemId: item.id,
           serviceId: item.service_id,
-          units: 1,
-          expiresAt: a.end_at,
+          expiresAt: this.appointmentPackageExpiry(a.end_at),
           generationKey: `appointment-package:${key}`,
           actorUserId: auth.userId,
         });
@@ -703,8 +765,7 @@ export class BenefitsTransactionService {
           appointmentId: context.appointmentId,
           appointmentItemId: item.id,
           serviceId: item.service_id,
-          units: 1,
-          expiresAt: context.endAt,
+          expiresAt: this.appointmentPackageExpiry(context.endAt),
           generationKey: `public-package:${key}`,
           actorUserId: null,
         });
@@ -732,8 +793,6 @@ export class BenefitsTransactionService {
     for (const app of apps) {
       if (app.customer_id !== order.customer_id)
         this.conflict("BENEFIT_CUSTOMER_MISMATCH");
-      if (app.expires_at && new Date(app.expires_at) <= new Date())
-        this.conflict("BENEFIT_RESERVATION_EXPIRED");
       if (app.reservation_id) {
         const table =
           app.benefit_type === "VOUCHER"
@@ -743,15 +802,32 @@ export class BenefitsTransactionService {
               : "package_reservations";
         const reservation = (
           await c.query<any>(
-            `SELECT status,expires_at FROM ${table} WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+            `SELECT status,expires_at${app.benefit_type === "PACKAGE" ? ",appointment_id" : ""} FROM ${table} WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
             [auth.tenantId, app.reservation_id],
           )
         ).rows[0];
+        let expired =
+          !reservation || new Date(reservation.expires_at) <= new Date();
         if (
-          !reservation ||
-          reservation.status !== "ACTIVE" ||
-          new Date(reservation.expires_at) <= new Date()
-        )
+          expired &&
+          app.benefit_type === "PACKAGE" &&
+          reservation?.appointment_id
+        ) {
+          const appointment = (
+            await c.query<any>(
+              "SELECT status FROM appointments WHERE tenant_id=$1 AND id=$2",
+              [auth.tenantId, reservation.appointment_id],
+            )
+          ).rows[0];
+          if (
+            appointment &&
+            ["CHECKED_IN", "IN_SERVICE", "PARTIALLY_COMPLETED", "COMPLETED"].includes(
+              appointment.status,
+            )
+          )
+            expired = false;
+        }
+        if (!reservation || reservation.status !== "ACTIVE" || expired)
           this.conflict("BENEFIT_RESERVATION_EXPIRED");
       }
     }
@@ -770,6 +846,13 @@ export class BenefitsTransactionService {
         [auth.tenantId, order.id],
       )
     ).rows;
+    await this.createSettlementAllocations(
+      c,
+      auth.tenantId,
+      order.id,
+      invoiceId,
+      apps,
+    );
     for (const app of apps) {
       if (app.benefit_type === "VOUCHER")
         await this.commitVoucher(c, auth, app, requestId);
@@ -783,19 +866,20 @@ export class BenefitsTransactionService {
       );
     }
     await this.earnLoyalty(c, auth, order, invoiceId, requestId);
-    await c.query(
-      `INSERT INTO customer_membership_metrics(tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,last_evaluated_at) VALUES($1,$2,$3,$3,1,now()) ON CONFLICT(tenant_id,customer_id) DO UPDATE SET rolling_spend_minor=customer_membership_metrics.rolling_spend_minor+$3,lifetime_spend_minor=customer_membership_metrics.lifetime_spend_minor+$3,visit_count=customer_membership_metrics.visit_count+1,version=customer_membership_metrics.version+1,last_evaluated_at=now()`,
-      [auth.tenantId, order.customer_id, BigInt(order.total_minor).toString()],
-    );
-    await c.query(
-      `INSERT INTO benefit_jobs(tenant_id,job_type,aggregate_id,generation_key,run_at,payload_json) VALUES($1,'MEMBERSHIP_EVALUATION',$2,$3,now(),$4) ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
-      [
-        auth.tenantId,
-        order.customer_id,
-        `membership-evaluate:order:${order.id}`,
-        JSON.stringify({ customerId: order.customer_id, orderId: order.id }),
-      ],
-    );
+    if (order.customer_id) {
+      await this.recomputeMembershipMetrics(c, auth.tenantId, order.customer_id);
+      await c.query(
+        `INSERT INTO benefit_jobs(tenant_id,job_type,aggregate_id,generation_key,run_at,payload_json)
+         VALUES($1,'MEMBERSHIP_EVALUATION',$2,$3,now(),$4)
+         ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
+        [
+          auth.tenantId,
+          order.customer_id,
+          `membership-evaluate:order:${order.id}`,
+          JSON.stringify({ customerId: order.customer_id, orderId: order.id }),
+        ],
+      );
+    }
   }
   async releaseOrderBenefits(
     c: PoolClient,
@@ -825,53 +909,301 @@ export class BenefitsTransactionService {
         [auth.tenantId, refund.id],
       )
     ).rows[0];
-    const invoice = (
+    const allocations = (
       await c.query<any>(
-        "SELECT total_minor FROM invoices WHERE tenant_id=$1 AND id=$2",
-        [auth.tenantId, refund.invoice_id],
-      )
-    ).rows[0];
-    const full =
-      invoice && BigInt(refund.completed_minor) >= BigInt(invoice.total_minor);
-    const apps = (
-      await c.query<any>(
-        "SELECT * FROM pos_order_benefit_applications WHERE tenant_id=$1 AND pos_order_id=$2 AND status='COMMITTED' FOR UPDATE",
-        [auth.tenantId, refund.pos_order_id],
+        `SELECT ba.*,a.benefit_type,a.source_entity_id,a.reservation_id,a.amount_minor application_amount_minor,
+          a.policy_snapshot_json,ri.id refund_item_id,ri.total_refund_minor,il.net_minor line_total_minor
+         FROM benefit_application_allocations ba
+         JOIN pos_order_benefit_applications a ON a.tenant_id=ba.tenant_id AND a.id=ba.benefit_application_id
+         JOIN refund_items ri ON ri.tenant_id=ba.tenant_id AND ri.refund_id=$2 AND ri.invoice_line_id=ba.invoice_line_id
+         JOIN invoice_lines il ON il.tenant_id=ba.tenant_id AND il.id=ba.invoice_line_id
+         WHERE ba.tenant_id=$1 AND ba.pos_order_id=$3 AND a.status='COMMITTED'
+         ORDER BY a.sequence_no,ba.created_at FOR UPDATE OF a`,
+        [auth.tenantId, refund.id, refund.pos_order_id],
       )
     ).rows;
-    for (const app of apps) {
-      const generation = `benefit-refund:${refund.id}:${app.id}`;
-      if (app.benefit_type === "VOUCHER") {
-        const policy =
-          app.policy_snapshot_json?.refundPolicy ?? "DO_NOT_RESTORE";
-        if (
-          (policy === "RESTORE_USE" && full) ||
-          policy === "PROPORTIONAL_RESTORE"
-        ) {
-          const reservation = (
-            await c.query<any>(
-              "SELECT * FROM voucher_reservations WHERE tenant_id=$1 AND id=$2",
-              [auth.tenantId, app.reservation_id],
-            )
-          ).rows[0];
-          const inserted = await c.query(
-            `INSERT INTO voucher_redemption_entries(tenant_id,voucher_code_id,reservation_id,customer_id,pos_order_id,refund_id,credit_note_id,entry_type,use_delta,discount_minor,policy_snapshot_json,generation_key) VALUES($1,$2,$3,$4,$5,$6,$7,'REVERSAL',-1,$8,$9,$10) ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
+    if (!allocations.length && BigInt(refund.service_refund_minor ?? 0) > 0n) {
+      const committed = await c.query(
+        "SELECT 1 FROM pos_order_benefit_applications WHERE tenant_id=$1 AND pos_order_id=$2 AND status='COMMITTED' LIMIT 1",
+        [auth.tenantId, refund.pos_order_id],
+      );
+      if (committed.rowCount) this.conflict("BENEFIT_ALLOCATION_MISSING");
+    }
+    for (const allocation of allocations) {
+      await this.reverseBenefitAllocation(
+        c,
+        auth,
+        refund,
+        credit?.id ?? null,
+        allocation,
+      );
+    }
+    await this.reverseLoyaltyEarn(c, auth, refund, credit?.id ?? null);
+    if (refund.customer_id) {
+      await this.recomputeMembershipMetrics(
+        c,
+        auth.tenantId,
+        refund.customer_id,
+      );
+      await c.query(
+        `INSERT INTO benefit_jobs(tenant_id,job_type,aggregate_id,generation_key,run_at,payload_json)
+         VALUES($1,'MEMBERSHIP_EVALUATION',$2,$3,now(),$4)
+         ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
+        [
+          auth.tenantId,
+          refund.customer_id,
+          `membership-evaluate:refund:${refund.id}`,
+          JSON.stringify({
+            customerId: refund.customer_id,
+            refundId: refund.id,
+          }),
+        ],
+      );
+    }
+    await this.evidence(
+      c,
+      auth,
+      "benefits.refund_reversed",
+      "refund",
+      refund.id,
+      requestId,
+      { allocations: allocations.length },
+    );
+  }
+
+  private async reverseBenefitAllocation(
+    c: PoolClient,
+    auth: AccessClaims,
+    refund: any,
+    creditNoteId: string | null,
+    allocation: any,
+  ) {
+    const prior = (
+      await c.query<any>(
+        `SELECT COALESCE(sum(refunded_line_minor),0) refunded,
+          COALESCE(sum(reversed_benefit_minor),0) benefit,
+          COALESCE(sum(restored_points),0) points,
+          COALESCE(sum(restored_units),0) units,
+          COALESCE(sum(restored_use),0) restored_use
+         FROM benefit_refund_allocations
+         WHERE tenant_id=$1 AND application_allocation_id=$2`,
+        [auth.tenantId, allocation.id],
+      )
+    ).rows[0];
+    const lineTotal = BigInt(allocation.line_total_minor),
+      priorRefunded = BigInt(prior.refunded),
+      remainingLine = lineTotal > priorRefunded ? lineTotal - priorRefunded : 0n,
+      currentRefund =
+        BigInt(allocation.total_refund_minor) < remainingLine
+          ? BigInt(allocation.total_refund_minor)
+          : remainingLine,
+      cumulativeRefund = priorRefunded + currentRefund,
+      desiredBenefit =
+        lineTotal > 0n
+          ? (BigInt(allocation.allocated_amount_minor) * cumulativeRefund) /
+            lineTotal
+          : 0n,
+      reversedBenefit =
+        desiredBenefit > BigInt(prior.benefit)
+          ? desiredBenefit - BigInt(prior.benefit)
+          : 0n,
+      desiredPoints =
+        lineTotal > 0n
+          ? (BigInt(allocation.allocated_points) * cumulativeRefund) /
+            lineTotal
+          : 0n,
+      restoredPoints =
+        desiredPoints > BigInt(prior.points)
+          ? desiredPoints - BigInt(prior.points)
+          : 0n;
+    let restoredUnits = 0;
+    let restoredUseMicros = 0n;
+    let outcome: "REVERSED" | "NO_ACTION" | "MANUAL_REVIEW" =
+      reversedBenefit > 0n || restoredPoints > 0n ? "REVERSED" : "NO_ACTION";
+    const generation = `benefit-refund:${refund.id}:${allocation.id}`;
+
+    if (allocation.benefit_type === "LOYALTY" && restoredPoints > 0n) {
+      const reservation = (
+        await c.query<any>(
+          "SELECT * FROM loyalty_reservations WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [auth.tenantId, allocation.reservation_id],
+        )
+      ).rows[0];
+      const entry = (
+        await c.query<any>(
+          `INSERT INTO loyalty_ledger_entries(
+             tenant_id,account_id,customer_id,reservation_id,pos_order_id,refund_id,credit_note_id,
+             entry_type,available_delta,policy_snapshot_json,generation_key)
+           VALUES($1,$2,$3,$4,$5,$6,$7,'REFUND_REVERSAL',$8,$9,$10)
+           ON CONFLICT(tenant_id,generation_key) DO NOTHING RETURNING id`,
+          [
+            auth.tenantId,
+            reservation.account_id,
+            reservation.customer_id,
+            reservation.id,
+            refund.pos_order_id,
+            refund.id,
+            creditNoteId,
+            restoredPoints.toString(),
+            JSON.stringify({
+              ...allocation.policy_snapshot_json,
+              applicationAllocationId: allocation.id,
+            }),
+            generation,
+          ],
+        )
+      ).rows[0];
+      if (entry) {
+        await c.query(
+          "UPDATE loyalty_accounts SET available_points=available_points+$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+          [auth.tenantId, reservation.account_id, restoredPoints.toString()],
+        );
+        await c.query(
+          `INSERT INTO loyalty_point_lots(tenant_id,account_id,source_ledger_entry_id,original_points,available_points)
+           VALUES($1,$2,$3,$4,$4)`,
+          [
+            auth.tenantId,
+            reservation.account_id,
+            entry.id,
+            restoredPoints.toString(),
+          ],
+        );
+      }
+    } else if (allocation.benefit_type === "PACKAGE") {
+      const policy =
+        allocation.policy_snapshot_json?.refundPolicy ?? "RESTORE_UNIT";
+      if (currentRefund > 0n && cumulativeRefund < lineTotal) {
+        outcome = "MANUAL_REVIEW";
+        await c.query(
+          `INSERT INTO benefit_reversal_conflicts(tenant_id,refund_id,benefit_type,source_entity_id,conflict_code,context_json)
+           VALUES($1,$2,'PACKAGE',$3,'BENEFIT_REVERSAL_CONFLICT',$4) ON CONFLICT DO NOTHING`,
+          [
+            auth.tenantId,
+            refund.id,
+            allocation.source_entity_id,
+            JSON.stringify({
+              applicationId: allocation.benefit_application_id,
+              allocationId: allocation.id,
+              policy,
+              reason: "PARTIAL_PACKAGE_LINE_REFUND",
+            }),
+          ],
+        );
+      } else if (
+        cumulativeRefund >= lineTotal &&
+        policy === "RESTORE_UNIT" &&
+        Number(prior.units) < Number(allocation.allocated_units)
+      ) {
+        restoredUnits = Number(allocation.allocated_units) - Number(prior.units);
+        const reservation = (
+          await c.query<any>(
+            "SELECT * FROM package_reservations WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+            [auth.tenantId, allocation.reservation_id],
+          )
+        ).rows[0];
+        const inserted = await c.query(
+          `INSERT INTO package_ledger_entries(
+             tenant_id,entitlement_id,customer_id,reservation_id,pos_order_id,refund_id,credit_note_id,
+             entry_type,available_delta,consumed_delta,policy_snapshot_json,generation_key)
+           VALUES($1,$2,$3,$4,$5,$6,$7,'REFUND_REVERSAL',$8,$9,$10,$11)
+           ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
+          [
+            auth.tenantId,
+            reservation.entitlement_id,
+            reservation.customer_id,
+            reservation.id,
+            refund.pos_order_id,
+            refund.id,
+            creditNoteId,
+            restoredUnits,
+            -restoredUnits,
+            JSON.stringify({
+              ...allocation.policy_snapshot_json,
+              applicationAllocationId: allocation.id,
+            }),
+            generation,
+          ],
+        );
+        if (inserted.rowCount)
+          await c.query(
+            "UPDATE customer_package_entitlements SET available_units=available_units+$3,consumed_units=consumed_units-$3,status='ACTIVE',version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+            [auth.tenantId, reservation.entitlement_id, restoredUnits],
+          );
+        outcome = "REVERSED";
+      } else if (policy === "MANUAL_REVIEW") outcome = "MANUAL_REVIEW";
+    } else if (allocation.benefit_type === "VOUCHER") {
+      const policy =
+        allocation.policy_snapshot_json?.refundPolicy ?? "DO_NOT_RESTORE";
+      const applicationPrior = (
+        await c.query<any>(
+          `SELECT COALESCE(sum(r.restored_use),0) restored_use,
+             COALESCE(sum(r.reversed_benefit_minor),0) reversed_minor
+           FROM benefit_refund_allocations r
+           WHERE r.tenant_id=$1 AND r.benefit_application_id=$2`,
+          [auth.tenantId, allocation.benefit_application_id],
+        )
+      ).rows[0];
+      const appAmount = BigInt(allocation.application_amount_minor);
+      if (policy === "PROPORTIONAL_RESTORE" && appAmount > 0n)
+        restoredUseMicros = (reversedBenefit * 1_000_000n) / appAmount;
+      else if (
+        policy === "RESTORE_USE" &&
+        BigInt(applicationPrior.reversed_minor) + reversedBenefit >= appAmount
+      )
+        restoredUseMicros =
+          1_000_000n -
+          BigInt(Math.round(Number(applicationPrior.restored_use) * 1_000_000));
+      if (restoredUseMicros > 0n) {
+        const reservation = (
+          await c.query<any>(
+            "SELECT * FROM voucher_reservations WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+            [auth.tenantId, allocation.reservation_id],
+          )
+        ).rows[0];
+        const use = `${restoredUseMicros / 1_000_000n}.${String(
+          restoredUseMicros % 1_000_000n,
+        ).padStart(6, "0")}`;
+        const inserted = await c.query(
+          `INSERT INTO voucher_redemption_entries(
+             tenant_id,voucher_code_id,reservation_id,customer_id,pos_order_id,refund_id,credit_note_id,
+             entry_type,use_delta,discount_minor,policy_snapshot_json,generation_key)
+           VALUES($1,$2,$3,$4,$5,$6,$7,'REVERSAL',-$8::numeric,$9,$10,$11)
+           ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
+          [
+            auth.tenantId,
+            reservation.voucher_code_id,
+            reservation.id,
+            reservation.customer_id,
+            refund.pos_order_id,
+            refund.id,
+            creditNoteId,
+            use,
+            reversedBenefit.toString(),
+            JSON.stringify({
+              ...allocation.policy_snapshot_json,
+              applicationAllocationId: allocation.id,
+            }),
+            generation,
+          ],
+        );
+        if (inserted.rowCount) {
+          await c.query(
+            `UPDATE voucher_customer_usage SET net_committed_uses=GREATEST(net_committed_uses-$4::numeric,0),
+               version=version+1,updated_at=now()
+             WHERE tenant_id=$1 AND campaign_id=$2 AND customer_id=$3`,
             [
               auth.tenantId,
-              reservation.voucher_code_id,
-              reservation.id,
-              app.customer_id,
-              refund.pos_order_id,
-              refund.id,
-              credit?.id ?? null,
-              app.amount_minor,
-              JSON.stringify(app.policy_snapshot_json),
-              generation,
+              reservation.campaign_id,
+              reservation.customer_id,
+              use,
             ],
           );
-          if (inserted.rowCount) {
+          if (
+            Number(applicationPrior.restored_use) + Number(use) >=
+            0.999999
+          ) {
             await c.query(
-              "UPDATE voucher_codes SET used_count=GREATEST(used_count-1,0),status='AVAILABLE',version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+              "UPDATE voucher_codes SET used_count=GREATEST(used_count-1,0),status=CASE WHEN used_count-1<=0 THEN 'AVAILABLE' ELSE 'PARTIALLY_USED' END,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
               [auth.tenantId, reservation.voucher_code_id],
             );
             await c.query(
@@ -880,86 +1212,33 @@ export class BenefitsTransactionService {
             );
           }
         }
-      } else if (app.benefit_type === "LOYALTY") {
-        const reservation = (
-          await c.query<any>(
-            "SELECT * FROM loyalty_reservations WHERE tenant_id=$1 AND id=$2",
-            [auth.tenantId, app.reservation_id],
-          )
-        ).rows[0];
-        if (full && reservation) {
-          const inserted = await c.query(
-            `INSERT INTO loyalty_ledger_entries(tenant_id,account_id,customer_id,reservation_id,pos_order_id,refund_id,credit_note_id,entry_type,available_delta,policy_snapshot_json,generation_key) VALUES($1,$2,$3,$4,$5,$6,$7,'REFUND_REVERSAL',$8,$9,$10) ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
-            [
-              auth.tenantId,
-              reservation.account_id,
-              app.customer_id,
-              reservation.id,
-              refund.pos_order_id,
-              refund.id,
-              credit?.id ?? null,
-              reservation.points,
-              JSON.stringify(app.policy_snapshot_json),
-              generation,
-            ],
-          );
-          if (inserted.rowCount)
-            await c.query(
-              "UPDATE loyalty_accounts SET available_points=available_points+$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-              [auth.tenantId, reservation.account_id, reservation.points],
-            );
-        }
-      } else if (app.benefit_type === "PACKAGE") {
-        const reservation = (
-            await c.query<any>(
-              "SELECT * FROM package_reservations WHERE tenant_id=$1 AND id=$2",
-              [auth.tenantId, app.reservation_id],
-            )
-          ).rows[0],
-          policy = app.policy_snapshot_json?.refundPolicy ?? "RESTORE_UNIT";
-        if (full && policy === "RESTORE_UNIT" && reservation) {
-          const inserted = await c.query(
-            `INSERT INTO package_ledger_entries(tenant_id,entitlement_id,customer_id,reservation_id,pos_order_id,refund_id,credit_note_id,entry_type,available_delta,consumed_delta,policy_snapshot_json,generation_key) VALUES($1,$2,$3,$4,$5,$6,$7,'REFUND_REVERSAL',$8,$9,$10,$11) ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
-            [
-              auth.tenantId,
-              reservation.entitlement_id,
-              app.customer_id,
-              reservation.id,
-              refund.pos_order_id,
-              refund.id,
-              credit?.id ?? null,
-              reservation.units,
-              -reservation.units,
-              JSON.stringify(app.policy_snapshot_json),
-              generation,
-            ],
-          );
-          if (inserted.rowCount)
-            await c.query(
-              "UPDATE customer_package_entitlements SET available_units=available_units+$3,consumed_units=consumed_units-$3,status='ACTIVE',version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-              [auth.tenantId, reservation.entitlement_id, reservation.units],
-            );
-        } else if (!full || policy === "MANUAL_REVIEW")
-          await c.query(
-            `INSERT INTO benefit_reversal_conflicts(tenant_id,refund_id,benefit_type,source_entity_id,conflict_code,context_json) VALUES($1,$2,'PACKAGE',$3,'BENEFIT_REVERSAL_CONFLICT',$4) ON CONFLICT DO NOTHING`,
-            [
-              auth.tenantId,
-              refund.id,
-              app.source_entity_id,
-              JSON.stringify({ applicationId: app.id, policy }),
-            ],
-          );
+        outcome = "REVERSED";
       }
     }
-    await this.reverseLoyaltyEarn(c, auth, refund, credit?.id ?? null, full);
-    await this.evidence(
-      c,
-      auth,
-      "benefits.refund_reversed",
-      "refund",
-      refund.id,
-      requestId,
-      { applications: apps.length, full },
+
+    const use = `${restoredUseMicros / 1_000_000n}.${String(
+      restoredUseMicros % 1_000_000n,
+    ).padStart(6, "0")}`;
+    await c.query(
+      `INSERT INTO benefit_refund_allocations(
+         tenant_id,refund_id,refund_item_id,benefit_application_id,application_allocation_id,
+         refunded_line_minor,reversed_benefit_minor,restored_points,restored_units,restored_use,outcome,policy_snapshot_json)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+       ON CONFLICT(tenant_id,refund_id,application_allocation_id) DO NOTHING`,
+      [
+        auth.tenantId,
+        refund.id,
+        allocation.refund_item_id,
+        allocation.benefit_application_id,
+        allocation.id,
+        currentRefund.toString(),
+        reversedBenefit.toString(),
+        restoredPoints.toString(),
+        restoredUnits,
+        use,
+        outcome,
+        JSON.stringify(allocation.policy_snapshot_json),
+      ],
     );
   }
 
@@ -982,8 +1261,6 @@ export class BenefitsTransactionService {
       new Date(entitlement.expires_at) <= new Date()
     )
       this.conflict("PACKAGE_ENTITLEMENT_EXPIRED");
-    if (Number(entitlement.available_units) < input.units)
-      this.conflict("PACKAGE_INSUFFICIENT_BALANCE");
     const eligible = (
       await c.query<any>(
         `SELECT i.units_per_redemption FROM service_package_eligibility_items i LEFT JOIN services s ON s.tenant_id=i.tenant_id AND s.id=$4 WHERE i.tenant_id=$1 AND i.package_product_id=$2 AND (i.branch_id IS NULL OR i.branch_id=$3) AND (i.service_id=$4 OR i.category_id=s.category_id) ORDER BY i.service_id NULLS LAST LIMIT 1`,
@@ -996,6 +1273,11 @@ export class BenefitsTransactionService {
       )
     ).rows[0];
     if (!eligible) this.conflict("PACKAGE_SERVICE_NOT_ELIGIBLE");
+    const requiredUnits = Number(eligible.units_per_redemption);
+    if (input.units != null && Number(input.units) !== requiredUnits)
+      this.conflict("PACKAGE_UNITS_MISMATCH");
+    if (Number(entitlement.available_units) < requiredUnits)
+      this.conflict("PACKAGE_INSUFFICIENT_BALANCE");
     const id = randomUUID(),
       policy = {
         productId: entitlement.package_product_id,
@@ -1017,7 +1299,7 @@ export class BenefitsTransactionService {
             input.appointmentItemId ?? null,
             input.posOrderId ?? null,
             input.serviceId,
-            input.units,
+            requiredUnits,
             JSON.stringify(policy),
             input.generationKey,
             input.expiresAt,
@@ -1026,7 +1308,7 @@ export class BenefitsTransactionService {
       ).rows[0];
       await c.query(
         "UPDATE customer_package_entitlements SET available_units=available_units-$3,reserved_units=reserved_units+$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-        [auth.tenantId, input.entitlementId, input.units],
+        [auth.tenantId, input.entitlementId, requiredUnits],
       );
       await c.query(
         `INSERT INTO package_ledger_entries(tenant_id,entitlement_id,customer_id,reservation_id,pos_order_id,appointment_id,entry_type,available_delta,reserved_delta,policy_snapshot_json,generation_key,created_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'RESERVE',$7,$8,$9,$10,$11)`,
@@ -1037,8 +1319,8 @@ export class BenefitsTransactionService {
           id,
           input.posOrderId ?? null,
           input.appointmentId ?? null,
-          -input.units,
-          input.units,
+          -requiredUnits,
+          requiredUnits,
           JSON.stringify(policy),
           `${input.generationKey}:ledger`,
           input.actorUserId,
@@ -1050,6 +1332,212 @@ export class BenefitsTransactionService {
         this.conflict("PACKAGE_RESERVATION_CONFLICT");
       throw error;
     }
+  }
+
+  private async createSettlementAllocations(
+    c: PoolClient,
+    tenantId: string,
+    orderId: string,
+    invoiceId: string | null,
+    applications: any[],
+  ) {
+    if (!invoiceId && applications.length) this.conflict("BENEFIT_ALLOCATION_MISSING");
+    if (!invoiceId) return;
+    const lines = (
+      await c.query<any>(
+        `SELECT il.id invoice_line_id,il.source_order_line_id order_line_id,il.net_minor
+         FROM invoice_lines il WHERE il.tenant_id=$1 AND il.invoice_id=$2
+         ORDER BY il.line_no,il.id`,
+        [tenantId, invoiceId],
+      )
+    ).rows;
+    for (const application of applications) {
+      const covered =
+        application.benefit_type === "PACKAGE"
+          ? lines.filter(
+              (line: any) =>
+                line.order_line_id === application.covered_order_line_id,
+            )
+          : lines.filter((line: any) => BigInt(line.net_minor) > 0n);
+      if (!covered.length) this.conflict("BENEFIT_ALLOCATION_MISSING");
+      const totalWeight = covered.reduce(
+        (sum: bigint, line: any) => sum + BigInt(line.net_minor),
+        0n,
+      );
+      let remainingAmount = BigInt(application.amount_minor);
+      let remainingPoints =
+        application.benefit_type === "LOYALTY"
+          ? BigInt(
+              (
+                await c.query<any>(
+                  "SELECT points FROM loyalty_reservations WHERE tenant_id=$1 AND id=$2",
+                  [tenantId, application.reservation_id],
+                )
+              ).rows[0]?.points ?? 0,
+            )
+          : 0n;
+      for (const [index, line] of covered.entries()) {
+        const last = index === covered.length - 1;
+        const amount = last
+          ? remainingAmount
+          : totalWeight > 0n
+            ? (BigInt(application.amount_minor) * BigInt(line.net_minor)) /
+              totalWeight
+            : 0n;
+        const points = last
+          ? remainingPoints
+          : BigInt(application.amount_minor) > 0n
+            ? (remainingPoints * amount) / remainingAmount
+            : 0n;
+        await c.query(
+          `INSERT INTO benefit_application_allocations(
+             tenant_id,benefit_application_id,pos_order_id,order_line_id,invoice_line_id,
+             allocated_amount_minor,allocated_points,allocated_units)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT(tenant_id,benefit_application_id,order_line_id) DO NOTHING`,
+          [
+            tenantId,
+            application.id,
+            orderId,
+            line.order_line_id,
+            line.invoice_line_id,
+            amount.toString(),
+            points.toString(),
+            application.benefit_type === "PACKAGE"
+              ? application.units
+              : 0,
+          ],
+        );
+        remainingAmount -= amount;
+        remainingPoints -= points;
+      }
+    }
+  }
+
+  private async recomputeMembershipMetrics(
+    c: PoolClient,
+    tenantId: string,
+    customerId: string,
+  ) {
+    const windowDays = Number(
+      (
+        await c.query<any>(
+          `SELECT COALESCE(max(rolling_window_days),365) days FROM membership_tiers
+           WHERE tenant_id=$1 AND status='ACTIVE' AND rolling_window_days IS NOT NULL`,
+          [tenantId],
+        )
+      ).rows[0].days,
+    );
+    const rolling = (
+        await c.query<any>(
+          "SELECT * FROM sprint8_membership_metrics($1,$2,now(),$3)",
+          [tenantId, customerId, windowDays],
+        )
+      ).rows[0],
+      lifetime = (
+        await c.query<any>(
+          "SELECT * FROM sprint8_membership_metrics($1,$2,now(),NULL)",
+          [tenantId, customerId],
+        )
+      ).rows[0];
+    await c.query(
+      `INSERT INTO customer_membership_metrics(
+         tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,window_started_at,last_evaluated_at)
+       VALUES($1,$2,$3,$4,$5,now()-make_interval(days=>$6),now())
+       ON CONFLICT(tenant_id,customer_id) DO UPDATE SET
+         rolling_spend_minor=EXCLUDED.rolling_spend_minor,
+         lifetime_spend_minor=EXCLUDED.lifetime_spend_minor,
+         visit_count=EXCLUDED.visit_count,window_started_at=EXCLUDED.window_started_at,
+         last_evaluated_at=now(),version=customer_membership_metrics.version+1`,
+      [
+        tenantId,
+        customerId,
+        rolling.spend_minor,
+        lifetime.spend_minor,
+        rolling.visit_count,
+        windowDays,
+      ],
+    );
+  }
+
+  private appointmentPackageExpiry(endAt: string) {
+    return new Date(new Date(endAt).getTime() + 2 * 60 * 60 * 1000).toISOString();
+  }
+
+  private async allocateLoyaltyLots(
+    c: PoolClient,
+    tenantId: string,
+    accountId: string,
+    reservationId: string,
+    points: bigint,
+  ) {
+    let remaining = points;
+    const lots = (
+      await c.query<any>(
+        `SELECT * FROM loyalty_point_lots
+         WHERE tenant_id=$1 AND account_id=$2 AND available_points>0
+           AND (expires_at IS NULL OR expires_at>now())
+         ORDER BY expires_at NULLS LAST,created_at,id FOR UPDATE`,
+        [tenantId, accountId],
+      )
+    ).rows;
+    for (const lot of lots) {
+      if (remaining === 0n) break;
+      const available = BigInt(lot.available_points);
+      const used = available < remaining ? available : remaining;
+      await c.query(
+        `UPDATE loyalty_point_lots
+         SET available_points=available_points-$3,reserved_points=reserved_points+$3,
+             status=CASE WHEN available_points-$3=0 THEN 'RESERVED' ELSE 'AVAILABLE' END,updated_at=now()
+         WHERE tenant_id=$1 AND id=$2`,
+        [tenantId, lot.id, used.toString()],
+      );
+      await c.query(
+        `INSERT INTO loyalty_redemption_lot_allocations(tenant_id,reservation_id,lot_id,points,status)
+         VALUES($1,$2,$3,$4,'RESERVED')`,
+        [tenantId, reservationId, lot.id, used.toString()],
+      );
+      remaining -= used;
+    }
+    if (remaining > 0n) this.conflict("LOYALTY_INSUFFICIENT_POINTS");
+  }
+
+  private async releaseLoyaltyLots(
+    c: PoolClient,
+    tenantId: string,
+    reservationId: string,
+  ) {
+    const allocations = (
+      await c.query<any>(
+        `SELECT a.*,l.expires_at FROM loyalty_redemption_lot_allocations a
+         JOIN loyalty_point_lots l ON l.tenant_id=a.tenant_id AND l.id=a.lot_id
+         WHERE a.tenant_id=$1 AND a.reservation_id=$2 AND a.status='RESERVED'
+         ORDER BY a.created_at,a.id FOR UPDATE OF a,l`,
+        [tenantId, reservationId],
+      )
+    ).rows;
+    let expired = 0n;
+    for (const allocation of allocations) {
+      const points = BigInt(allocation.points);
+      const valid =
+        !allocation.expires_at || new Date(allocation.expires_at) > new Date();
+      await c.query(
+        `UPDATE loyalty_point_lots
+         SET reserved_points=reserved_points-$3,
+             available_points=available_points+CASE WHEN $4 THEN $3 ELSE 0 END,
+             status=CASE WHEN $4 THEN 'AVAILABLE' WHEN reserved_points-$3=0 THEN 'EXPIRED' ELSE 'RESERVED' END,
+             updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+        [tenantId, allocation.lot_id, points.toString(), valid],
+      );
+      await c.query(
+        `UPDATE loyalty_redemption_lot_allocations
+         SET status=CASE WHEN $3 THEN 'RELEASED' ELSE 'EXPIRED' END,released_at=now()
+         WHERE tenant_id=$1 AND id=$2`,
+        [tenantId, allocation.id, valid],
+      );
+      if (!valid) expired += points;
+    }
+    return expired;
   }
   private async releasePackageTx(
     c: PoolClient,
@@ -1109,6 +1597,10 @@ export class BenefitsTransactionService {
           "UPDATE voucher_campaigns SET reserved_count=reserved_count-1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
           [auth.tenantId, row.campaign_id],
         );
+        await c.query(
+          "UPDATE voucher_customer_usage SET active_reservations=GREATEST(active_reservations-1,0),version=version+1,updated_at=now() WHERE tenant_id=$1 AND campaign_id=$2 AND customer_id=$3",
+          [auth.tenantId, row.campaign_id, row.customer_id],
+        );
       }
     } else if (app.benefit_type === "LOYALTY") {
       const row = (
@@ -1118,13 +1610,23 @@ export class BenefitsTransactionService {
         )
       ).rows[0];
       if (row?.status === "ACTIVE") {
+        const expiredPoints = await this.releaseLoyaltyLots(
+          c,
+          auth.tenantId,
+          row.id,
+        );
         await c.query(
           "UPDATE loyalty_reservations SET status='RELEASED',released_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
           [auth.tenantId, row.id],
         );
         await c.query(
-          "UPDATE loyalty_accounts SET reserved_points=reserved_points-$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-          [auth.tenantId, row.account_id, row.points],
+          "UPDATE loyalty_accounts SET reserved_points=reserved_points-$3,available_points=available_points-$4,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+          [
+            auth.tenantId,
+            row.account_id,
+            row.points,
+            expiredPoints.toString(),
+          ],
         );
         await c.query(
           `INSERT INTO loyalty_ledger_entries(tenant_id,account_id,customer_id,reservation_id,pos_order_id,entry_type,reserved_delta,policy_snapshot_json,generation_key,created_by_user_id) VALUES($1,$2,$3,$4,$5,'REDEEM_RELEASE',$6,$7,$8,$9) ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
@@ -1192,6 +1694,13 @@ export class BenefitsTransactionService {
       [auth.tenantId, row.campaign_id],
     );
     await c.query(
+      `UPDATE voucher_customer_usage
+       SET active_reservations=GREATEST(active_reservations-1,0),net_committed_uses=net_committed_uses+1,
+           version=version+1,updated_at=now()
+       WHERE tenant_id=$1 AND campaign_id=$2 AND customer_id=$3`,
+      [auth.tenantId, row.campaign_id, row.customer_id],
+    );
+    await c.query(
       `INSERT INTO voucher_redemption_entries(tenant_id,voucher_code_id,reservation_id,customer_id,pos_order_id,entry_type,use_delta,discount_minor,policy_snapshot_json,generation_key) VALUES($1,$2,$3,$4,$5,'COMMIT',1,$6,$7,$8) ON CONFLICT DO NOTHING`,
       [
         auth.tenantId,
@@ -1228,28 +1737,34 @@ export class BenefitsTransactionService {
     ).rows[0];
     if (!row || row.status !== "ACTIVE")
       this.conflict("BENEFIT_RESERVATION_EXPIRED");
-    let remaining = BigInt(row.points);
-    const lots = (
+    const allocations = (
       await c.query<any>(
-        "SELECT * FROM loyalty_point_lots WHERE tenant_id=$1 AND account_id=$2 AND status='AVAILABLE' AND available_points>0 ORDER BY expires_at NULLS LAST,created_at,id FOR UPDATE",
-        [auth.tenantId, row.account_id],
+        `SELECT a.*,l.reserved_points FROM loyalty_redemption_lot_allocations a
+         JOIN loyalty_point_lots l ON l.tenant_id=a.tenant_id AND l.id=a.lot_id
+         WHERE a.tenant_id=$1 AND a.reservation_id=$2 AND a.status='RESERVED'
+         ORDER BY a.created_at,a.id FOR UPDATE OF a,l`,
+        [auth.tenantId, row.id],
       )
     ).rows;
-    for (const lot of lots) {
-      if (remaining === 0n) break;
-      const available = BigInt(lot.available_points),
-        used = available < remaining ? available : remaining;
+    if (
+      allocations.reduce(
+        (sum: bigint, allocation: any) => sum + BigInt(allocation.points),
+        0n,
+      ) !== BigInt(row.points)
+    )
+      this.conflict("LOYALTY_INSUFFICIENT_POINTS");
+    for (const allocation of allocations) {
       await c.query(
-        "UPDATE loyalty_point_lots SET available_points=available_points-$3,status=CASE WHEN available_points-$3=0 THEN 'EXHAUSTED' ELSE status END,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-        [auth.tenantId, lot.id, used.toString()],
+        `UPDATE loyalty_point_lots SET reserved_points=reserved_points-$3,
+          status=CASE WHEN available_points=0 AND reserved_points-$3=0 THEN 'EXHAUSTED' ELSE 'AVAILABLE' END,updated_at=now()
+         WHERE tenant_id=$1 AND id=$2`,
+        [auth.tenantId, allocation.lot_id, allocation.points],
       );
       await c.query(
-        "INSERT INTO loyalty_redemption_lot_allocations(tenant_id,reservation_id,lot_id,points) VALUES($1,$2,$3,$4)",
-        [auth.tenantId, row.id, lot.id, used.toString()],
+        "UPDATE loyalty_redemption_lot_allocations SET status='COMMITTED',consumed_at=now() WHERE tenant_id=$1 AND id=$2",
+        [auth.tenantId, allocation.id],
       );
-      remaining -= used;
     }
-    if (remaining > 0n) this.conflict("LOYALTY_INSUFFICIENT_POINTS");
     await c.query(
       "UPDATE loyalty_reservations SET status='COMMITTED',committed_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
       [auth.tenantId, row.id],
@@ -1429,22 +1944,53 @@ export class BenefitsTransactionService {
     auth: AccessClaims,
     refund: any,
     creditNoteId: string | null,
-    full: boolean,
   ) {
-    if (!full) return;
     const entries = (
       await c.query<any>(
-        "SELECT * FROM loyalty_ledger_entries WHERE tenant_id=$1 AND pos_order_id=$2 AND entry_type IN('EARN_PENDING','EARN_AVAILABLE') ORDER BY created_at",
+        "SELECT * FROM loyalty_ledger_entries WHERE tenant_id=$1 AND pos_order_id=$2 AND entry_type='EARN_PENDING' ORDER BY created_at",
         [auth.tenantId, refund.pos_order_id],
       )
     ).rows;
+    const basis = (
+      await c.query<any>(
+        `SELECT i.total_minor,
+          COALESCE((SELECT sum(r.service_refund_minor+r.tax_refund_minor) FROM refunds r
+            WHERE r.tenant_id=i.tenant_id AND r.invoice_id=i.id AND r.status='COMPLETED'),0) refunded_minor
+         FROM invoices i WHERE i.tenant_id=$1 AND i.id=$2`,
+        [auth.tenantId, refund.invoice_id],
+      )
+    ).rows[0];
+    if (!basis || BigInt(basis.total_minor) <= 0n) return;
     for (const entry of entries) {
-      const generation = `loyalty-earn-refund:${refund.id}:${entry.id}`,
-        pending = -BigInt(entry.pending_delta),
-        available = -BigInt(entry.available_delta),
-        lifetime = -(BigInt(entry.lifetime_delta) > 0n
-          ? BigInt(entry.lifetime_delta)
-          : 0n);
+      const original = BigInt(entry.pending_delta),
+        cappedRefund =
+          BigInt(basis.refunded_minor) < BigInt(basis.total_minor)
+            ? BigInt(basis.refunded_minor)
+            : BigInt(basis.total_minor),
+        desired = (original * cappedRefund) / BigInt(basis.total_minor),
+        prior = BigInt(
+          (
+            await c.query<any>(
+              `SELECT COALESCE(-sum(lifetime_delta),0) points FROM loyalty_ledger_entries
+               WHERE tenant_id=$1 AND entry_type='REFUND_REVERSAL'
+                 AND policy_snapshot_json->>'sourceEarnLedgerEntryId'=$2`,
+              [auth.tenantId, entry.id],
+            )
+          ).rows[0].points,
+        ),
+        delta = desired > prior ? desired - prior : 0n;
+      if (delta === 0n) continue;
+      const settled = Boolean(
+          (
+            await c.query(
+              "SELECT 1 FROM loyalty_ledger_entries WHERE tenant_id=$1 AND pos_order_id=$2 AND entry_type='EARN_AVAILABLE' LIMIT 1",
+              [auth.tenantId, refund.pos_order_id],
+            )
+          ).rowCount,
+        ),
+        pending = settled ? 0n : -delta,
+        available = settled ? -delta : 0n,
+        generation = `loyalty-earn-refund:${refund.id}:${entry.id}`;
       const inserted = await c.query(
         `INSERT INTO loyalty_ledger_entries(tenant_id,account_id,customer_id,program_id,pos_order_id,invoice_id,refund_id,credit_note_id,entry_type,pending_delta,available_delta,lifetime_delta,policy_snapshot_json,generation_key) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'REFUND_REVERSAL',$9,$10,$11,$12,$13) ON CONFLICT DO NOTHING`,
         [
@@ -1458,12 +2004,41 @@ export class BenefitsTransactionService {
           creditNoteId,
           pending.toString(),
           available.toString(),
-          lifetime.toString(),
-          JSON.stringify(entry.policy_snapshot_json),
+          (-delta).toString(),
+          JSON.stringify({
+            ...entry.policy_snapshot_json,
+            sourceEarnLedgerEntryId: entry.id,
+            originalEarnPoints: original.toString(),
+            cumulativeEligibleRefundMinor: cappedRefund.toString(),
+            originalEligibleMinor: String(basis.total_minor),
+          }),
           generation,
         ],
       );
-      if (inserted.rowCount)
+      if (inserted.rowCount) {
+        if (settled) {
+          let remaining = delta;
+          const lots = (
+            await c.query<any>(
+              `SELECT * FROM loyalty_point_lots
+               WHERE tenant_id=$1 AND account_id=$2 AND available_points>0
+               ORDER BY expires_at NULLS LAST,created_at,id FOR UPDATE`,
+              [auth.tenantId, entry.account_id],
+            )
+          ).rows;
+          for (const lot of lots) {
+            if (remaining === 0n) break;
+            const availablePoints = BigInt(lot.available_points),
+              consumed = availablePoints < remaining ? availablePoints : remaining;
+            await c.query(
+              `UPDATE loyalty_point_lots SET available_points=available_points-$3,
+                 status=CASE WHEN available_points-$3=0 AND reserved_points=0 THEN 'EXHAUSTED' WHEN available_points-$3=0 THEN 'RESERVED' ELSE 'AVAILABLE' END,
+                 updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+              [auth.tenantId, lot.id, consumed.toString()],
+            );
+            remaining -= consumed;
+          }
+        }
         await c.query(
           "UPDATE loyalty_accounts SET pending_points=pending_points+$3,available_points=available_points+$4,lifetime_earned_points=GREATEST(lifetime_earned_points+$5,0),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
           [
@@ -1471,9 +2046,10 @@ export class BenefitsTransactionService {
             entry.account_id,
             pending.toString(),
             available.toString(),
-            lifetime.toString(),
+            (-delta).toString(),
           ],
         );
+      }
     }
   }
   private async reprice(c: PoolClient, auth: AccessClaims, orderId: string) {

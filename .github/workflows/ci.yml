@@ -115,6 +115,27 @@ jobs:
           done
       - name: Sprint 8 benefit invariants and concurrency integration
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint8-benefit-invariants.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 8 benefit correctness integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint8-loyalty-tip-boundary.test.ts \
+            tests/integration/sprint8-package-units-multiline.test.ts \
+            tests/integration/sprint8-loyalty-refund-settlement.test.ts \
+            tests/integration/sprint8-membership-metrics-downgrade.test.ts \
+            tests/integration/sprint8-package-appointment-lifecycle.test.ts \
+            tests/integration/sprint8-voucher-customer-limit.test.ts \
+            tests/integration/sprint8-voucher-currency.test.ts \
+            tests/integration/sprint8-loyalty-lot-expiry.test.ts \
+            tests/integration/sprint8-benefit-refund-allocation.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
+      - name: Sprint 8 Worker resilience integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint8-worker-isolation.test.ts --maxWorkers=1 --minWorkers=1
       - name: Reset focused regression fixture
         run: pnpm db:reset && pnpm db:seed
       - name: Public booking tenant-scoped deep integration
@@ -223,6 +244,21 @@ jobs:
           done
       - name: Sprint 8 authenticated wallet and dual-control E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint8-benefits.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 8 closure authenticated E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/e2e/sprint8-voucher-paid-lifecycle.spec.ts \
+            tests/e2e/sprint8-loyalty-paid-refund.spec.ts \
+            tests/e2e/sprint8-package-booking-paid-refund.spec.ts \
+            tests/e2e/sprint8-membership-upgrade-downgrade.spec.ts \
+            tests/e2e/sprint8-multiline-benefits.spec.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec playwright test "$spec" --config=playwright.api.config.ts
+          done
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Scheduling and booking load smoke

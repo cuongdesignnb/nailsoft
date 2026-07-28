@@ -615,9 +615,9 @@ export class RefundService {
                 : refund.policy_snapshot_json;
             const metadata =
               to === "APPROVED"
-                ? ",approved_minor=requested_minor,approved_by_user_id=$5,approved_at=now(),approval_reason=$6"
+                ? ",approved_minor=requested_minor,approved_by_user_id=$6,approved_at=now(),approval_reason=$7"
                 : to === "REJECTED"
-                  ? ",rejected_by_user_id=$5,rejection_reason=$6"
+                  ? ",rejected_by_user_id=$6,rejection_reason=$7"
                   : to === "CANCELLED"
                     ? ",cancelled_at=now()"
                     : to === "PROCESSING"
@@ -625,16 +625,24 @@ export class RefundService {
                       : "";
             const updated = (
               await client.query<any>(
-                `UPDATE refunds SET status=$3,version=version+1,updated_at=now(),policy_snapshot_json=$7${metadata} WHERE tenant_id=$1 AND id=$2 AND version=$4 RETURNING *`,
-                [
-                  auth.tenantId,
-                  id,
-                  to,
-                  version,
-                  auth.userId,
-                  reason,
-                  JSON.stringify(policySnapshot),
-                ],
+                `UPDATE refunds SET status=$3,version=version+1,updated_at=now(),policy_snapshot_json=$5${metadata} WHERE tenant_id=$1 AND id=$2 AND version=$4 RETURNING *`,
+                to === "APPROVED" || to === "REJECTED"
+                  ? [
+                      auth.tenantId,
+                      id,
+                      to,
+                      version,
+                      JSON.stringify(policySnapshot),
+                      auth.userId,
+                      reason,
+                    ]
+                  : [
+                      auth.tenantId,
+                      id,
+                      to,
+                      version,
+                      JSON.stringify(policySnapshot),
+                    ],
               )
             ).rows[0];
             if (!updated) this.versionConflict();

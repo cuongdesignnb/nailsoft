@@ -142,11 +142,11 @@ export class BenefitsEligibilityService {
       ).rows[0] ?? null;
     const codes = (
       await this.db.query<any>(
-        `SELECT vc.id,vc.code_last4,vc.status code_status,vc.expires_at code_expires,c.*,
+        `SELECT vc.id code_id,vc.code_last4,vc.status code_status,vc.expires_at code_expires,c.*,
         NOT EXISTS(SELECT 1 FROM voucher_campaign_branches x WHERE x.tenant_id=c.tenant_id AND x.campaign_id=c.id) OR EXISTS(SELECT 1 FROM voucher_campaign_branches x WHERE x.tenant_id=c.tenant_id AND x.campaign_id=c.id AND x.branch_id=$3) branch_ok,
         NOT EXISTS(SELECT 1 FROM voucher_campaign_services x WHERE x.tenant_id=c.tenant_id AND x.campaign_id=c.id) OR EXISTS(SELECT 1 FROM voucher_campaign_services x WHERE x.tenant_id=c.tenant_id AND x.campaign_id=c.id AND x.service_id=ANY($4::uuid[])) service_ok,
         NOT EXISTS(SELECT 1 FROM voucher_campaign_customers x WHERE x.tenant_id=c.tenant_id AND x.campaign_id=c.id) OR EXISTS(SELECT 1 FROM voucher_campaign_customers x WHERE x.tenant_id=c.tenant_id AND x.campaign_id=c.id AND x.customer_id=$2) customer_ok,
-        (SELECT count(*) FROM voucher_redemption_entries e WHERE e.tenant_id=c.tenant_id AND e.customer_id=$2 AND e.entry_type='COMMIT' AND e.voucher_code_id=vc.id) customer_uses
+        COALESCE((SELECT active_reservations+net_committed_uses FROM voucher_customer_usage u WHERE u.tenant_id=c.tenant_id AND u.campaign_id=c.id AND u.customer_id=$2),0) customer_uses
        FROM voucher_codes vc JOIN voucher_campaigns c ON c.tenant_id=vc.tenant_id AND c.id=vc.campaign_id
        WHERE vc.tenant_id=$1 AND (vc.customer_id IS NULL OR vc.customer_id=$2) AND c.status='ACTIVE' AND c.valid_from<=$5 AND c.valid_until>$5
        ORDER BY c.valid_until,vc.created_at`,
@@ -161,7 +161,7 @@ export class BenefitsEligibilityService {
     ).rows;
     const vouchers = codes.map((row: any) => {
       const reasons: string[] = [];
-      if (!["AVAILABLE", "PARTIALLY_USED"].includes(row.code_status))
+      if (!["AVAILABLE", "RESERVED", "PARTIALLY_USED"].includes(row.code_status))
         reasons.push("VOUCHER_ALREADY_USED");
       if (row.code_expires && new Date(row.code_expires) <= now)
         reasons.push("VOUCHER_EXPIRED");
@@ -170,6 +170,11 @@ export class BenefitsEligibilityService {
       if (!row.customer_ok) reasons.push("BENEFIT_CUSTOMER_MISMATCH");
       if (eligibleMinor < BigInt(row.minimum_spend_minor))
         reasons.push("VOUCHER_MINIMUM_SPEND_NOT_MET");
+      if (
+        row.discount_type === "FIXED" &&
+        String(row.currency) !== input.currency
+      )
+        reasons.push("VOUCHER_CURRENCY_MISMATCH");
       if (
         row.per_customer_use_limit &&
         Number(row.customer_uses) >= row.per_customer_use_limit
@@ -181,7 +186,7 @@ export class BenefitsEligibilityService {
       )
         reasons.push("MEMBERSHIP_NOT_ACTIVE");
       return {
-        id: row.id,
+        id: row.code_id,
         codeLast4: row.code_last4,
         campaignId: row.campaign_id,
         eligible: reasons.length === 0,

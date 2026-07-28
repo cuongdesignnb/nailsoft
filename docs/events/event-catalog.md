@@ -106,4 +106,6 @@ Loyalty: `loyalty.program_created`, `loyalty.points_pending`, `loyalty.points_av
 
 Membership and package: `membership.tier_created`, `membership.assigned`, `membership.upgraded`, `membership.revoked`, `membership.updated`, `package.product_created`, `package.issued`, `package.reserved`, `package.committed`, `package.released`, `package.reversed`, `package.updated`, `benefits.refund_reversed`.
 
+Closure semantics: `membership.updated` also signals automatic downgrade or no-qualifying-tier removal after rolling paid-minus-refunded recomputation. `benefits.refund_reversed` identifies the refund and affected application/allocation only; exact monetary, points, unit and fractional-use evidence remains in append-only PostgreSQL allocation rows. Benefit Worker jobs use bounded retries and `DEAD_LETTER`; job errors never become business events.
+
 Payloads contain tenant/branch and aggregate IDs, version/status and `refetch: true`; voucher codes, customer contacts, ledger notes and qualification detail are forbidden. Worker fans out minimal `voucher.updated`, `loyalty.updated`, `membership.updated`, `package.updated` and `benefits.wallet_invalidated` signals to authorized tenant/branch rooms. Clients refetch PostgreSQL-backed APIs.

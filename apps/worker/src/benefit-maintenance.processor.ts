@@ -24,47 +24,79 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
     ).reduce((a, b) => a + b, 0);
   }
   async jobs() {
-    const c = await this.pool.connect();
+    const claim = await this.pool.connect();
+    let rows: any[] = [];
     try {
-      await c.query("BEGIN");
-      const rows = (
-        await c.query<any>(
-          `SELECT * FROM benefit_jobs WHERE status IN('PENDING','FAILED') AND run_at<=now() AND (lease_until IS NULL OR lease_until<now()) ORDER BY run_at,id FOR UPDATE SKIP LOCKED LIMIT 25`,
+      await claim.query("BEGIN");
+      rows = (
+        await claim.query<any>(
+          `SELECT * FROM benefit_jobs
+           WHERE status IN('PENDING','FAILED') AND run_at<=now()
+             AND (lease_until IS NULL OR lease_until<now()) AND attempts<max_attempts
+           ORDER BY run_at,id FOR UPDATE SKIP LOCKED LIMIT 25`,
         )
       ).rows;
       for (const job of rows) {
-        await c.query(
+        await claim.query(
           "UPDATE benefit_jobs SET status='PROCESSING',lease_until=now()+interval '2 minutes',attempts=attempts+1,updated_at=now() WHERE id=$1",
           [job.id],
         );
-        try {
-          if (job.job_type === "LOYALTY_SETTLEMENT") await this.settle(c, job);
-          else if (job.job_type === "MEMBERSHIP_EVALUATION")
-            await this.membership(c, job);
-          await c.query(
-            "UPDATE benefit_jobs SET status='COMPLETED',lease_until=NULL,updated_at=now() WHERE id=$1",
+        job.attempts = Number(job.attempts) + 1;
+      }
+      await claim.query("COMMIT");
+    } catch (e) {
+      await claim.query("ROLLBACK");
+      throw e;
+    } finally {
+      claim.release();
+    }
+    for (const job of rows) {
+      const c = await this.pool.connect();
+      try {
+        await c.query("BEGIN");
+        const leased = (
+          await c.query<any>(
+            "SELECT * FROM benefit_jobs WHERE id=$1 AND status='PROCESSING' FOR UPDATE",
             [job.id],
-          );
-        } catch (error) {
+          )
+        ).rows[0];
+        if (!leased) {
+          await c.query("ROLLBACK");
+          continue;
+        }
+        try {
+          if (leased.job_type === "LOYALTY_SETTLEMENT")
+            await this.settle(c, leased);
+          else if (leased.job_type === "MEMBERSHIP_EVALUATION")
+            await this.membership(c, leased);
+          else throw new Error(`UNSUPPORTED_BENEFIT_JOB:${leased.job_type}`);
           await c.query(
-            "UPDATE benefit_jobs SET status='FAILED',lease_until=NULL,run_at=now()+interval '1 minute',payload_json=payload_json||$2::jsonb,updated_at=now() WHERE id=$1",
+            "UPDATE benefit_jobs SET status='COMPLETED',lease_until=NULL,completed_at=now(),last_error_code=NULL,last_error_message=NULL,updated_at=now() WHERE id=$1",
+            [leased.id],
+          );
+          await c.query("COMMIT");
+        } catch (error) {
+          await c.query("ROLLBACK");
+          const message =
+            error instanceof Error ? error.message.slice(0, 500) : "unknown";
+          await this.pool.query(
+            `UPDATE benefit_jobs
+             SET status=CASE WHEN attempts>=max_attempts THEN 'DEAD_LETTER' ELSE 'FAILED' END,
+                 lease_until=NULL,run_at=now()+make_interval(secs=>LEAST(300,attempts*attempts*15)),
+                 last_error_code=$2,last_error_message=$3,updated_at=now()
+             WHERE id=$1`,
             [
-              job.id,
-              JSON.stringify({
-                lastError: error instanceof Error ? error.message : "unknown",
-              }),
+              leased.id,
+              (message.split(":")[0] ?? "UNKNOWN").slice(0, 100),
+              message,
             ],
           );
         }
+      } finally {
+        c.release();
       }
-      await c.query("COMMIT");
-      return rows.length;
-    } catch (e) {
-      await c.query("ROLLBACK");
-      throw e;
-    } finally {
-      c.release();
     }
+    return rows.length;
   }
   private async settle(c: PoolClient, job: any) {
     const source = (
@@ -74,8 +106,24 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
       )
     ).rows[0];
     if (!source) return;
-    const points = BigInt(job.payload_json.points),
+    const net = (
+      await c.query<any>(
+        `SELECT $3::bigint+COALESCE(sum(pending_delta),0) points
+         FROM loyalty_ledger_entries
+         WHERE tenant_id=$1 AND entry_type='REFUND_REVERSAL'
+           AND policy_snapshot_json->>'sourceEarnLedgerEntryId'=$2`,
+        [job.tenant_id, source.id, source.pending_delta],
+      )
+    ).rows[0];
+    const points = BigInt(net.points),
       generation = `loyalty-available:${job.aggregate_id}`;
+    if (points <= 0n) {
+      await c.query(
+        "UPDATE benefit_jobs SET payload_json=payload_json||$2::jsonb WHERE id=$1",
+        [job.id, JSON.stringify({ settlementResult: "NO_REMAINING_POINTS" })],
+      );
+      return;
+    }
     const inserted = (
       await c.query<any>(
         `INSERT INTO loyalty_ledger_entries(tenant_id,account_id,customer_id,program_id,pos_order_id,invoice_id,entry_type,pending_delta,available_delta,expires_at,policy_snapshot_json,generation_key) VALUES($1,$2,$3,$4,$5,$6,'EARN_AVAILABLE',$7,$8,$9,$10,$11) ON CONFLICT(tenant_id,generation_key) DO NOTHING RETURNING id`,
@@ -89,7 +137,11 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
           (-points).toString(),
           points.toString(),
           source.expires_at,
-          JSON.stringify(source.policy_snapshot_json),
+          JSON.stringify({
+            ...source.policy_snapshot_json,
+            sourceEarnLedgerEntryId: source.id,
+            settlementResult: "SETTLED_NET_POINTS",
+          }),
           generation,
         ],
       )
@@ -109,6 +161,16 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
         source.expires_at,
       ],
     );
+    await c.query(
+      "UPDATE benefit_jobs SET payload_json=payload_json||$2::jsonb WHERE id=$1",
+      [
+        job.id,
+        JSON.stringify({
+          settlementResult: "SETTLED_NET_POINTS",
+          settledPoints: points.toString(),
+        }),
+      ],
+    );
     await this.outbox(
       c,
       job.tenant_id,
@@ -118,41 +180,100 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
     );
   }
   private async membership(c: PoolClient, job: any) {
-    const customerId = job.payload_json.customerId ?? job.aggregate_id,
-      metrics = (
+    const customerId = job.payload_json.customerId ?? job.aggregate_id;
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+      `membership-evaluation:${job.tenant_id}:${customerId}`,
+    ]);
+    const maxWindow = Number(
+        (
+          await c.query<any>(
+            `SELECT COALESCE(max(rolling_window_days),365) days FROM membership_tiers
+             WHERE tenant_id=$1 AND status='ACTIVE' AND rolling_window_days IS NOT NULL`,
+            [job.tenant_id],
+          )
+        ).rows[0].days,
+      ),
+      rolling = (
         await c.query<any>(
-          "SELECT * FROM customer_membership_metrics WHERE tenant_id=$1 AND customer_id=$2 FOR UPDATE",
+          "SELECT * FROM sprint8_membership_metrics($1,$2,now(),$3)",
+          [job.tenant_id, customerId, maxWindow],
+        )
+      ).rows[0],
+      lifetime = (
+        await c.query<any>(
+          "SELECT * FROM sprint8_membership_metrics($1,$2,now(),NULL)",
           [job.tenant_id, customerId],
         )
       ).rows[0];
-    if (!metrics) return;
+    await c.query(
+      `INSERT INTO customer_membership_metrics(
+         tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,window_started_at,last_evaluated_at)
+       VALUES($1,$2,$3,$4,$5,now()-make_interval(days=>$6),now())
+       ON CONFLICT(tenant_id,customer_id) DO UPDATE SET
+         rolling_spend_minor=EXCLUDED.rolling_spend_minor,lifetime_spend_minor=EXCLUDED.lifetime_spend_minor,
+         visit_count=EXCLUDED.visit_count,window_started_at=EXCLUDED.window_started_at,last_evaluated_at=now(),
+         version=customer_membership_metrics.version+1`,
+      [
+        job.tenant_id,
+        customerId,
+        rolling.spend_minor,
+        lifetime.spend_minor,
+        rolling.visit_count,
+        maxWindow,
+      ],
+    );
     const tier = (
       await c.query<any>(
-        `SELECT * FROM membership_tiers WHERE tenant_id=$1 AND status='ACTIVE' AND effective_from<=now() AND (effective_to IS NULL OR effective_to>now()) AND ((qualification_type='ROLLING_SPEND' AND qualification_threshold<=$3) OR (qualification_type='VISIT_COUNT' AND qualification_threshold<=$4)) ORDER BY priority DESC LIMIT 1`,
-        [
-          job.tenant_id,
-          customerId,
-          metrics.rolling_spend_minor,
-          metrics.visit_count,
-        ],
-      )
-    ).rows[0];
-    if (!tier) return;
-    const current = (
-      await c.query<any>(
-        "SELECT * FROM customer_membership_assignments WHERE tenant_id=$1 AND customer_id=$2 AND status='ACTIVE' ORDER BY effective_from DESC LIMIT 1 FOR UPDATE",
+        `SELECT t.*,m.spend_minor evaluated_spend,m.visit_count evaluated_visits
+         FROM membership_tiers t
+         CROSS JOIN LATERAL sprint8_membership_metrics(
+           $1,$2,now(),CASE WHEN t.qualification_type IN('ROLLING_SPEND','VISIT_COUNT') THEN COALESCE(t.rolling_window_days,365) ELSE NULL END
+         ) m
+         WHERE t.tenant_id=$1 AND t.status='ACTIVE' AND t.qualification_type<>'MANUAL'
+           AND t.effective_from<=now() AND (t.effective_to IS NULL OR t.effective_to>now())
+           AND ((t.qualification_type IN('ROLLING_SPEND','LIFETIME_SPEND') AND t.qualification_threshold<=m.spend_minor)
+             OR (t.qualification_type='VISIT_COUNT' AND t.qualification_threshold<=m.visit_count)
+             OR (t.qualification_type='POINTS_EARNED' AND t.qualification_threshold<=COALESCE((SELECT lifetime_earned_points FROM loyalty_accounts WHERE tenant_id=$1 AND customer_id=$2),0)))
+         ORDER BY t.priority DESC,t.qualification_threshold DESC LIMIT 1`,
         [job.tenant_id, customerId],
       )
     ).rows[0];
-    if (current?.tier_id === tier.id) return;
+    const current = (
+      await c.query<any>(
+        `SELECT a.*,t.priority FROM customer_membership_assignments a
+         JOIN membership_tiers t ON t.tenant_id=a.tenant_id AND t.id=a.tier_id
+         WHERE a.tenant_id=$1 AND a.customer_id=$2 AND a.status='ACTIVE'
+         ORDER BY a.effective_from DESC LIMIT 1 FOR UPDATE OF a`,
+        [job.tenant_id, customerId],
+      )
+    ).rows[0];
+    if (current?.assignment_source === "MANUAL") return;
+    if (tier && current?.tier_id === tier.id) return;
+    if (
+      current?.grace_until &&
+      new Date(current.grace_until) > new Date() &&
+      (!tier || Number(tier.priority) < Number(current.priority ?? 0))
+    )
+      return;
     if (current)
       await c.query(
         "UPDATE customer_membership_assignments SET status='SUPERSEDED',effective_to=now(),updated_at=now() WHERE tenant_id=$1 AND id=$2",
         [job.tenant_id, current.id],
       );
+    if (!tier) {
+      if (current)
+        await this.outbox(
+          c,
+          job.tenant_id,
+          "membership.updated",
+          "membership_assignment",
+          current.id,
+        );
+      return;
+    }
     const created = (
       await c.query<any>(
-        `INSERT INTO customer_membership_assignments(tenant_id,customer_id,tier_id,status,effective_from,benefit_snapshot_json,qualification_snapshot_json,supersedes_assignment_id,reason_code) VALUES($1,$2,$3,'ACTIVE',now(),$4,$5,$6,'WORKER_EVALUATION') RETURNING id`,
+        `INSERT INTO customer_membership_assignments(tenant_id,customer_id,tier_id,status,effective_from,benefit_snapshot_json,qualification_snapshot_json,supersedes_assignment_id,reason_code,assignment_source) VALUES($1,$2,$3,'ACTIVE',now(),$4,$5,$6,$7,'AUTOMATIC') RETURNING id`,
         [
           job.tenant_id,
           customerId,
@@ -162,18 +283,19 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
             qualificationType: tier.qualification_type,
             threshold: String(tier.qualification_threshold),
             metrics: {
-              rollingSpendMinor: String(metrics.rolling_spend_minor),
-              visitCount: String(metrics.visit_count),
+              rollingSpendMinor: String(tier.evaluated_spend),
+              visitCount: String(tier.evaluated_visits),
             },
           }),
           current?.id ?? null,
+          current
+            ? Number(tier.priority) > Number(current.priority ?? 0)
+              ? "AUTOMATIC_UPGRADE"
+              : "AUTOMATIC_DOWNGRADE"
+            : "AUTOMATIC_ASSIGN",
         ],
       )
     ).rows[0];
-    await c.query(
-      "UPDATE customer_membership_metrics SET last_evaluated_at=now(),version=version+1 WHERE tenant_id=$1 AND customer_id=$2",
-      [job.tenant_id, customerId],
-    );
     await this.outbox(
       c,
       job.tenant_id,
@@ -199,6 +321,10 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
           [row.tenant_id, row.campaign_id],
         );
         await c.query(
+          "UPDATE voucher_customer_usage SET active_reservations=GREATEST(active_reservations-1,0),version=version+1,updated_at=now() WHERE tenant_id=$1 AND campaign_id=$2 AND customer_id=$3",
+          [row.tenant_id, row.campaign_id, row.customer_id],
+        );
+        await c.query(
           "UPDATE pos_order_benefit_applications SET status='RELEASED',version=version+1,updated_at=now() WHERE tenant_id=$1 AND reservation_id=$2 AND status='RESERVED'",
           [row.tenant_id, row.id],
         );
@@ -216,13 +342,48 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
     return this.expire(
       `SELECT * FROM loyalty_reservations WHERE status='ACTIVE' AND expires_at<=now() ORDER BY expires_at FOR UPDATE SKIP LOCKED LIMIT 50`,
       async (c, row) => {
+        const allocations = (
+          await c.query<any>(
+            `SELECT a.*,l.expires_at FROM loyalty_redemption_lot_allocations a
+             JOIN loyalty_point_lots l ON l.tenant_id=a.tenant_id AND l.id=a.lot_id
+             WHERE a.tenant_id=$1 AND a.reservation_id=$2 AND a.status='RESERVED'
+             ORDER BY a.created_at,a.id FOR UPDATE OF a,l`,
+            [row.tenant_id, row.id],
+          )
+        ).rows;
+        let expiredPoints = 0n;
+        for (const allocation of allocations) {
+          const points = BigInt(allocation.points),
+            valid =
+              !allocation.expires_at ||
+              new Date(allocation.expires_at) > new Date();
+          await c.query(
+            `UPDATE loyalty_point_lots SET reserved_points=reserved_points-$3,
+               available_points=available_points+CASE WHEN $4 THEN $3 ELSE 0 END,
+               status=CASE WHEN $4 THEN 'AVAILABLE' WHEN reserved_points-$3=0 THEN 'EXPIRED' ELSE 'RESERVED' END,
+               updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+            [row.tenant_id, allocation.lot_id, points.toString(), valid],
+          );
+          await c.query(
+            `UPDATE loyalty_redemption_lot_allocations
+             SET status=CASE WHEN $3 THEN 'RELEASED' ELSE 'EXPIRED' END,released_at=now()
+             WHERE tenant_id=$1 AND id=$2`,
+            [row.tenant_id, allocation.id, valid],
+          );
+          if (!valid) expiredPoints += points;
+        }
         await c.query(
           "UPDATE loyalty_reservations SET status='EXPIRED',version=version+1,updated_at=now() WHERE id=$1",
           [row.id],
         );
         await c.query(
-          "UPDATE loyalty_accounts SET reserved_points=reserved_points-$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-          [row.tenant_id, row.account_id, row.points],
+          "UPDATE loyalty_accounts SET reserved_points=reserved_points-$3,available_points=available_points-$4,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+          [
+            row.tenant_id,
+            row.account_id,
+            row.points,
+            expiredPoints.toString(),
+          ],
         );
         await c.query(
           `INSERT INTO loyalty_ledger_entries(tenant_id,account_id,customer_id,reservation_id,pos_order_id,entry_type,reserved_delta,policy_snapshot_json,generation_key) VALUES($1,$2,$3,$4,$5,'REDEEM_RELEASE',$6,$7,$8) ON CONFLICT DO NOTHING`,
@@ -253,7 +414,14 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
   }
   async expirePackageReservations() {
     return this.expire(
-      `SELECT * FROM package_reservations WHERE status='ACTIVE' AND expires_at<=now() ORDER BY expires_at FOR UPDATE SKIP LOCKED LIMIT 50`,
+      `SELECT r.* FROM package_reservations r
+       LEFT JOIN appointments a ON a.tenant_id=r.tenant_id AND a.id=r.appointment_id
+       WHERE r.status='ACTIVE' AND (
+         (r.appointment_id IS NULL AND r.expires_at<=now())
+         OR a.status IN('CANCELLED_BY_CUSTOMER','CANCELLED_BY_SALON','EXPIRED')
+         OR (a.status NOT IN('CHECKED_IN','IN_SERVICE','PARTIALLY_COMPLETED','COMPLETED','CANCELLED_BY_CUSTOMER','CANCELLED_BY_SALON','EXPIRED') AND r.expires_at<=now())
+         OR (a.status='COMPLETED' AND GREATEST(r.expires_at,a.updated_at+interval '24 hours')<=now())
+       ) ORDER BY r.expires_at FOR UPDATE OF r SKIP LOCKED LIMIT 50`,
       async (c, row) => {
         await c.query(
           "UPDATE package_reservations SET status='EXPIRED',version=version+1,updated_at=now() WHERE id=$1",
@@ -312,11 +480,14 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
   }
   async expireLoyaltyLots() {
     return this.expire(
-      `SELECT l.*,a.customer_id FROM loyalty_point_lots l JOIN loyalty_accounts a ON a.tenant_id=l.tenant_id AND a.id=l.account_id WHERE l.status='AVAILABLE' AND l.available_points>0 AND l.expires_at<=now() ORDER BY l.expires_at FOR UPDATE OF l SKIP LOCKED LIMIT 50`,
+      `SELECT l.*,a.customer_id FROM loyalty_point_lots l
+       JOIN loyalty_accounts a ON a.tenant_id=l.tenant_id AND a.id=l.account_id
+       WHERE l.status IN('AVAILABLE','RESERVED') AND l.available_points>0 AND l.expires_at<=now()
+       ORDER BY l.expires_at FOR UPDATE OF l SKIP LOCKED LIMIT 50`,
       async (c, row) => {
         const points = BigInt(row.available_points);
         await c.query(
-          "UPDATE loyalty_point_lots SET available_points=0,status='EXPIRED',updated_at=now() WHERE id=$1",
+          "UPDATE loyalty_point_lots SET available_points=0,status=CASE WHEN reserved_points>0 THEN 'RESERVED' ELSE 'EXPIRED' END,updated_at=now() WHERE id=$1",
           [row.id],
         );
         await c.query(
@@ -383,9 +554,20 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
     try {
       await c.query("BEGIN");
       const rows = (await c.query<any>(sql)).rows;
-      for (const row of rows) await work(c, row);
+      let completed = 0;
+      for (const row of rows) {
+        await c.query("SAVEPOINT benefit_expiry_row");
+        try {
+          await work(c, row);
+          await c.query("RELEASE SAVEPOINT benefit_expiry_row");
+          completed += 1;
+        } catch {
+          await c.query("ROLLBACK TO SAVEPOINT benefit_expiry_row");
+          await c.query("RELEASE SAVEPOINT benefit_expiry_row");
+        }
+      }
       await c.query("COMMIT");
-      return rows.length;
+      return completed;
     } catch (e) {
       await c.query("ROLLBACK");
       throw e;

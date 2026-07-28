@@ -70,6 +70,51 @@ export function loyaltyRedemptionMinor(
   return (points / redemptionPoints) * redemptionMinor;
 }
 
+export function loyaltyRedemptionPlan(input: {
+  requestedPoints: bigint;
+  eligibleDueMinor: bigint;
+  redemptionPoints: bigint;
+  redemptionMinor: bigint;
+}) {
+  if (
+    input.requestedPoints < 0n ||
+    input.eligibleDueMinor < 0n ||
+    input.redemptionPoints <= 0n ||
+    input.redemptionMinor <= 0n
+  )
+    throw new Error("Invalid loyalty redemption plan");
+  const requestedBlocks = input.requestedPoints / input.redemptionPoints;
+  const dueBlocks = input.eligibleDueMinor / input.redemptionMinor;
+  const acceptedPoints =
+    (requestedBlocks < dueBlocks ? requestedBlocks : dueBlocks) *
+    input.redemptionPoints;
+  return {
+    requestedPoints: input.requestedPoints,
+    acceptedPoints,
+    appliedMinor:
+      (acceptedPoints / input.redemptionPoints) * input.redemptionMinor,
+    unusedPoints: input.requestedPoints - acceptedPoints,
+  };
+}
+
+export function proportionalReversalTarget(input: {
+  originalValue: bigint;
+  cumulativeRefundMinor: bigint;
+  originalEligibleMinor: bigint;
+}) {
+  if (
+    input.originalValue < 0n ||
+    input.cumulativeRefundMinor < 0n ||
+    input.originalEligibleMinor <= 0n
+  )
+    throw new Error("Invalid proportional reversal basis");
+  const refund =
+    input.cumulativeRefundMinor < input.originalEligibleMinor
+      ? input.cumulativeRefundMinor
+      : input.originalEligibleMinor;
+  return (input.originalValue * refund) / input.originalEligibleMinor;
+}
+
 export function packageBalance(input: {
   granted: number;
   adjustments: number;
