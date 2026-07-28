@@ -31,3 +31,8 @@
 - Replace the conservative tenant-wide PostgreSQL version bump with branch-specific event routing only after production cache-hit metrics justify the complexity.
 - Add a production operations UI for failed outbox rows; Sprint 3 provides structured metrics/logs and the repository-level manual retry method.
 - Persist metrics in the selected production telemetry backend; the current implementation emits structured Nest logs and in-process counters.
+# Sprint 9 carry-forward
+
+- Production object-storage signing for private inventory exports remains provider configuration work; exports fail closed without it.
+- Production-scale performance evidence requires staging-like data; local Docker figures are not a production claim.
+- Automated reorder proposals and forecasting are intentionally deferred beyond Sprint 9 and may not bypass approval controls.

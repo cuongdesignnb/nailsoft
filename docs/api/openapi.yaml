@@ -2,8 +2,9 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.10.0,
-    description: Sprint 8 voucher,
+    version: 0.11.0,
+    description: Sprint 9 inventory,
+    supplier and purchase operations plus Sprint 8 voucher,
     loyalty,
     membership and service package benefits plus Sprint 7 refund,
     credit note,
@@ -17,6 +18,219 @@ info:
 servers: [{ url: http://localhost:3001/v1 }]
 security: [{ bearerAuth: [], tenantContext: [] }]
 paths:
+  /inventory/items:
+    get:
+      {
+        tags: [inventory],
+        summary: List tenant inventory items,
+        responses: { "200": { description: Items } },
+      }
+    post:
+      {
+        tags: [inventory],
+        summary: Create an inventory item,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Created },
+            "409": { description: Idempotency or SKU conflict },
+          },
+      }
+  /inventory/items/{itemId}:
+    get:
+      {
+        tags: [inventory],
+        summary: Get an inventory item,
+        responses:
+          { "200": { description: Item }, "404": { description: Not found } },
+      }
+  /inventory/locations:
+    get:
+      {
+        tags: [inventory],
+        summary: List branch stock locations,
+        responses: { "200": { description: Locations } },
+      }
+    post:
+      {
+        tags: [inventory],
+        summary: Create a stock location,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Created } },
+      }
+  /inventory/stock:
+    get:
+      {
+        tags: [inventory],
+        summary: Read on-hand reserved and available stock without cost,
+        responses: { "200": { description: Stock rows } },
+      }
+  /inventory/ledger:
+    get:
+      {
+        tags: [inventory],
+        summary: Read append-only stock ledger,
+        responses: { "200": { description: Ledger entries } },
+      }
+  /inventory/purchase-orders:
+    get:
+      {
+        tags: [inventory],
+        summary: List purchase orders,
+        responses: { "200": { description: Purchase orders } },
+      }
+    post:
+      {
+        tags: [inventory],
+        summary: Create purchase order,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Created } },
+      }
+  /inventory/purchase-orders/{poId}/approve:
+    post:
+      {
+        tags: [inventory],
+        summary: Approve a submitted purchase order,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Approved },
+            "409": { description: Version or state conflict },
+          },
+      }
+  /inventory/receipts:
+    get:
+      {
+        tags: [inventory],
+        summary: List goods receipts,
+        responses: { "200": { description: Receipts } },
+      }
+    post:
+      {
+        tags: [inventory],
+        summary: Create a draft receipt,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Draft created } },
+      }
+  /inventory/receipts/{receiptId}/post:
+    post:
+      {
+        tags: [inventory],
+        summary: Post an immutable receipt and stock ledger entries,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Posted },
+            "409": { description: State conflict },
+          },
+      }
+  /inventory/transfers:
+    get:
+      {
+        tags: [inventory],
+        summary: List branch transfers,
+        responses: { "200": { description: Transfers } },
+      }
+    post:
+      {
+        tags: [inventory],
+        summary: Create a stock transfer,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Created } },
+      }
+  /inventory/counts:
+    get:
+      {
+        tags: [inventory],
+        summary: List blind count sessions,
+        responses: { "200": { description: Counts } },
+      }
+    post:
+      {
+        tags: [inventory],
+        summary: Create a blind count,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Created } },
+      }
+  /service-sessions/{sessionId}/materials/reserve:
+    post:
+      {
+        tags: [inventory],
+        summary: Reserve service recipe materials using FEFO,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Reserved or shortage } },
+      }
+  /service-sessions/{sessionId}/materials:
+    get:
+      {
+        tags: [inventory],
+        summary: Read tenant and staff-scoped material reservation state,
+        responses:
+          {
+            "200": { description: Material reservation and lines },
+            "404": { description: Session not visible },
+          },
+      }
+  /service-sessions/{sessionId}/materials/actual-usage:
+    post:
+      {
+        tags: [inventory],
+        summary: Record actual material usage without posting stock,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Actual usage recorded },
+            "409": { description: Version or override-reason conflict },
+          },
+      }
+  /service-sessions/{sessionId}/materials/consume:
+    post:
+      {
+        tags: [inventory],
+        summary: Commit actual material consumption,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Consumed } },
+      }
+  /service-sessions/{sessionId}/materials/commit:
+    post:
+      {
+        tags: [inventory],
+        summary: Commit actual material usage to the immutable ledger,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Committed },
+            "409": { description: Version, stock, or state conflict },
+          },
+      }
+  /service-sessions/{sessionId}/materials/release:
+    post:
+      {
+        tags: [inventory],
+        summary: Release uncommitted material reservations,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Released } },
+      }
+  /service-sessions/{sessionId}/materials/override-shortage:
+    post:
+      {
+        tags: [inventory],
+        summary: Record authorized shortage override for manual review,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Override recorded },
+            "409": { description: Reason, version, or state conflict },
+          },
+      }
+  /pos/orders/{orderId}/products:
+    post:
+      {
+        tags: [inventory],
+        summary: Add and reserve a retail product line,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Product line added } },
+      }
   /auth/login:
     post:
       tags: [authentication]
@@ -2496,19 +2710,43 @@ paths:
         responses: { "200": { description: Export job } },
       }
   /voucher-campaigns:
-    get: { tags: [benefits], summary: List tenant voucher campaigns, responses: { "200": { description: Campaigns } } }
+    get:
+      {
+        tags: [benefits],
+        summary: List tenant voucher campaigns,
+        responses: { "200": { description: Campaigns } },
+      }
     post:
       tags: [benefits]
       summary: Create a draft voucher campaign
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/VoucherCampaignInput" } } } }
-      responses: { "201": { description: Campaign }, "409": { description: Version or eligibility conflict } }
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema: { $ref: "#/components/schemas/VoucherCampaignInput" },
+                },
+            },
+        }
+      responses:
+        {
+          "201": { description: Campaign },
+          "409": { description: Version or eligibility conflict },
+        }
   /voucher-campaigns/{campaignId}/activate:
     post:
       tags: [benefits]
       summary: Activate a versioned campaign
       parameters:
-        - { name: campaignId, in: path, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: campaignId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
         - { $ref: "#/components/parameters/IdempotencyKey" }
       requestBody: { $ref: "#/components/requestBodies/VersionedCommand" }
       responses: { "201": { description: Activated } }
@@ -2517,23 +2755,60 @@ paths:
       tags: [benefits]
       summary: Issue a tenant-HMAC voucher code; plaintext is write-only
       parameters:
-        - { name: campaignId, in: path, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: campaignId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
         - { $ref: "#/components/parameters/IdempotencyKey" }
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/VoucherCodeIssue" } } } }
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/VoucherCodeIssue" } },
+            },
+        }
       responses: { "201": { description: Last-four voucher metadata } }
   /customers/{customerId}/loyalty:
     get:
       tags: [benefits]
       summary: Read pending, available and reserved points
-      parameters: [{ name: customerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      parameters:
+        [
+          {
+            name: customerId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
       responses: { "200": { description: Loyalty account } }
   /loyalty-adjustments:
-    get: { tags: [benefits], summary: List adjustment requests, responses: { "200": { description: Requests } } }
+    get:
+      {
+        tags: [benefits],
+        summary: List adjustment requests,
+        responses: { "200": { description: Requests } },
+      }
     post:
       tags: [benefits]
       summary: Request an append-only loyalty adjustment
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/LoyaltyAdjustmentInput" } } } }
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/LoyaltyAdjustmentInput" },
+                },
+            },
+        }
       responses: { "201": { description: Pending adjustment } }
   /loyalty-adjustments/{adjustmentId}/approve:
     post:
@@ -2543,55 +2818,146 @@ paths:
         - { $ref: "#/components/parameters/AdjustmentId" }
         - { $ref: "#/components/parameters/IdempotencyKey" }
       requestBody: { $ref: "#/components/requestBodies/DecisionCommand" }
-      responses: { "201": { description: Approved }, "403": { description: Self-approval denied } }
+      responses:
+        {
+          "201": { description: Approved },
+          "403": { description: Self-approval denied },
+        }
   /membership-tiers:
-    get: { tags: [benefits], summary: List effective membership tiers, responses: { "200": { description: Tiers } } }
-    post: { tags: [benefits], summary: Create a versioned tier, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], responses: { "201": { description: Tier } } }
+    get:
+      {
+        tags: [benefits],
+        summary: List effective membership tiers,
+        responses: { "200": { description: Tiers } },
+      }
+    post:
+      {
+        tags: [benefits],
+        summary: Create a versioned tier,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "201": { description: Tier } },
+      }
   /customers/{customerId}/membership:
     get:
       tags: [benefits]
       summary: Read effective membership assignment history
-      parameters: [{ name: customerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      parameters:
+        [
+          {
+            name: customerId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
       responses: { "200": { description: Membership history } }
   /customers/{customerId}/membership/evaluate:
     post:
       tags: [benefits]
       summary: Recompute rolling paid-minus-refunded metrics and upgrade, downgrade or remove the automatic tier
       parameters:
-        - { name: customerId, in: path, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: customerId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
         - { $ref: "#/components/parameters/IdempotencyKey" }
-      responses: { "201": { description: Evaluation result }, "409": { description: Concurrent assignment conflict } }
+      responses:
+        {
+          "201": { description: Evaluation result },
+          "409": { description: Concurrent assignment conflict },
+        }
   /service-packages:
-    get: { tags: [benefits], summary: List package products, responses: { "200": { description: Products } } }
-    post: { tags: [benefits], summary: Create a versioned package product, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], responses: { "201": { description: Product } } }
+    get:
+      {
+        tags: [benefits],
+        summary: List package products,
+        responses: { "200": { description: Products } },
+      }
+    post:
+      {
+        tags: [benefits],
+        summary: Create a versioned package product,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "201": { description: Product } },
+      }
   /customers/{customerId}/packages:
     get:
       tags: [benefits]
       summary: Read customer package entitlements
-      parameters: [{ name: customerId, in: path, required: true, schema: { type: string, format: uuid } }]
+      parameters:
+        [
+          {
+            name: customerId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
       responses: { "200": { description: Entitlements } }
   /appointments/{appointmentId}/package-reservations:
     post:
       tags: [benefits]
       summary: Reserve package units for an appointment item
       parameters:
-        - { name: appointmentId, in: path, required: true, schema: { type: string, format: uuid } }
+        - {
+            name: appointmentId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
         - { $ref: "#/components/parameters/IdempotencyKey" }
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/AppointmentPackageReservation" } } } }
-      responses: { "201": { description: Reservation }, "409": { description: Balance or duplicate conflict } }
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      $ref: "#/components/schemas/AppointmentPackageReservation",
+                    },
+                },
+            },
+        }
+      responses:
+        {
+          "201": { description: Reservation },
+          "409": { description: Balance or duplicate conflict },
+        }
   /pos-orders/{orderId}/benefits/eligibility:
     get:
       tags: [benefits]
       summary: Calculate ordered benefit eligibility from current PostgreSQL state
-      parameters: [{ name: orderId, in: path, required: true, schema: { type: string, format: uuid } }]
+      parameters:
+        [
+          {
+            name: orderId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+        ]
       responses: { "200": { description: Eligibility and policy snapshots } }
   /pos-orders/{orderId}/benefits/{benefitType}:
     post:
       tags: [benefits]
       summary: Reserve/apply package, membership, voucher or loyalty benefit
       parameters:
-        - { name: orderId, in: path, required: true, schema: { type: string, format: uuid } }
-        - { name: benefitType, in: path, required: true, schema: { enum: [package, membership, voucher, loyalty] } }
+        - {
+            name: orderId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+        - {
+            name: benefitType,
+            in: path,
+            required: true,
+            schema: { enum: [package, membership, voucher, loyalty] },
+          }
         - { $ref: "#/components/parameters/IdempotencyKey" }
       requestBody:
         required: true
@@ -2602,29 +2968,79 @@ paths:
                 - { $ref: "#/components/schemas/LoyaltyBenefitCommand" }
                 - { $ref: "#/components/schemas/PackageBenefitCommand" }
       responses:
-        "201": { description: Repriced order with authoritative requested/accepted/applied/unused loyalty contract }
-        "409": { description: Reservation, package-unit, currency or version conflict }
+        "201":
+          {
+            description: Repriced order with authoritative requested/accepted/applied/unused loyalty contract,
+          }
+        "409":
+          {
+            description: Reservation,
+            package-unit,
+            currency or version conflict,
+          }
   /customer/me/benefits:
-    get: { tags: [benefits], summary: Read the authenticated customer's wallet, responses: { "200": { description: Wallet } } }
+    get:
+      {
+        tags: [benefits],
+        summary: Read the authenticated customer's wallet,
+        responses: { "200": { description: Wallet } },
+      }
   /benefits/reports/liability:
-    get: { tags: [benefits], summary: Read loyalty and package liability, responses: { "200": { description: Liability } } }
+    get:
+      {
+        tags: [benefits],
+        summary: Read loyalty and package liability,
+        responses: { "200": { description: Liability } },
+      }
   /public/salons/{salonSlug}/customer-packages:
     get:
       tags: [public-benefits]
       security: [{ bearerAuth: [] }]
       summary: Read capability-bound booking package wallet
-      parameters: [{ name: salonSlug, in: path, required: true, schema: { type: string } }]
-      responses: { "200": { description: Eligible entitlements }, "401": { description: Invalid capability } }
+      parameters:
+        [
+          {
+            name: salonSlug,
+            in: path,
+            required: true,
+            schema: { type: string },
+          },
+        ]
+      responses:
+        {
+          "200": { description: Eligible entitlements },
+          "401": { description: Invalid capability },
+        }
   /public/salons/{salonSlug}/package-reservations:
     post:
       tags: [public-benefits]
       security: [{ bearerAuth: [] }]
       summary: Reserve a package unit for the capability-bound appointment
       parameters:
-        - { name: salonSlug, in: path, required: true, schema: { type: string } }
+        - {
+            name: salonSlug,
+            in: path,
+            required: true,
+            schema: { type: string },
+          }
         - { $ref: "#/components/parameters/IdempotencyKey" }
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PublicPackageReservation" } } } }
-      responses: { "201": { description: Reservation }, "409": { description: Conflict } }
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    { $ref: "#/components/schemas/PublicPackageReservation" },
+                },
+            },
+        }
+      responses:
+        {
+          "201": { description: Reservation },
+          "409": { description: Conflict },
+        }
 components:
   parameters:
     IdempotencyKey:
@@ -2711,7 +3127,15 @@ components:
     VoucherCampaignInput:
       type: object
       additionalProperties: false
-      required: [name, discountType, discountValue, minimumSpendMinor, validFrom, validUntil]
+      required:
+        [
+          name,
+          discountType,
+          discountValue,
+          minimumSpendMinor,
+          validFrom,
+          validUntil,
+        ]
       properties:
         name: { type: string, minLength: 1, maxLength: 200 }
         discountType: { enum: [FIXED, PERCENT] }
@@ -2748,7 +3172,12 @@ components:
       required: [version, points]
       properties:
         version: { type: integer, minimum: 1 }
-        points: { type: integer, minimum: 1, description: Requested points; server caps accepted points at eligible service due before tip }
+        points:
+          {
+            type: integer,
+            minimum: 1,
+            description: Requested points; server caps accepted points at eligible service due before tip,
+          }
     LoyaltyReservationContract:
       type: object
       required: [requestedPoints, acceptedPoints, appliedMinor, unusedPoints]
@@ -2765,7 +3194,12 @@ components:
         version: { type: integer, minimum: 1 }
         entitlementId: { type: string, format: uuid }
         orderLineId: { type: string, format: uuid }
-        units: { type: integer, minimum: 1, description: Compatibility assertion only; server derives authoritative units from the matched eligibility item }
+        units:
+          {
+            type: integer,
+            minimum: 1,
+            description: Compatibility assertion only; server derives authoritative units from the matched eligibility item,
+          }
     AppointmentPackageReservation:
       type: object
       additionalProperties: false

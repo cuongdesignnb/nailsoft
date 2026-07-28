@@ -32,6 +32,11 @@ try {
   );
   if (sprint8.rowCount)
     await c.query(await readFile("infra/seeds/sprint8.sql", "utf8"));
+  const sprint9 = await c.query(
+    "SELECT 1 FROM schema_migrations WHERE version='0018_inventory_supplier_purchase_operations'",
+  );
+  if (sprint9.rowCount)
+    await c.query(await readFile("infra/seeds/sprint9.sql", "utf8"));
 } finally {
   await c.end();
 }

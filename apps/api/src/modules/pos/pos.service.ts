@@ -23,6 +23,7 @@ import {
 import { DatabaseService } from "../../infrastructure/database.service.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
 import { BenefitsTransactionService } from "../benefits/benefits-transaction.service.js";
+import { InventoryOperationsService } from "../inventory/inventory-operations.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
 import { FinancialEvidenceService } from "./financial-evidence.service.js";
 import { ManualExternalProvider } from "./payment-provider.js";
@@ -46,6 +47,8 @@ export class PosService {
     private readonly registerDevice: RegisterDeviceAuthorizationService,
     @Inject(BenefitsTransactionService)
     private readonly benefits: BenefitsTransactionService,
+    @Inject(InventoryOperationsService)
+    private readonly inventory: InventoryOperationsService,
   ) {}
 
   async createFromAppointment(
@@ -845,13 +848,7 @@ export class PosService {
           branchId: order.branch_id,
           client,
         });
-        await this.reprice(
-          client,
-          auth,
-          id,
-          requestId,
-          "FINALIZE",
-        );
+        await this.reprice(client, auth, id, requestId, "FINALIZE");
         await this.benefits.revalidateOrderBenefits(client, auth, order);
         const priced = (
           await client.query<any>(
@@ -908,6 +905,7 @@ export class PosService {
             invoice?.id ?? null,
             requestId,
           );
+          await this.inventory.commitOrderProducts(client, auth, id);
         }
         await this.recordOrder(
           client,
@@ -1190,6 +1188,7 @@ export class PosService {
             invoice?.id ?? null,
             requestId,
           );
+          await this.inventory.commitOrderProducts(client, auth, id);
           await this.checkoutAppointment(
             client,
             auth,
@@ -1269,6 +1268,7 @@ export class PosService {
           requestId,
           key,
         );
+        await this.inventory.releaseOrderProducts(client, auth, id);
         await client.query(
           "UPDATE invoices SET status='VOIDED_BEFORE_PAYMENT',voided_at=now(),voided_by_user_id=$3,void_reason=$4,version=version+1,updated_at=now() WHERE tenant_id=$1 AND pos_order_id=$2 AND status='DRAFT'",
           [auth.tenantId, id, auth.userId, body.reason],

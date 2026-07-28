@@ -136,6 +136,12 @@ jobs:
           done
       - name: Sprint 8 Worker resilience integration
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint8-worker-isolation.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 9 inventory PostgreSQL and concurrency integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint9-inventory.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 9 inventory authorization integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint9-inventory-authorization.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 9 inventory worker leasing and alert deduplication
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint9-inventory-worker.test.ts --maxWorkers=1 --minWorkers=1
       - name: Reset focused regression fixture
         run: pnpm db:reset && pnpm db:seed
       - name: Public booking tenant-scoped deep integration
@@ -259,8 +265,12 @@ jobs:
             pnpm db:seed
             pnpm exec playwright test "$spec" --config=playwright.api.config.ts
           done
+      - name: Sprint 9 purchase receipt transfer service count and retail E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint9-inventory-deep.spec.ts --config=playwright.api.config.ts
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
+      - name: Sprint 9 Owner and Staff Mobile contract smoke
+        run: pnpm exec vitest run tests/mobile/sprint9-mobile-smoke.test.ts
       - name: Scheduling and booking load smoke
         env:
           LOAD_DURATION_SECONDS: 2
@@ -295,6 +305,13 @@ jobs:
           LOAD_WARMUP_SECONDS: 1
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: benefit-wallet,voucher-campaigns,benefit-liability,expiring-benefits
+        run: pnpm load:smoke
+      - name: Sprint 9 inventory load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: inventory-stock,inventory-barcode,inventory-ledger,inventory-valuation
         run: pnpm load:smoke
       - name: Build API
         run: pnpm --filter @nailsoft/api build

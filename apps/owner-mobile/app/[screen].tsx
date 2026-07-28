@@ -49,6 +49,11 @@ const titles: Record<string, string> = {
   membershipCounts: "Membership counts",
   pendingLoyaltyAdjustments: "Pending loyalty adjustments",
   expiringBenefits: "Expiring customer benefits",
+  inventoryLowStock: "Low-stock inventory",
+  inventoryExpiry: "Expiring inventory lots",
+  inventoryApprovals: "Purchase order approvals",
+  inventoryVariances: "Inventory variances",
+  inventoryValuation: "Inventory valuation",
 };
 function endpoint(screen: string, id?: string) {
   if (screen === "operationalSummary")
@@ -65,12 +70,17 @@ function endpoint(screen: string, id?: string) {
   if (screen === "benefitSummary" || screen === "benefitLiability")
     return "/v1/benefits/reports/liability";
   if (screen === "voucherUsage") return "/v1/benefits/reports/vouchers";
-  if (screen === "membershipCounts")
-    return "/v1/benefits/reports/membership";
-  if (screen === "pendingLoyaltyAdjustments")
-    return "/v1/loyalty-adjustments";
-  if (screen === "expiringBenefits")
-    return "/v1/benefits/reports/expiring";
+  if (screen === "membershipCounts") return "/v1/benefits/reports/membership";
+  if (screen === "pendingLoyaltyAdjustments") return "/v1/loyalty-adjustments";
+  if (screen === "expiringBenefits") return "/v1/benefits/reports/expiring";
+  if (screen === "inventoryLowStock" || screen === "inventoryExpiry")
+    return `/v1/inventory/alerts?branchId=${branch}`;
+  if (screen === "inventoryApprovals")
+    return `/v1/inventory/purchase-orders?branchId=${branch}`;
+  if (screen === "inventoryVariances")
+    return `/v1/inventory/adjustments?branchId=${branch}`;
+  if (screen === "inventoryValuation")
+    return `/v1/inventory/reports/valuation?branchId=${branch}`;
   if (screen === "appointmentsToday")
     return `/v1/appointments?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-11T00:00:00%2B07:00`;
   if (screen === "appointments")
@@ -149,6 +159,11 @@ export default function OwnerScreen() {
         "membershipCounts",
         "pendingLoyaltyAdjustments",
         "expiringBenefits",
+        "inventoryLowStock",
+        "inventoryExpiry",
+        "inventoryApprovals",
+        "inventoryVariances",
+        "inventoryValuation",
       ].includes(screen)
     )
       return;
@@ -266,6 +281,33 @@ export default function OwnerScreen() {
     );
     await load();
   }
+  async function approvePurchaseOrder(item: any) {
+    if (!navigator.onLine) {
+      setMessage("Internet connection required. Approval was not queued.");
+      return;
+    }
+    const response = await apiFetch(
+      `/v1/inventory/purchase-orders/${item.id}/approve`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          version: item.version,
+          reason: "Approved in Owner Mobile",
+        }),
+      },
+    );
+    const body = await response.json().catch(() => ({}));
+    setMessage(
+      response.ok
+        ? "Purchase order approved."
+        : (body.error?.message ?? "Approval failed safely."),
+    );
+    await load();
+  }
   return (
     <SafeAreaView>
       <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }}>
@@ -349,6 +391,13 @@ export default function OwnerScreen() {
                     />
                   </View>
                 )}
+                {screen === "inventoryApprovals" &&
+                  item.status === "SUBMITTED" && (
+                    <Button
+                      title="Approve purchase order"
+                      onPress={() => void approvePurchaseOrder(item)}
+                    />
+                  )}
               </View>
             ))}
           </View>

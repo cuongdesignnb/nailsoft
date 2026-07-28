@@ -13,6 +13,8 @@ import { BookingOtpProcessor } from "./booking-otp.processor.js";
 import { BookingOtpProvider } from "./booking-otp.provider.js";
 import { BenefitMaintenancePoller } from "./benefit-maintenance.poller.js";
 import { BenefitMaintenanceProcessor } from "./benefit-maintenance.processor.js";
+import { InventoryMaintenancePoller } from "./inventory-maintenance.poller.js";
+import { InventoryMaintenanceProcessor } from "./inventory-maintenance.processor.js";
 
 @Module({
   providers: [
@@ -30,6 +32,8 @@ import { BenefitMaintenanceProcessor } from "./benefit-maintenance.processor.js"
     BookingOtpPoller,
     BenefitMaintenanceProcessor,
     BenefitMaintenancePoller,
+    InventoryMaintenanceProcessor,
+    InventoryMaintenancePoller,
   ],
   exports: [OutboxRepository, OutboxEventRouter, OutboxProcessor],
 })

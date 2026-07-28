@@ -1,0 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { describe,expect,it } from "vitest";
+describe("Sprint 9 mobile inventory boundaries",()=>{
+ it("gives Owner Mobile operational inventory summaries and approval",async()=>{const[index,screen]=await Promise.all([readFile("apps/owner-mobile/app/index.tsx","utf8"),readFile("apps/owner-mobile/app/[screen].tsx","utf8")]);expect(index).toContain("inventoryLowStock");expect(index).toContain("inventoryValuation");expect(screen).toContain("/v1/inventory/alerts");expect(screen).toContain("/v1/inventory/reports/valuation");expect(screen).toContain("Approve purchase order");expect(screen).toContain("Internet connection required. Approval was not queued.");});
+ it("limits Staff Mobile to own service material requirements without cost or suppliers",async()=>{const[index,screen]=await Promise.all([readFile("apps/staff-mobile/app/index.tsx","utf8"),readFile("apps/staff-mobile/app/[screen].tsx","utf8")]);expect(index).toContain("myMaterials");expect(screen).toContain("/v1/staff/me/materials");expect(screen).toContain("inventory.updated");expect(screen).not.toContain("/v1/inventory/suppliers");expect(screen).not.toContain("/v1/inventory/reports/valuation");});
+});

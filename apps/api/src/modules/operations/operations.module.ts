@@ -3,6 +3,7 @@ import { DatabaseModule } from "../../infrastructure/database.module.js";
 import { AvailabilityModule } from "../availability/availability.module.js";
 import { BookingModule } from "../booking/booking.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
+import { InventoryModule } from "../inventory/inventory.module.js";
 import {
   AppointmentOperationsController,
   OperationsController,
@@ -15,7 +16,13 @@ import { WalkInService } from "./walk-in.service.js";
 import { OperationsMetrics } from "./operations.metrics.js";
 import { WalkInEtaService } from "./walk-in-eta.service.js";
 @Module({
-  imports: [DatabaseModule, IdentityModule, AvailabilityModule, BookingModule],
+  imports: [
+    DatabaseModule,
+    IdentityModule,
+    AvailabilityModule,
+    BookingModule,
+    InventoryModule,
+  ],
   controllers: [
     WalkInController,
     AppointmentOperationsController,

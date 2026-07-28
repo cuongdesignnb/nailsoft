@@ -172,6 +172,13 @@ const benefitEvents = new Set([
   "benefits.released",
   "benefits.refund_reversed",
 ]);
+const inventoryEvents = new Set([
+  "inventory.uom_created","inventory.uom_conversion_created","inventory.category_created","inventory.item_created","inventory.item_archived","inventory.location_created","inventory.supplier_created","inventory.recipe_created",
+  "inventory.purchase_order_created","inventory.purchase_order_submitted","inventory.purchase_order_approved","inventory.purchase_order_cancelled",
+  "inventory.receipt_created","inventory.receipt_posted","inventory.transfer_created","inventory.transfer_shipped","inventory.transfer_received","inventory.transfer_cancelled",
+  "inventory.adjustment_requested","inventory.adjustment_posted","inventory.adjustment_rejected","inventory.count_created","inventory.count_line_recorded","inventory.count_submitted","inventory.count_approved","inventory.count_posted",
+  "inventory.service_reserved","inventory.service_shortage","inventory.service_consumed","inventory.service_released","inventory.product_reserved","inventory.return_inspected","inventory.alert_acknowledged","inventory.reservation_expired","inventory.export_requested",
+]);
 
 @Injectable()
 export class OutboxEventRouter {
@@ -182,6 +189,7 @@ export class OutboxEventRouter {
   async route(event: OutboxEvent): Promise<RoutedEvent> {
     const control = this.control(event);
     if (control) return { kind: "control", message: control };
+    if (inventoryEvents.has(event.event_type)) return this.inventory(event);
     if (benefitEvents.has(event.event_type)) return this.benefit(event);
     if (financialEvents.has(event.event_type)) return this.financial(event);
     if (operationalEvents.has(event.event_type)) return this.operational(event);
@@ -340,6 +348,14 @@ export class OutboxEventRouter {
           ],
         })),
     };
+  }
+
+  private async inventory(event: OutboxEvent): Promise<RoutedEvent> {
+    const branchId=event.branch_id??stringValue(event.payload_json.branchId);
+    const branches=branchId?[branchId]:await this.tenantBranches(event.tenant_id);
+    if(!branches.length)return{kind:"ignored"};
+    for(const id of branches)await this.assertBranch(event.tenant_id,id);
+    return{kind:"invalidation",deliveries:branches.map(id=>({payload:{eventId:event.id,tenantId:event.tenant_id,branchId:id,dataVersion:event.aggregate_version,sourceEventType:event.event_type,realtimeEvent:event.event_type.startsWith("inventory.alert")?"inventory.alerts.updated":"inventory.updated",refetch:true,occurredAt:event.created_at.toISOString()},rooms:[`tenant:${event.tenant_id}`,`branch:${id}`]}))};
   }
 
   private async operational(event: OutboxEvent): Promise<RoutedEvent> {

@@ -822,3 +822,232 @@ export const benefitExportSchema = z
     filters: z.record(z.string(), z.unknown()).default({}),
   })
   .strict();
+
+export const inventoryQuantitySchema = z
+  .string()
+  .regex(
+    /^\d+(?:\.\d{1,6})?$/,
+    "Use a positive decimal string with at most 6 decimals",
+  )
+  .refine((value) => Number(value) > 0, "Quantity must be positive");
+export const inventorySignedQuantitySchema = z
+  .string()
+  .regex(/^-?\d+(?:\.\d{1,6})?$/)
+  .refine((value) => Number(value) !== 0, "Quantity delta cannot be zero");
+export const moneyMinorStringSchema = z.string().regex(/^\d+$/);
+export const inventoryItemSchema = z
+  .object({
+    categoryId: uuidSchema.optional().nullable(),
+    baseUomId: uuidSchema,
+    sku: z.string().trim().min(1).max(80),
+    name: z.record(z.string(), z.string().trim().min(1)),
+    itemType: z.enum(["CONSUMABLE", "RETAIL", "BOTH"]),
+    trackLot: z.boolean().default(false),
+    trackExpiry: z.boolean().default(false),
+    trackingMode: z.enum(["NONE", "LOT", "LOT_AND_EXPIRY"]).optional(),
+    quantityPrecision: z.number().int().min(0).max(6).default(3),
+    currency: z
+      .string()
+      .regex(/^[A-Z]{3}$/)
+      .default("VND"),
+    retailPriceMinor: moneyMinorStringSchema.optional().nullable(),
+    barcodes: z.array(z.string().trim().min(3).max(120)).max(20).default([]),
+  })
+  .strict();
+export const inventoryLocationSchema = z
+  .object({
+    branchId: uuidSchema,
+    code: z.string().trim().min(1).max(60),
+    name: z.string().trim().min(1).max(160),
+    locationType: z.enum([
+      "STOCKROOM",
+      "BACKBAR",
+      "SERVICE_FLOOR",
+      "RETAIL",
+      "RETAIL_FLOOR",
+      "QUARANTINE",
+      "DAMAGED",
+      "IN_TRANSIT",
+    ]),
+  })
+  .strict();
+export const inventorySupplierSchema = z
+  .object({
+    code: z.string().trim().min(1).max(60),
+    name: z.string().trim().min(1).max(200),
+    legalName: z.string().trim().max(240).optional(),
+    contact: z.record(z.string(), z.unknown()).default({}),
+    leadTimeDays: z.number().int().nonnegative().default(0),
+    paymentTerms: z.string().trim().max(1000).optional(),
+    notes: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+export const inventoryPurchaseOrderSchema = z
+  .object({
+    branchId: uuidSchema,
+    supplierId: uuidSchema,
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    expectedAt: z.string().datetime({ offset: true }).optional().nullable(),
+    note: z.string().trim().max(2000).optional(),
+    lines: z
+      .array(
+        z
+          .object({
+            itemId: uuidSchema,
+            uomId: uuidSchema,
+            quantity: inventoryQuantitySchema,
+            unitPriceMinor: moneyMinorStringSchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(500),
+  })
+  .strict();
+export const inventoryReceiptSchema = z
+  .object({
+    branchId: uuidSchema,
+    purchaseOrderId: uuidSchema.optional().nullable(),
+    locationId: uuidSchema,
+    receivedAt: z.string().datetime({ offset: true }),
+    lines: z
+      .array(
+        z
+          .object({
+            purchaseOrderLineId: uuidSchema.optional().nullable(),
+            itemId: uuidSchema,
+            lotId: uuidSchema.optional().nullable(),
+            quantity: inventoryQuantitySchema,
+            uomId: uuidSchema.optional(),
+            baseQuantity: inventoryQuantitySchema.optional(),
+            unitCostMinor: moneyMinorStringSchema,
+            qualityDisposition: z
+              .enum(["ACCEPTED", "QUARANTINE", "REJECTED"])
+              .default("ACCEPTED"),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(500),
+  })
+  .strict();
+export const inventoryVersionCommandSchema = z
+  .object({
+    version: z.number().int().positive(),
+    reason: z.string().trim().min(3).max(1000).optional(),
+  })
+  .strict();
+export const inventoryAdjustmentSchema = z
+  .object({
+    branchId: uuidSchema,
+    locationId: uuidSchema,
+    itemId: uuidSchema,
+    lotId: uuidSchema.optional().nullable(),
+    quantityDelta: inventorySignedQuantitySchema,
+    reasonCode: z.string().trim().min(1).max(80),
+    note: z.string().trim().min(3).max(2000),
+  })
+  .strict();
+export const inventoryCountSchema = z
+  .object({
+    branchId: uuidSchema,
+    locationId: uuidSchema,
+    blind: z.literal(true).default(true),
+    items: z
+      .array(
+        z
+          .object({
+            itemId: uuidSchema,
+            lotId: uuidSchema.optional().nullable(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(5000),
+  })
+  .strict();
+export const inventoryCountLineSchema = z
+  .object({
+    version: z.number().int().positive(),
+    countedQuantity: z.string().regex(/^\d+(?:\.\d{1,6})?$/),
+  })
+  .strict();
+export const inventoryTransferSchema = z
+  .object({
+    sourceBranchId: uuidSchema,
+    destinationBranchId: uuidSchema,
+    sourceLocationId: uuidSchema,
+    destinationLocationId: uuidSchema,
+    lines: z
+      .array(
+        z
+          .object({
+            itemId: uuidSchema,
+            lotId: uuidSchema.optional().nullable(),
+            quantity: inventoryQuantitySchema,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(500),
+  })
+  .strict();
+export const serviceMaterialRecipeSchema = z
+  .object({
+    serviceId: uuidSchema,
+    branchId: uuidSchema.optional().nullable(),
+    name: z.string().trim().min(1).max(160),
+    lines: z
+      .array(
+        z
+          .object({
+            itemId: uuidSchema,
+            uomId: uuidSchema,
+            quantity: inventoryQuantitySchema,
+            wastageBasisPoints: z.number().int().min(0).max(10000).default(0),
+            sourceLocationId: uuidSchema.optional().nullable(),
+            selectionMethod: z.enum(["FEFO", "FIFO", "MANUAL"]).default("FEFO"),
+            required: z.boolean().default(true),
+            allowOverride: z.boolean().default(false),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+  })
+  .strict();
+export const inventoryConsumeSchema = z
+  .object({
+    version: z.number().int().positive(),
+    actualLines: z
+      .array(
+        z
+          .object({
+            reservationLineId: uuidSchema,
+            quantity: inventoryQuantitySchema,
+            overrideReason: z.string().trim().min(3).max(1000).optional(),
+          })
+          .strict(),
+      )
+      .max(100)
+      .default([]),
+  })
+  .strict();
+export const retailReturnDecisionSchema = z
+  .object({
+    refundItemId: uuidSchema,
+    inventoryItemId: uuidSchema,
+    disposition: z.enum([
+      "RESTOCK",
+      "DAMAGED",
+      "QUARANTINE",
+      "DISCARD",
+      "NO_RETURN",
+    ]),
+    locationId: uuidSchema.optional().nullable(),
+    lotId: uuidSchema.optional().nullable(),
+    quantity: inventoryQuantitySchema,
+    reasonCode: z.string().trim().min(1).max(80),
+    note: z.string().trim().max(2000).optional(),
+  })
+  .strict();

@@ -106,6 +106,8 @@ export default function Home() {
             "commissionHistory",
             "netTips",
             "packageCoverage",
+            "myMaterials",
+            "materialUsage",
             "upcomingAppointments",
             "myCalendar",
             "myBusy",

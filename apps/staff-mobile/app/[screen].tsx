@@ -33,6 +33,8 @@ const titles: Record<string, string> = {
   commissionHistory: "Commission and refund history",
   netTips: "My net tips",
   packageCoverage: "Appointment package coverage",
+  myMaterials: "My material requirements",
+  materialUsage: "My actual material usage",
 };
 function pathFor(screen: string, id?: string) {
   if (screen === "staffToday") return "/v1/staff/me/today";
@@ -44,6 +46,8 @@ function pathFor(screen: string, id?: string) {
   if (screen === "appointment") return `/v1/appointments/${id ?? ""}`;
   if (screen === "packageCoverage")
     return id ? `/v1/appointments/${id}/benefits` : null;
+  if (screen === "myMaterials" || screen === "materialUsage")
+    return "/v1/staff/me/materials";
   if (["profile", "branches", "skills", "createLeave"].includes(screen))
     return "/v1/staff/me";
   if (screen === "shifts") return "/v1/shifts";
@@ -115,6 +119,8 @@ export default function StaffScreen() {
         "commissionHistory",
         "netTips",
         "packageCoverage",
+        "myMaterials",
+        "materialUsage",
       ].includes(screen)
     )
       return;
@@ -132,6 +138,7 @@ export default function StaffScreen() {
       "refund.updated",
       "package.updated",
       "benefits.wallet_invalidated",
+      "inventory.updated",
     ].forEach((event) => socket.on(event, () => void load()));
     return () => {
       socket.disconnect();

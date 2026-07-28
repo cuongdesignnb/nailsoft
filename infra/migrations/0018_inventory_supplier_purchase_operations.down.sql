@@ -1,0 +1,17 @@
+BEGIN;
+DELETE FROM role_permissions WHERE permission_code IN (SELECT code FROM permissions WHERE code LIKE 'inventory.%');
+DELETE FROM permissions WHERE code LIKE 'inventory.%';
+DROP TABLE inventory_jobs,inventory_export_jobs,inventory_alerts,inventory_return_decisions;
+ALTER TABLE pos_order_lines DROP CONSTRAINT pos_product_item_check,DROP CONSTRAINT pos_order_line_inventory_reservation_fk,DROP CONSTRAINT pos_order_line_inventory_item_fk,DROP COLUMN inventory_reservation_id,DROP COLUMN inventory_item_id;
+ALTER TABLE pos_order_lines DROP CONSTRAINT pos_order_lines_line_type_check;
+ALTER TABLE pos_order_lines ADD CONSTRAINT pos_order_lines_line_type_check CHECK(line_type IN('SERVICE','MANUAL_SERVICE','ADJUSTMENT'));
+DROP TABLE service_material_reservation_lines,service_material_reservations,service_material_recipe_lines,service_material_recipes;
+DROP TABLE inventory_count_lines,inventory_count_sessions,inventory_adjustment_requests,inventory_transfer_variances,inventory_transfer_lines,inventory_transfers,inventory_transfer_counters;
+DROP TABLE inventory_receipt_lines,inventory_receipts,inventory_receipt_counters,purchase_order_status_history,purchase_order_lines,purchase_orders,purchase_order_counters;
+DROP TABLE inventory_supplier_prices,inventory_supplier_items,inventory_suppliers,inventory_reservations,inventory_stock_ledger_entries,inventory_stock_balances,inventory_lots;
+DROP TABLE inventory_item_branch_settings,inventory_locations,inventory_item_barcodes,inventory_items,inventory_categories,inventory_uom_conversions,inventory_uoms;
+DROP FUNCTION sprint9_append_only_guard();
+DROP FUNCTION sprint9_posted_receipt_line_guard();
+DROP FUNCTION sprint9_posted_receipt_guard();
+DELETE FROM schema_migrations WHERE version='0018_inventory_supplier_purchase_operations';
+COMMIT;

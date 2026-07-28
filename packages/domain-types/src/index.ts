@@ -371,3 +371,42 @@ export interface CustomerBenefitWallet {
   packages: Array<Record<string, unknown>>;
   expiringSoon: Array<Record<string, unknown>>;
 }
+
+export type InventoryItemType = "CONSUMABLE" | "RETAIL" | "BOTH";
+export type InventoryLotStatus =
+  "AVAILABLE" | "QUARANTINE" | "DAMAGED" | "EXPIRED" | "DEPLETED";
+export type InventoryReservationStatus =
+  "ACTIVE" | "COMMITTED" | "RELEASED" | "EXPIRED" | "CANCELLED";
+/** Exact decimal returned as text; consumers must not coerce this to JS Number. */
+export type InventoryQuantity = string;
+/** Integer minor units returned as text to preserve bigint precision. */
+export type MoneyMinorString = string;
+export interface InventoryStockRow {
+  id: string;
+  branchId: string;
+  locationId: string;
+  itemId: string;
+  lotId?: string;
+  onHand: InventoryQuantity;
+  reserved: InventoryQuantity;
+  available: InventoryQuantity;
+  averageUnitCostMinor?: InventoryQuantity;
+  totalCostMinor?: InventoryQuantity;
+  version: string;
+}
+export interface PurchaseOrderSummary {
+  id: string;
+  branchId: string;
+  supplierId: string;
+  poNumber: string;
+  status:
+    | "DRAFT"
+    | "SUBMITTED"
+    | "APPROVED"
+    | "PARTIALLY_RECEIVED"
+    | "RECEIVED"
+    | "CANCELLED";
+  currency: string;
+  subtotalMinor: MoneyMinorString;
+  version: number;
+}

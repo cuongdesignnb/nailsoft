@@ -30,6 +30,7 @@ import { DatabaseService } from "../../infrastructure/database.service.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
 import { BookingService } from "../booking/booking.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
+import { InventoryOperationsService } from "../inventory/inventory-operations.service.js";
 import {
   arrivalOffset,
   assertSessionTransition,
@@ -51,6 +52,8 @@ export class ServiceExecutionService {
     private readonly idem: BookingIdempotencyService,
     @Inject(BookingService) private readonly booking: BookingService,
     @Inject(WalkInEtaService) private readonly eta: WalkInEtaService,
+    @Inject(InventoryOperationsService)
+    private readonly inventory: InventoryOperationsService,
   ) {}
   private deny(auth: AccessClaims) {
     if (auth.roles.includes("PLATFORM_SUPER_ADMIN"))
@@ -462,6 +465,12 @@ export class ServiceExecutionService {
               assertSessionTransition(s.status, "IN_PROGRESS");
               await this.qualify(c, auth, s, body.staffId);
               await this.assertPrimaryAssignment(c, auth, s, body.staffId);
+              await this.inventory.reserveForServiceStart(
+                c,
+                auth,
+                id,
+                requestId,
+              );
               await c.query(
                 "INSERT INTO service_session_staff_segments(tenant_id,service_session_id,staff_id,segment_role,started_at,created_by_user_id) VALUES($1,$2,$3,'PRIMARY',$4,$5)",
                 [auth.tenantId, id, body.staffId, now, auth.userId],
@@ -518,6 +527,12 @@ export class ServiceExecutionService {
                   code: "SERVICE_SESSION_NOT_STARTED",
                   message: "Service has not started",
                 });
+              await this.inventory.consumeForServiceCompletion(
+                c,
+                auth,
+                id,
+                requestId,
+              );
               await c.query(
                 "UPDATE service_session_pauses SET ended_at=$3,ended_by_user_id=$4 WHERE tenant_id=$1 AND service_session_id=$2 AND ended_at IS NULL",
                 [auth.tenantId, id, now, auth.userId],
@@ -555,6 +570,12 @@ export class ServiceExecutionService {
                   message:
                     "Manager permission is required to cancel active work",
                 });
+              await this.inventory.releaseForServiceCancellation(
+                c,
+                auth,
+                id,
+                requestId,
+              );
               await c.query(
                 "UPDATE service_session_pauses SET ended_at=$3,ended_by_user_id=$4 WHERE tenant_id=$1 AND service_session_id=$2 AND ended_at IS NULL",
                 [auth.tenantId, id, now, auth.userId],

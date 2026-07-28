@@ -1,20 +1,20 @@
 # Sprint 8 Closure Report
 
-Status: IN PROGRESS — TECHNICALLY READY; PENDING FINAL GITHUB ACTIONS AND BA/PRODUCT OWNER ACCEPTANCE.
+Status: DONE — accepted by Business Analyst/Product Owner before Sprint 9 authorization.
 
 ## Git
 
 - Branch: `main`
 - Start checkpoint: `44c10065ed3f39f2887947028cb3830833ef3ff3`
 - Feature/closure commit: `1799fe244d7ebb11a944c1c8f547ef15e2d11adf`
-- Final evidence commit: identity of the commit containing this evidence update, recorded in the final handoff
-- `origin/main`: verified equal to the final evidence commit in the final handoff
+- Final evidence commit: `552de530fcbcee1295d638ee10a46944253d31c0`
+- `origin/main`: `552de530fcbcee1295d638ee10a46944253d31c0`
 - Working tree: verified clean after publishing the final evidence commit
 
 ## CI and Docker
 
 - Closure GitHub Actions: run [`30326541998`](https://github.com/cuongdesignnb/nailsoft/actions/runs/30326541998), commit `1799fe244d7ebb11a944c1c8f547ef15e2d11adf`, `SUCCESS` in 19m38s.
-- Exact final evidence-commit CI is recorded in the final handoff because a commit cannot include the result of its own future run.
+- Accepted final evidence-commit CI: run [`30327503259`](https://github.com/cuongdesignnb/nailsoft/actions/runs/30327503259), `SUCCESS`.
 - Local Docker was used only for QA and was shut down afterward; final `docker compose ps` returned no services (`DOCKER_SERVICES_RUNNING=0`).
 - Containers belonging to other projects are not changed.
 
@@ -82,4 +82,4 @@ Status: IN PROGRESS — TECHNICALLY READY; PENDING FINAL GITHUB ACTIONS AND BA/P
 - Payroll payout was not implemented.
 - Marketing automation and AI were not implemented.
 - Sprint 9 was not started.
-- Sprint 8 must not be marked `DONE` until final CI is green and BA/Product Owner accepts it.
+- Sprint 8 was accepted `DONE`; Sprint 9 starts from the final evidence checkpoint above.

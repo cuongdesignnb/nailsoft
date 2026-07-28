@@ -418,6 +418,26 @@ const scenarios = [
       ),
   },
   {
+    name: "inventory-stock",
+    setup: async (worker) => auth(`load-inventory-stock-${worker}`),
+    run: (state) => request("/v1/inventory/stock?branchId=20000000-0000-4000-8000-000000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "inventory-barcode",
+    setup: async (worker) => auth(`load-inventory-barcode-${worker}`),
+    run: (state) => request("/v1/inventory/barcodes/8930000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "inventory-ledger",
+    setup: async (worker) => auth(`load-inventory-ledger-${worker}`),
+    run: (state) => request("/v1/inventory/ledger?branchId=20000000-0000-4000-8000-000000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "inventory-valuation",
+    setup: async (worker) => auth(`load-inventory-valuation-${worker}`),
+    run: (state) => request("/v1/inventory/reports/valuation?branchId=20000000-0000-4000-8000-000000000001", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
     name: "availability-explain",
     setup: async (worker) => auth(`load-explain-${worker}`),
     run: (state) =>
