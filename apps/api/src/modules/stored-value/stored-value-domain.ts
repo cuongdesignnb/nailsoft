@@ -38,6 +38,38 @@ export function acceptedStoredValue(
   return [requested, available, eligibleDue].reduce((a, b) => (a < b ? a : b));
 }
 
+export function storedValueRedemptionCap(input: {
+  requested: bigint;
+  available: bigint;
+  remainingEligible: bigint;
+  currentOrderDue: bigint;
+}) {
+  if (input.requested <= 0n) throw new Error("GIFT_CARD_AMOUNT_INVALID");
+  return [
+    input.requested,
+    input.available,
+    input.remainingEligible,
+    input.currentOrderDue,
+  ].reduce((minimum, value) => (value < minimum ? value : minimum));
+}
+
+export function cumulativeProportionalRestore(input: {
+  originalAllocation: bigint;
+  lineNet: bigint;
+  cumulativeRefund: bigint;
+  previouslyRestored: bigint;
+  pendingRestore?: bigint;
+}) {
+  if (input.lineNet <= 0n || input.originalAllocation < 0n)
+    throw new Error("STORED_VALUE_REFUND_ALLOCATION_CONFLICT");
+  const target =
+    input.cumulativeRefund >= input.lineNet
+      ? input.originalAllocation
+      : (input.originalAllocation * input.cumulativeRefund) / input.lineNet;
+  const accounted = input.previouslyRestored + (input.pendingRestore ?? 0n);
+  return target > accounted ? target - accounted : 0n;
+}
+
 export function storedValueLiability(available: bigint, reserved: bigint) {
   return available + reserved;
 }

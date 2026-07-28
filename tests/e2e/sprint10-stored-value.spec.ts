@@ -310,6 +310,7 @@ test("customer-credit adjustment uses independent approval and salon data remain
     const created = await owner.api.post("/v1/stored-value-adjustments", {
       headers: headers(owner, "s10-adjustment-create"),
       data: {
+        branchId: "20000000-0000-4000-8000-000000000001",
         customerId: adjustmentCustomer,
         currency: "VND",
         adjustmentType: "SERVICE_RECOVERY_CREDIT",

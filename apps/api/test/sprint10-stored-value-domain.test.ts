@@ -3,10 +3,12 @@ import {
   acceptedStoredValue,
   assertGiftCardTransition,
   cardHash,
+  cumulativeProportionalRestore,
   generateCardCredentials,
   maskCard,
   pinHash,
   storedValueLiability,
+  storedValueRedemptionCap,
   verifyPin,
 } from "../src/modules/stored-value/stored-value-domain.js";
 
@@ -16,6 +18,44 @@ describe("Sprint 10 stored-value domain", () => {
     expect(() => acceptedStoredValue(0n, 40_000n, 30_000n)).toThrow(
       "GIFT_CARD_AMOUNT_INVALID",
     );
+  });
+
+  it("caps external-first redemption by the current order due", () => {
+    expect(
+      storedValueRedemptionCap({
+        requested: 100n,
+        available: 100n,
+        remainingEligible: 100n,
+        currentOrderDue: 20n,
+      }),
+    ).toBe(20n);
+    expect(
+      storedValueRedemptionCap({
+        requested: 100n,
+        available: 100n,
+        remainingEligible: 0n,
+        currentOrderDue: 100n,
+      }),
+    ).toBe(0n);
+  });
+
+  it("uses cumulative desired-minus-prior restoration without over-restoring", () => {
+    expect(
+      cumulativeProportionalRestore({
+        originalAllocation: 40n,
+        lineNet: 100n,
+        cumulativeRefund: 25n,
+        previouslyRestored: 0n,
+      }),
+    ).toBe(10n);
+    expect(
+      cumulativeProportionalRestore({
+        originalAllocation: 40n,
+        lineNet: 100n,
+        cumulativeRefund: 100n,
+        previouslyRestored: 10n,
+      }),
+    ).toBe(30n);
   });
 
   it("defines liability as available plus reserved value", () => {

@@ -259,6 +259,7 @@ function CreateForm({
       ];
     if (kind === "adjustments")
       return [
+        ["branchId", "Operational branch ID"],
         ["customerId", "Customer ID"],
         ["amount", "Amount minor"],
         ["note", "Business reason"],
@@ -295,6 +296,7 @@ function CreateForm({
       });
     if (kind === "adjustments")
       await run("/v1/stored-value-adjustments", {
+        branchId: values.branchId,
         customerId: values.customerId,
         currency: "VND",
         adjustmentType: "SERVICE_RECOVERY_CREDIT",

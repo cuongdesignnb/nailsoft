@@ -22,6 +22,7 @@ import type { AccessClaims } from "../identity/auth.types.js";
 import { FinancialEvidenceService } from "../pos/financial-evidence.service.js";
 import { RegisterDeviceAuthorizationService } from "../pos/register-device-authorization.service.js";
 import { StoredValueService } from "../stored-value/stored-value.service.js";
+import { cumulativeProportionalRestore } from "../stored-value/stored-value-domain.js";
 import {
   assertRefundTransition,
   prorateMinor,
@@ -162,12 +163,15 @@ export class RefundService {
               );
             for (const allocation of plan.storedValueAllocations)
               await client.query(
-                `INSERT INTO refund_stored_value_plans(tenant_id,refund_id,settlement_allocation_id,account_id,planned_minor,currency)
-                 VALUES($1,$2,$3,$4,$5,$6)`,
+                `INSERT INTO refund_stored_value_line_plans(
+                   tenant_id,refund_id,settlement_allocation_id,settlement_line_allocation_id,
+                   account_id,planned_minor,currency)
+                 VALUES($1,$2,$3,$4,$5,$6,$7)`,
                 [
                   auth.tenantId,
                   refund.id,
                   allocation.settlementAllocationId,
+                  allocation.settlementLineAllocationId,
                   allocation.accountId,
                   allocation.plannedMinor,
                   allocation.currency,
@@ -700,7 +704,7 @@ export class RefundService {
                 [auth.tenantId, id],
               );
               const stored = await client.query(
-                "SELECT 1 FROM refund_stored_value_plans WHERE tenant_id=$1 AND refund_id=$2 AND status='PENDING' LIMIT 1",
+                "SELECT 1 FROM refund_stored_value_line_plans WHERE tenant_id=$1 AND refund_id=$2 AND status='PENDING' LIMIT 1",
                 [auth.tenantId, id],
               );
               if (
@@ -762,7 +766,10 @@ export class RefundService {
       await client.query<any>(
         `SELECT l.*,b.refundable_minor,pol.line_type source_line_type,pol.gift_card_id,gc.source_payment_id gift_card_funding_payment_id,
                 sva.id stored_value_account_id,sva.available_minor gift_card_available_minor,
-                sva.reserved_minor gift_card_reserved_minor,sva.redeemed_minor gift_card_redeemed_minor
+                sva.reserved_minor gift_card_reserved_minor,sva.redeemed_minor gift_card_redeemed_minor,
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('paymentId',fa.payment_id,'amountMinor',fa.allocated_minor::text)
+                  ORDER BY fa.created_at,fa.id) FROM stored_value_funding_allocations fa
+                  WHERE fa.tenant_id=pol.tenant_id AND fa.order_line_id=pol.id AND fa.funding_type='ACTIVATION'),'[]'::jsonb) gift_card_funding_allocations
            FROM invoice_lines l
            JOIN invoice_line_refund_balance b ON b.tenant_id=l.tenant_id AND b.invoice_line_id=l.id
            LEFT JOIN pos_order_lines pol ON pol.tenant_id=l.tenant_id AND pol.id=l.source_order_line_id
@@ -803,7 +810,11 @@ export class RefundService {
       if (
         !line.gift_card_id ||
         !line.stored_value_account_id ||
-        !line.gift_card_funding_payment_id ||
+        !Array.isArray(line.gift_card_funding_allocations) ||
+        line.gift_card_funding_allocations.reduce(
+          (sum: bigint, item: any) => sum + BigInt(item.amountMinor),
+          0n,
+        ) !== BigInt(line.net_minor) ||
         selected.amountMinor !== Number(line.net_minor) ||
         BigInt(line.gift_card_reserved_minor ?? 0) !== 0n ||
         BigInt(line.gift_card_redeemed_minor ?? 0) !== 0n ||
@@ -920,34 +931,55 @@ export class RefundService {
     ).rows;
     const storedSources = (
       await client.query<any>(
-        `SELECT s.id,s.account_id,s.currency,
-                GREATEST(0,s.amount_minor
-                  -COALESCE((SELECT sum(r.amount_minor) FROM stored_value_refund_allocations r WHERE r.tenant_id=s.tenant_id AND r.settlement_allocation_id=s.id),0)
-                  -COALESCE((SELECT sum(p.planned_minor) FROM refund_stored_value_plans p WHERE p.tenant_id=s.tenant_id AND p.settlement_allocation_id=s.id AND p.status='PENDING'),0)) refundable_minor
-           FROM stored_value_settlement_allocations s
-          WHERE s.tenant_id=$1 AND s.order_id=$2 ORDER BY s.created_at,s.id`,
-        [auth.tenantId, invoice.pos_order_id],
+        `SELECT sl.id settlement_line_allocation_id,sl.settlement_allocation_id,
+                sl.invoice_line_id,sl.allocated_minor,sl.currency,s.account_id,il.net_minor,
+                COALESCE((SELECT sum(ri.total_refund_minor)
+                  FROM refund_items ri JOIN refunds rr ON rr.tenant_id=ri.tenant_id AND rr.id=ri.refund_id
+                  WHERE ri.tenant_id=sl.tenant_id AND ri.invoice_line_id=sl.invoice_line_id
+                    AND rr.status='COMPLETED'),0) completed_line_refund_minor,
+                COALESCE((SELECT sum(ra.amount_minor) FROM stored_value_refund_allocations ra
+                  WHERE ra.tenant_id=sl.tenant_id AND ra.settlement_line_allocation_id=sl.id),0) restored_minor,
+                COALESCE((SELECT sum(rp.planned_minor) FROM refund_stored_value_line_plans rp
+                  WHERE rp.tenant_id=sl.tenant_id AND rp.settlement_line_allocation_id=sl.id
+                    AND rp.status='PENDING'),0) pending_minor
+           FROM stored_value_settlement_line_allocations sl
+           JOIN stored_value_settlement_allocations s ON s.tenant_id=sl.tenant_id AND s.id=sl.settlement_allocation_id
+           JOIN invoice_lines il ON il.tenant_id=sl.tenant_id AND il.id=sl.invoice_line_id
+          WHERE sl.tenant_id=$1 AND sl.invoice_line_id=ANY($2::uuid[])
+          ORDER BY il.line_no,sl.created_at,sl.id`,
+        [auth.tenantId, body.items.map((item: any) => item.invoiceLineId)],
       )
     ).rows;
     const issueCustomerCredit = body.refundDestination === "CUSTOMER_CREDIT";
     const refundGiftCardPurchase = giftCardPurchaseLines.length > 0;
-    let storedRemaining = issueCustomerCredit
-      ? 0
-      : refundGiftCardPurchase
-        ? 0
-        : requestedMinor - body.tipAmountMinor;
     const storedValueAllocations: any[] = [];
-    for (const source of storedSources) {
-      if (storedRemaining <= 0) break;
-      const amount = Math.min(storedRemaining, Number(source.refundable_minor));
-      if (amount <= 0) continue;
-      storedValueAllocations.push({
-        settlementAllocationId: source.id,
-        accountId: source.account_id,
-        plannedMinor: amount,
-        currency: source.currency,
-      });
-      storedRemaining -= amount;
+    if (!issueCustomerCredit && !refundGiftCardPurchase) {
+      for (const source of storedSources) {
+        const selected = body.items.find(
+          (item: any) => item.invoiceLineId === source.invoice_line_id,
+        );
+        if (!selected) continue;
+        const lineNet = BigInt(source.net_minor);
+        const cumulativeRefund =
+          BigInt(source.completed_line_refund_minor) +
+          BigInt(selected.amountMinor);
+        const planned = cumulativeProportionalRestore({
+          originalAllocation: BigInt(source.allocated_minor),
+          lineNet,
+          cumulativeRefund,
+          previouslyRestored: BigInt(source.restored_minor),
+          pendingRestore: BigInt(source.pending_minor),
+        });
+        if (planned <= 0n) continue;
+        storedValueAllocations.push({
+          settlementAllocationId: source.settlement_allocation_id,
+          settlementLineAllocationId: source.settlement_line_allocation_id,
+          invoiceLineId: source.invoice_line_id,
+          accountId: source.account_id,
+          plannedMinor: Number(planned),
+          currency: source.currency,
+        });
+      }
     }
     let remaining = issueCustomerCredit
       ? 0
@@ -956,22 +988,31 @@ export class RefundService {
           (sum, item) => sum + item.plannedMinor,
           0,
         );
-    const giftCardFundingPaymentIds = new Set(
-      giftCardPurchaseLines.map(
-        (line: any) => line.gift_card_funding_payment_id,
-      ),
-    );
+    const giftCardFundingAmounts = new Map<string, number>();
+    for (const line of giftCardPurchaseLines)
+      for (const allocation of line.gift_card_funding_allocations ?? [])
+        giftCardFundingAmounts.set(
+          allocation.paymentId,
+          (giftCardFundingAmounts.get(allocation.paymentId) ?? 0) +
+            Number(allocation.amountMinor),
+        );
+    const giftCardFundingPaymentIds = new Set(giftCardFundingAmounts.keys());
     const eligiblePayments = refundGiftCardPurchase
       ? payments.filter((payment: any) =>
           giftCardFundingPaymentIds.has(payment.id),
         )
       : payments;
-    const preferences = body.paymentPreferences?.length
-      ? body.paymentPreferences
-      : eligiblePayments.map((p: any) => ({
-          paymentId: p.id,
-          amountMinor: Math.min(remaining, Number(p.refundable_minor)),
-        }));
+    const preferences = refundGiftCardPurchase
+      ? [...giftCardFundingAmounts].map(([paymentId, amountMinor]) => ({
+          paymentId,
+          amountMinor,
+        }))
+      : body.paymentPreferences?.length
+        ? body.paymentPreferences
+        : eligiblePayments.map((p: any) => ({
+            paymentId: p.id,
+            amountMinor: Math.min(remaining, Number(p.refundable_minor)),
+          }));
     const paymentAllocations: any[] = [];
     for (const preference of preferences) {
       if (remaining <= 0 || preference.amountMinor <= 0) continue;
@@ -1095,7 +1136,8 @@ export class RefundService {
     }
     const storedSums = (
       await client.query<any>(
-        `SELECT count(*) FILTER(WHERE status<>'COMPLETED') pending,COALESCE(sum(completed_minor),0) completed FROM refund_stored_value_plans WHERE tenant_id=$1 AND refund_id=$2`,
+        `SELECT count(*) FILTER(WHERE status<>'COMPLETED') pending,COALESCE(sum(completed_minor),0) completed
+           FROM refund_stored_value_line_plans WHERE tenant_id=$1 AND refund_id=$2`,
         [auth.tenantId, refund.id],
       )
     ).rows[0];

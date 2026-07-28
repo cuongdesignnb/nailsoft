@@ -11,6 +11,7 @@ import {
   customerCreditAdjustmentSchema,
   giftCardLineSchema,
   giftCardProductSchema,
+  giftCardReloadLineSchema,
   storedValueLookupSchema,
   storedValueReserveSchema,
   storedValueVersionSchema,
@@ -21,7 +22,6 @@ import { DatabaseService } from "../../infrastructure/database.service.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
 import {
-  acceptedStoredValue,
   assertGiftCardTransition,
   cardHash,
   generateCardCredentials,
@@ -29,6 +29,7 @@ import {
   maskCard,
   minor,
   pinHash,
+  storedValueRedemptionCap,
   storedValueLiability,
   verifyPin,
 } from "./stored-value-domain.js";
@@ -120,6 +121,326 @@ export class StoredValueService {
     if (!row || row.feature_status !== "ENABLED")
       this.conflict("STORED_VALUE_FEATURE_DISABLED");
   }
+  private manager(auth: AccessClaims) {
+    return auth.roles.some((role) =>
+      ["SALON_OWNER", "BRANCH_MANAGER"].includes(role),
+    );
+  }
+  private scopedBranches(auth: AccessClaims) {
+    return auth.roles.includes("SALON_OWNER") ? null : auth.branchIds;
+  }
+  private assertCardBranch(auth: AccessClaims, card: any) {
+    const branchId = card.last_activity_branch_id ?? card.issuance_branch_id;
+    if (!auth.roles.includes("CUSTOMER")) {
+      if (!branchId) {
+        if (!auth.roles.includes("SALON_OWNER")) this.notFound();
+      } else this.branch(auth, branchId);
+    }
+    return branchId as string | null;
+  }
+  private policyArray(value: any, key: string): string[] {
+    const result = value?.[key];
+    return Array.isArray(result) ? result.map(String) : [];
+  }
+  private async consumeLookupAttempt(
+    c: PoolClient,
+    auth: AccessClaims,
+    number: string,
+  ) {
+    const subject = lookupKeyHash(
+      auth.tenantId,
+      `${auth.userId}:${number.replace(/\s+/g, "").slice(-4)}`,
+      this.secret(),
+    );
+    await c.query(
+      `INSERT INTO stored_value_lookup_limits(tenant_id,lookup_key_hash,window_started_at,attempts) VALUES($1,$2,now(),1)
+       ON CONFLICT(tenant_id,lookup_key_hash) DO UPDATE SET
+         attempts=CASE WHEN stored_value_lookup_limits.window_started_at<now()-interval '15 minutes' THEN 1 ELSE stored_value_lookup_limits.attempts+1 END,
+         window_started_at=CASE WHEN stored_value_lookup_limits.window_started_at<now()-interval '15 minutes' THEN now() ELSE stored_value_lookup_limits.window_started_at END,
+         locked_until=CASE WHEN stored_value_lookup_limits.attempts>=9 THEN now()+interval '15 minutes' ELSE stored_value_lookup_limits.locked_until END,
+         updated_at=now()`,
+      [auth.tenantId, subject],
+    );
+    const limit = (
+      await c.query<any>(
+        "SELECT * FROM stored_value_lookup_limits WHERE tenant_id=$1 AND lookup_key_hash=$2 FOR UPDATE",
+        [auth.tenantId, subject],
+      )
+    ).rows[0];
+    if (limit?.locked_until && new Date(limit.locked_until) > new Date())
+      this.conflict("GIFT_CARD_LOCKED");
+  }
+  private async enforceVelocity(
+    c: PoolClient,
+    auth: AccessClaims,
+    input: {
+      action: "ISSUE" | "REDEEM" | "RELOAD" | "LOOKUP" | "RESERVE";
+      branchId: string;
+      amount: bigint;
+      customerId?: string | null;
+      accountId?: string | null;
+      giftCardId?: string | null | undefined;
+      deviceId?: string | undefined;
+      approvalReason?: string | undefined;
+      requestId: string;
+    },
+  ) {
+    const settings = (
+      await c.query<any>(
+        `SELECT s.*, (now() AT TIME ZONE b.timezone)::date local_date
+           FROM stored_value_settings s JOIN branches b ON b.tenant_id=s.tenant_id AND b.id=$2
+          WHERE s.tenant_id=$1`,
+        [auth.tenantId, input.branchId],
+      )
+    ).rows[0];
+    if (!settings) this.conflict("STORED_VALUE_FEATURE_DISABLED");
+    const limit = BigInt(
+      input.action === "ISSUE"
+        ? settings.daily_issue_limit_minor
+        : input.action === "RELOAD"
+          ? settings.daily_reload_limit_minor
+          : settings.daily_redeem_limit_minor,
+    );
+    const deviceKey = input.deviceId
+      ? lookupKeyHash(auth.tenantId, input.deviceId, this.secret())
+      : "NO_DEVICE";
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+      `stored-value:${auth.tenantId}:${settings.local_date}:${input.action}:${input.branchId}`,
+    ]);
+    const totals = (
+      await c.query<any>(
+        `SELECT COALESCE(sum(amount_minor),0) branch_total,
+                COALESCE(sum(amount_minor) FILTER(WHERE actor_user_id=$5),0) actor_total,
+                COALESCE(sum(amount_minor) FILTER(WHERE device_key_hash=$6),0) device_total,
+                COALESCE(sum(amount_minor) FILTER(WHERE customer_id IS NOT DISTINCT FROM $7::uuid),0) customer_total,
+                COALESCE(sum(amount_minor) FILTER(WHERE account_id IS NOT DISTINCT FROM $8::uuid),0) account_total
+           FROM stored_value_velocity_counters
+          WHERE tenant_id=$1 AND local_date=$2 AND action=$3 AND branch_id=$4`,
+        [
+          auth.tenantId,
+          settings.local_date,
+          input.action,
+          input.branchId,
+          auth.userId,
+          deviceKey,
+          input.customerId ?? null,
+          input.accountId ?? null,
+        ],
+      )
+    ).rows[0];
+    if (
+      [
+        totals.branch_total,
+        totals.actor_total,
+        totals.device_total,
+        input.customerId ? totals.customer_total : 0,
+        input.accountId ? totals.account_total : 0,
+      ].some((value) => BigInt(value ?? 0) + input.amount > limit)
+    )
+      this.conflict("STORED_VALUE_DAILY_LIMIT_EXCEEDED");
+    const high = BigInt(settings.high_value_approval_minor);
+    if (high > 0n && input.amount >= high) {
+      if (!this.manager(auth) || !input.approvalReason)
+        this.conflict("STORED_VALUE_HIGH_VALUE_APPROVAL_REQUIRED");
+      await c.query(
+        `INSERT INTO stored_value_high_value_approvals(tenant_id,action,branch_id,account_id,gift_card_id,amount_minor,reason,approved_by_user_id,request_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(tenant_id,request_id,action) DO NOTHING`,
+        [
+          auth.tenantId,
+          input.action,
+          input.branchId,
+          input.accountId ?? null,
+          input.giftCardId ?? null,
+          input.amount.toString(),
+          input.approvalReason,
+          auth.userId,
+          input.requestId,
+        ],
+      );
+    }
+    await c.query(
+      `INSERT INTO stored_value_velocity_counters(tenant_id,local_date,action,branch_id,actor_user_id,device_key_hash,customer_id,account_id,operation_count,amount_minor)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9)
+       ON CONFLICT ON CONSTRAINT stored_value_velocity_unique
+       DO UPDATE SET operation_count=stored_value_velocity_counters.operation_count+1,
+                     amount_minor=stored_value_velocity_counters.amount_minor+EXCLUDED.amount_minor,updated_at=now()`,
+      [
+        auth.tenantId,
+        settings.local_date,
+        input.action,
+        input.branchId,
+        auth.userId,
+        deviceKey,
+        input.customerId ?? null,
+        input.accountId ?? null,
+        input.amount.toString(),
+      ],
+    );
+  }
+  private lineEligible(line: any, policy: any) {
+    if (line.line_type === "GIFT_CARD") return false;
+    const allowedTypes = this.policyArray(policy, "eligibleLineTypes");
+    if (allowedTypes.length && !allowedTypes.includes(line.line_type))
+      return false;
+    const serviceIds = this.policyArray(policy, "serviceIds");
+    if (
+      serviceIds.length &&
+      (!line.service_id || !serviceIds.includes(line.service_id))
+    )
+      return false;
+    const productIds = this.policyArray(policy, "productIds");
+    if (
+      productIds.length &&
+      (!line.inventory_item_id || !productIds.includes(line.inventory_item_id))
+    )
+      return false;
+    return true;
+  }
+  private async redemptionPlan(
+    c: PoolClient,
+    auth: AccessClaims,
+    order: any,
+    requested: bigint,
+    available: bigint,
+    policy: any,
+  ) {
+    const lines = (
+      await c.query<any>(
+        `SELECT * FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE' ORDER BY line_no,id`,
+        [auth.tenantId, order.id],
+      )
+    ).rows;
+    const externalOrderPaid = BigInt(
+      (
+        await c.query<any>(
+          `SELECT COALESCE(sum(pa.amount_minor),0) amount FROM payment_allocations pa
+             JOIN payments p ON p.tenant_id=pa.tenant_id AND p.id=pa.payment_id
+            WHERE pa.tenant_id=$1 AND pa.pos_order_id=$2 AND pa.allocation_type='ORDER_TOTAL' AND p.status='CAPTURED'`,
+          [auth.tenantId, order.id],
+        )
+      ).rows[0].amount,
+    );
+    const tipPaid = BigInt(
+      (
+        await c.query<any>(
+          `SELECT COALESCE(sum(pa.amount_minor),0) amount FROM payment_allocations pa
+             JOIN payments p ON p.tenant_id=pa.tenant_id AND p.id=pa.payment_id
+            WHERE pa.tenant_id=$1 AND pa.pos_order_id=$2 AND pa.allocation_type='TIP' AND p.status='CAPTURED'`,
+          [auth.tenantId, order.id],
+        )
+      ).rows[0].amount,
+    );
+    let externalCursor = externalOrderPaid;
+    const remaining = lines.map((line: any) => {
+      const net = BigInt(line.net_minor);
+      return { line, remaining: net, external: 0n };
+    });
+    // External tender funds liabilities that stored value can never cover first
+    // (gift-card funding and policy-ineligible lines), then eligible lines.
+    // This keeps a mixed order payable without ever assigning stored value to a
+    // prohibited line.
+    for (const target of [
+      ...remaining.filter((item: any) => !this.lineEligible(item.line, policy)),
+      ...remaining.filter((item: any) => this.lineEligible(item.line, policy)),
+    ]) {
+      if (externalCursor <= 0n) break;
+      const covered =
+        externalCursor < target.remaining ? externalCursor : target.remaining;
+      target.remaining -= covered;
+      target.external += covered;
+      externalCursor -= covered;
+    }
+    const existingApps = (
+      await c.query<any>(
+        `SELECT accepted_minor,redemption_plan_json FROM pos_order_stored_value_applications
+          WHERE tenant_id=$1 AND order_id=$2 AND status IN('RESERVED','COMMITTED') ORDER BY created_at,id`,
+        [auth.tenantId, order.id],
+      )
+    ).rows;
+    for (const app of existingApps) {
+      const prior = Array.isArray(app.redemption_plan_json?.lineAllocations)
+        ? app.redemption_plan_json.lineAllocations
+        : [];
+      if (prior.length) {
+        for (const allocation of prior) {
+          const target = remaining.find(
+            (item: any) => item.line.id === allocation.orderLineId,
+          );
+          if (!target) continue;
+          const used = BigInt(allocation.allocatedMinor);
+          target.remaining =
+            target.remaining > used ? target.remaining - used : 0n;
+        }
+      } else {
+        let cursor = BigInt(app.accepted_minor);
+        for (const target of remaining) {
+          if (cursor <= 0n) break;
+          const used = cursor < target.remaining ? cursor : target.remaining;
+          target.remaining -= used;
+          cursor -= used;
+        }
+      }
+    }
+    const eligibleTargets = remaining.filter((x: any) =>
+      this.lineEligible(x.line, policy),
+    );
+    const eligibleLineMinor = eligibleTargets.reduce(
+      (sum: bigint, item: any) => sum + BigInt(item.line.net_minor),
+      0n,
+    );
+    const externalPaidAllocationMinor = eligibleTargets.reduce(
+      (sum: bigint, item: any) => sum + item.external,
+      0n,
+    );
+    const existingStoredValueMinor = existingApps.reduce(
+      (sum: bigint, item: any) => sum + BigInt(item.accepted_minor),
+      0n,
+    );
+    const remainingEligibleMinor = eligibleTargets.reduce(
+      (sum: bigint, item: any) => sum + item.remaining,
+      0n,
+    );
+    const currentOrderDueMinor = BigInt(order.amount_due_minor);
+    const acceptedMinor = storedValueRedemptionCap({
+      requested,
+      available,
+      remainingEligible: remainingEligibleMinor,
+      currentOrderDue: currentOrderDueMinor,
+    });
+    let allocationCursor = acceptedMinor;
+    const lineAllocations: Array<{
+      orderLineId: string;
+      allocatedMinor: string;
+    }> = [];
+    for (const target of eligibleTargets) {
+      if (allocationCursor <= 0n) break;
+      const value =
+        allocationCursor < target.remaining
+          ? allocationCursor
+          : target.remaining;
+      if (value > 0n)
+        lineAllocations.push({
+          orderLineId: target.line.id,
+          allocatedMinor: value.toString(),
+        });
+      allocationCursor -= value;
+    }
+    return {
+      eligibleLineMinor,
+      externalPaidAllocationMinor,
+      existingStoredValueMinor,
+      remainingEligibleMinor,
+      currentOrderDueMinor,
+      tipDueMinor:
+        BigInt(order.tip_minor) > tipPaid
+          ? BigInt(order.tip_minor) - tipPaid
+          : 0n,
+      requestedMinor: requested,
+      acceptedMinor,
+      unusedMinor: requested - acceptedMinor,
+      lineAllocations,
+    };
+  }
   private async evidence(
     c: PoolClient,
     auth: AccessClaims,
@@ -187,6 +508,7 @@ export class StoredValueService {
       policy?: unknown;
       issued?: bigint;
       lifetimeRedeemed?: bigint;
+      branchId?: string | null;
     },
   ) {
     const existing = (
@@ -224,9 +546,26 @@ export class StoredValueService {
     if (Object.values(next).some((value) => value < 0n))
       this.conflict("STORED_VALUE_INSUFFICIENT_BALANCE");
     const id = randomUUID();
+    let branchId = input.branchId ?? null;
+    if (!branchId && input.orderId)
+      branchId =
+        (
+          await c.query<any>(
+            "SELECT branch_id FROM pos_orders WHERE tenant_id=$1 AND id=$2",
+            [auth.tenantId, input.orderId],
+          )
+        ).rows[0]?.branch_id ?? null;
+    if (!branchId && input.refundId)
+      branchId =
+        (
+          await c.query<any>(
+            "SELECT branch_id FROM refunds WHERE tenant_id=$1 AND id=$2",
+            [auth.tenantId, input.refundId],
+          )
+        ).rows[0]?.branch_id ?? null;
     await c.query(
-      `INSERT INTO stored_value_ledger_entries(id,tenant_id,account_id,entry_type,pending_delta_minor,available_delta_minor,reserved_delta_minor,redeemed_delta_minor,expired_delta_minor,cancelled_delta_minor,currency,source_entry_id,order_id,invoice_id,payment_id,refund_id,credit_note_id,reservation_id,adjustment_request_id,policy_snapshot_json,generation_key,actor_user_id)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+      `INSERT INTO stored_value_ledger_entries(id,tenant_id,account_id,entry_type,pending_delta_minor,available_delta_minor,reserved_delta_minor,redeemed_delta_minor,expired_delta_minor,cancelled_delta_minor,currency,source_entry_id,order_id,invoice_id,payment_id,refund_id,credit_note_id,reservation_id,adjustment_request_id,policy_snapshot_json,generation_key,actor_user_id,branch_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
       [
         id,
         auth.tenantId,
@@ -250,6 +589,7 @@ export class StoredValueService {
         JSON.stringify(input.policy ?? {}),
         input.generationKey,
         auth.userId,
+        branchId,
       ],
     );
     await c.query("SELECT set_config('app.stored_value_posting','on',true)");
@@ -610,12 +950,16 @@ export class StoredValueService {
     const customerId = auth.roles.includes("CUSTOMER")
       ? await this.ownCustomerId(auth)
       : null;
+    const branches = this.scopedBranches(auth);
     return (
       await this.db.query<any>(
         `SELECT g.id,g.card_reference "cardReference",g.number_last4 "numberLast4",g.customer_id "customerId",g.form,g.status,g.currency,g.activated_at "activatedAt",g.expires_at "expiresAt",g.version,
       a.id "accountId",a.pending_minor::text "pendingMinor",a.available_minor::text "availableMinor",a.reserved_minor::text "reservedMinor",a.redeemed_minor::text "redeemedMinor",a.version "accountVersion"
-      FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id WHERE g.tenant_id=$1 AND ($2::uuid IS NULL OR g.customer_id=$2) ORDER BY g.created_at DESC`,
-        [auth.tenantId, customerId],
+      FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id
+      WHERE g.tenant_id=$1 AND ($2::uuid IS NULL OR g.customer_id=$2)
+        AND ($3::uuid[] IS NULL OR COALESCE(g.last_activity_branch_id,g.issuance_branch_id)=ANY($3::uuid[]))
+      ORDER BY g.created_at DESC`,
+        [auth.tenantId, customerId, branches],
       )
     ).rows.map((r) => this.cardView(r));
   }
@@ -624,10 +968,11 @@ export class StoredValueService {
     const customerId = auth.roles.includes("CUSTOMER")
       ? await this.ownCustomerId(auth)
       : null;
+    const branches = this.scopedBranches(auth);
     const row = (
       await this.db.query<any>(
-        `SELECT g.*,a.id "accountId",a.pending_minor::text "pendingMinor",a.available_minor::text "availableMinor",a.reserved_minor::text "reservedMinor",a.redeemed_minor::text "redeemedMinor",a.expired_minor::text "expiredMinor",a.cancelled_minor::text "cancelledMinor",a.version "accountVersion" FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id WHERE g.tenant_id=$1 AND g.id=$2 AND ($3::uuid IS NULL OR g.customer_id=$3)`,
-        [auth.tenantId, id, customerId],
+        `SELECT g.*,a.id "accountId",a.pending_minor::text "pendingMinor",a.available_minor::text "availableMinor",a.reserved_minor::text "reservedMinor",a.redeemed_minor::text "redeemedMinor",a.expired_minor::text "expiredMinor",a.cancelled_minor::text "cancelledMinor",a.version "accountVersion" FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id WHERE g.tenant_id=$1 AND g.id=$2 AND ($3::uuid IS NULL OR g.customer_id=$3) AND ($4::uuid[] IS NULL OR COALESCE(g.last_activity_branch_id,g.issuance_branch_id)=ANY($4::uuid[]))`,
+        [auth.tenantId, id, customerId, branches],
       )
     ).rows[0];
     if (!row) this.notFound();
@@ -761,6 +1106,15 @@ export class StoredValueService {
           )
         ).rows[0];
         if (!product) this.notFound("GIFT_CARD_PRODUCT_NOT_FOUND");
+        const purchaseBranches = [
+          ...this.policyArray(product.branch_scope_json, "purchaseBranchIds"),
+          ...this.policyArray(product.branch_scope_json, "branchIds"),
+        ];
+        if (
+          purchaseBranches.length &&
+          !purchaseBranches.includes(order.branch_id)
+        )
+          this.conflict("GIFT_CARD_PURCHASE_BRANCH_NOT_ALLOWED");
         if (product.currency !== order.currency)
           this.conflict("GIFT_CARD_CURRENCY_MISMATCH");
         const amount = minor(body.amountMinor);
@@ -788,6 +1142,28 @@ export class StoredValueService {
           );
           if (!customer.rowCount) this.notFound("CUSTOMER_NOT_FOUND");
         }
+        let legal: any = null;
+        if (product.legal_policy_id) {
+          legal = (
+            await c.query<any>(
+              `SELECT * FROM stored_value_legal_policies
+                WHERE tenant_id=$1 AND id=$2 AND status='APPROVED'
+                  AND legal_review_status='APPROVED' AND effective_from<=now()
+                  AND (effective_to IS NULL OR effective_to>now())`,
+              [auth.tenantId, product.legal_policy_id],
+            )
+          ).rows[0];
+          if (!legal) this.conflict("STORED_VALUE_LEGAL_POLICY_NOT_APPROVED");
+        }
+        await this.enforceVelocity(c, auth, {
+          action: "ISSUE",
+          branchId: order.branch_id,
+          amount,
+          customerId: body.customerId ?? order.customer_id,
+          deviceId: body.deviceId,
+          approvalReason: body.approvalReason,
+          requestId,
+        });
         const cardId = randomUUID(),
           accountId = randomUUID(),
           lineId = randomUUID(),
@@ -801,12 +1177,40 @@ export class StoredValueService {
           noDiscount: true,
           noLoyaltyEarn: true,
           noGiftCardPayment: true,
-          legalPolicyId: product.legal_policy_id,
-          expirationMode: "NO_EXPIRATION",
+          assignedCustomerId: body.customerId ?? null,
+          assignmentPolicy: product.assignment_policy,
+          bearerRedemptionAllowed:
+            product.assignment_policy !== "CUSTOMER_REQUIRED",
+          purchaseBranchIds: purchaseBranches,
+          redemptionBranchIds: this.policyArray(
+            product.branch_scope_json,
+            "redemptionBranchIds",
+          ),
+          eligibleLineTypes: this.policyArray(
+            product.eligibility_policy_json,
+            "eligibleLineTypes",
+          ),
+          serviceIds: this.policyArray(
+            product.eligibility_policy_json,
+            "serviceIds",
+          ),
+          productIds: this.policyArray(
+            product.eligibility_policy_json,
+            "productIds",
+          ),
+          tipAllowed: false,
+          giftCardFundingAllowed: false,
+          legalPolicyId: legal?.id ?? null,
+          legalPolicyVersion: legal?.policy_version ?? null,
+          jurisdiction: legal?.jurisdiction ?? "UNSPECIFIED",
+          expirationMode: legal?.expiration_mode ?? "NO_EXPIRATION",
+          expirationDays: legal?.expiration_days ?? null,
+          fixedExpiryDate: legal?.fixed_expiry_date ?? null,
+          graceDays: legal?.grace_days ?? 0,
         };
         await c.query(
-          `INSERT INTO gift_cards(id,tenant_id,product_id,customer_id,card_reference,number_hash,number_last4,pin_hash,pin_version,form,currency,source_order_id,source_order_line_id,policy_snapshot_json)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10,$11,NULL,$12)`,
+          `INSERT INTO gift_cards(id,tenant_id,product_id,customer_id,card_reference,number_hash,number_last4,pin_hash,pin_version,form,currency,source_order_id,source_order_line_id,policy_snapshot_json,issuance_branch_id,last_activity_branch_id,legal_policy_id,legal_policy_version,jurisdiction,expiration_mode)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10,$11,NULL,$12,$13,$13,$14,$15,$16,$17)`,
           [
             cardId,
             auth.tenantId,
@@ -822,6 +1226,11 @@ export class StoredValueService {
             product.currency,
             orderId,
             JSON.stringify(policy),
+            order.branch_id,
+            legal?.id ?? null,
+            legal?.policy_version ?? null,
+            legal?.jurisdiction ?? "UNSPECIFIED",
+            legal?.expiration_mode ?? "NO_EXPIRATION",
           ],
         );
         await c.query(
@@ -842,6 +1251,7 @@ export class StoredValueService {
           pending: amount,
           orderId,
           policy,
+          branchId: order.branch_id,
         });
         const nextLine = Number(
           (
@@ -1079,43 +1489,39 @@ export class StoredValueService {
 
   async eligibility(auth: AccessClaims, orderId: string) {
     this.access(auth);
-    const order = (
-      await this.db.query<any>(
-        "SELECT * FROM pos_orders WHERE tenant_id=$1 AND id=$2",
-        [auth.tenantId, orderId],
-      )
-    ).rows[0];
-    if (!order) this.notFound("POS_ORDER_NOT_FOUND");
-    this.branch(auth, order.branch_id);
-    const rows = (
-      await this.db.query<any>(
-        "SELECT line_type,net_minor FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE'",
-        [auth.tenantId, orderId],
-      )
-    ).rows;
-    const eligible = rows
-      .filter((x) => x.line_type !== "GIFT_CARD")
-      .reduce((sum, x) => sum + BigInt(x.net_minor), 0n);
-    const active = (
-      await this.db.query<any>(
-        "SELECT COALESCE(sum(accepted_minor),0) amount FROM pos_order_stored_value_applications WHERE tenant_id=$1 AND order_id=$2 AND status IN('RESERVED','COMMITTED')",
-        [auth.tenantId, orderId],
-      )
-    ).rows[0];
-    const already = BigInt(active.amount);
-    return {
-      orderId,
-      currency: order.currency,
-      eligibleMinor: eligible.toString(),
-      alreadyAppliedMinor: already.toString(),
-      remainingEligibleMinor: (eligible > already
-        ? eligible - already
-        : 0n
-      ).toString(),
-      orderDueMinor: String(order.amount_due_minor),
-      prohibited: { giftCardLines: true, tip: true, cashOut: true },
-      onlineRequired: true,
-    };
+    return this.db.transaction(async (c) => {
+      const order = (
+        await c.query<any>(
+          "SELECT * FROM pos_orders WHERE tenant_id=$1 AND id=$2",
+          [auth.tenantId, orderId],
+        )
+      ).rows[0];
+      if (!order) this.notFound("POS_ORDER_NOT_FOUND");
+      this.branch(auth, order.branch_id);
+      const plan = await this.redemptionPlan(
+        c,
+        auth,
+        order,
+        BigInt(order.amount_due_minor),
+        BigInt(order.amount_due_minor),
+        {},
+      );
+      return {
+        orderId,
+        currency: order.currency,
+        eligibleLineMinor: plan.eligibleLineMinor.toString(),
+        externalPaidAllocationMinor:
+          plan.externalPaidAllocationMinor.toString(),
+        alreadyAppliedMinor: plan.existingStoredValueMinor.toString(),
+        remainingEligibleMinor: plan.remainingEligibleMinor.toString(),
+        currentOrderDueMinor: plan.currentOrderDueMinor.toString(),
+        tipDueMinor: plan.tipDueMinor.toString(),
+        maxStoredValueMinor: plan.acceptedMinor.toString(),
+        prohibited: { giftCardLines: true, tip: true, cashOut: true },
+        allocationOrder: "EXTERNAL_PAYMENT_FIRST",
+        onlineRequired: true,
+      };
+    });
   }
 
   async reserveGiftCard(
@@ -1148,6 +1554,7 @@ export class StoredValueService {
         this.branch(auth, order.branch_id);
         if (!body.number)
           throw new BadRequestException({ code: "GIFT_CARD_INVALID" });
+        await this.consumeLookupAttempt(c, auth, body.number);
         const card = (
           await c.query<any>(
             "SELECT g.*,a.id account_id,a.available_minor,a.version account_version FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id WHERE g.tenant_id=$1 AND g.number_hash=$2 FOR UPDATE OF g,a",
@@ -1183,6 +1590,18 @@ export class StoredValueService {
           );
         if (card.expires_at && new Date(card.expires_at) <= new Date())
           this.conflict("GIFT_CARD_EXPIRED");
+        if (card.customer_id && card.customer_id !== order.customer_id)
+          this.conflict("STORED_VALUE_CUSTOMER_MISMATCH");
+        const policy = card.policy_snapshot_json ?? {};
+        const redemptionBranches = this.policyArray(
+          policy,
+          "redemptionBranchIds",
+        );
+        if (
+          redemptionBranches.length &&
+          !redemptionBranches.includes(order.branch_id)
+        )
+          this.conflict("GIFT_CARD_REDEMPTION_BRANCH_NOT_ALLOWED");
         return this.reserve(
           c,
           auth,
@@ -1193,6 +1612,12 @@ export class StoredValueService {
           body.version,
           key,
           requestId,
+          policy,
+          {
+            giftCardId: card.id,
+            deviceId: body.deviceId,
+            approvalReason: body.approvalReason,
+          },
         );
       },
     );
@@ -1248,6 +1673,11 @@ export class StoredValueService {
           body.version,
           key,
           requestId,
+          {},
+          {
+            deviceId: body.deviceId,
+            approvalReason: body.approvalReason,
+          },
         );
       },
     );
@@ -1262,6 +1692,12 @@ export class StoredValueService {
     version: number,
     key: string,
     requestId: string,
+    policy: any,
+    options: {
+      giftCardId?: string | undefined;
+      deviceId?: string | undefined;
+      approvalReason?: string | undefined;
+    },
   ) {
     if (
       !["DRAFT", "READY_FOR_PAYMENT", "PARTIALLY_PAID"].includes(order.status)
@@ -1277,29 +1713,47 @@ export class StoredValueService {
       this.conflict("STORED_VALUE_VERSION_CONFLICT");
     if (account.currency !== order.currency)
       this.conflict("STORED_VALUE_CURRENCY_MISMATCH");
-    const lines = (
-      await c.query<any>(
-        "SELECT line_type,net_minor FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE'",
-        [auth.tenantId, order.id],
-      )
-    ).rows;
-    const eligible = lines
-      .filter((x) => x.line_type !== "GIFT_CARD")
-      .reduce((sum, x) => sum + BigInt(x.net_minor), 0n);
-    const applied = BigInt(
-      (
-        await c.query<any>(
-          "SELECT COALESCE(sum(accepted_minor),0) amount FROM pos_order_stored_value_applications WHERE tenant_id=$1 AND order_id=$2 AND status IN('RESERVED','COMMITTED')",
-          [auth.tenantId, order.id],
-        )
-      ).rows[0].amount,
-    );
-    const accepted = acceptedStoredValue(
+    const plan = await this.redemptionPlan(
+      c,
+      auth,
+      order,
       requested,
       BigInt(account.available_minor),
-      eligible > applied ? eligible - applied : 0n,
+      policy,
     );
+    const accepted = plan.acceptedMinor;
     if (accepted <= 0n) this.conflict("STORED_VALUE_INSUFFICIENT_BALANCE");
+    const reserveLimit = Number(
+      (
+        await c.query<any>(
+          "SELECT reserve_attempt_limit FROM stored_value_settings WHERE tenant_id=$1",
+          [auth.tenantId],
+        )
+      ).rows[0]?.reserve_attempt_limit ?? 10,
+    );
+    const recentReserves = Number(
+      (
+        await c.query<any>(
+          `SELECT count(*) count FROM stored_value_reservations
+            WHERE tenant_id=$1 AND created_by_user_id=$2 AND branch_id=$3
+              AND created_at>now()-interval '15 minutes'`,
+          [auth.tenantId, auth.userId, order.branch_id],
+        )
+      ).rows[0].count,
+    );
+    if (recentReserves >= reserveLimit)
+      this.conflict("STORED_VALUE_RESERVE_RATE_LIMITED");
+    await this.enforceVelocity(c, auth, {
+      action: "REDEEM",
+      branchId: order.branch_id,
+      amount: accepted,
+      customerId: order.customer_id,
+      accountId,
+      giftCardId: options.giftCardId,
+      deviceId: options.deviceId,
+      approvalReason: options.approvalReason,
+      requestId,
+    });
     const reservationId = randomUUID(),
       applicationId = randomUUID();
     const ttl = Number(
@@ -1311,8 +1765,8 @@ export class StoredValueService {
       ).rows[0]?.reservation_ttl_seconds ?? 900,
     );
     await c.query(
-      `INSERT INTO stored_value_reservations(id,tenant_id,account_id,order_id,customer_id,currency,requested_minor,accepted_minor,expires_at,generation_key,created_by_user_id)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+make_interval(secs=>$9),$10,$11)`,
+      `INSERT INTO stored_value_reservations(id,tenant_id,account_id,order_id,customer_id,currency,requested_minor,accepted_minor,expires_at,generation_key,created_by_user_id,branch_id,eligibility_snapshot_json)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+make_interval(secs=>$9),$10,$11,$12,$13)`,
       [
         reservationId,
         auth.tenantId,
@@ -1325,6 +1779,8 @@ export class StoredValueService {
         ttl,
         `reserve:${order.id}:${accountId}:${key}`,
         auth.userId,
+        order.branch_id,
+        JSON.stringify(policy ?? {}),
       ],
     );
     await this.post(c, auth, {
@@ -1336,9 +1792,10 @@ export class StoredValueService {
       reserved: accepted,
       orderId: order.id,
       reservationId,
+      branchId: order.branch_id,
     });
     await c.query(
-      "INSERT INTO pos_order_stored_value_applications(id,tenant_id,order_id,account_id,reservation_id,application_type,requested_minor,accepted_minor,currency) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+      "INSERT INTO pos_order_stored_value_applications(id,tenant_id,order_id,account_id,reservation_id,application_type,requested_minor,accepted_minor,currency,redemption_plan_json,eligibility_snapshot_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
       [
         applicationId,
         auth.tenantId,
@@ -1349,6 +1806,17 @@ export class StoredValueService {
         requested.toString(),
         accepted.toString(),
         order.currency,
+        JSON.stringify({
+          allocationOrder: "EXTERNAL_PAYMENT_FIRST",
+          eligibleLineMinor: plan.eligibleLineMinor.toString(),
+          externalPaidAllocationMinor:
+            plan.externalPaidAllocationMinor.toString(),
+          currentOrderDueMinor: plan.currentOrderDueMinor.toString(),
+          acceptedMinor: accepted.toString(),
+          unusedMinor: plan.unusedMinor.toString(),
+          lineAllocations: plan.lineAllocations,
+        }),
+        JSON.stringify(policy ?? {}),
       ],
     );
     const nextDue = BigInt(order.amount_due_minor) - accepted;
@@ -1376,6 +1844,8 @@ export class StoredValueService {
       reservationId,
       requestedMinor: requested.toString(),
       acceptedMinor: accepted.toString(),
+      unusedMinor: plan.unusedMinor.toString(),
+      lineAllocations: plan.lineAllocations,
       currency: order.currency,
       status: "RESERVED",
       expiresInSeconds: ttl,
@@ -1507,19 +1977,53 @@ export class StoredValueService {
         "UPDATE pos_order_stored_value_applications SET status='COMMITTED',version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
         [auth.tenantId, app.id],
       );
-      await c.query(
-        "INSERT INTO stored_value_settlement_allocations(tenant_id,application_id,account_id,order_id,invoice_id,amount_minor,currency,ledger_entry_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,application_id) DO NOTHING",
-        [
-          auth.tenantId,
-          app.id,
-          app.account_id,
-          order.id,
-          invoiceId,
-          amount.toString(),
-          app.currency,
-          ledgerId,
-        ],
-      );
+      const settlement = (
+        await c.query<any>(
+          "INSERT INTO stored_value_settlement_allocations(tenant_id,application_id,account_id,order_id,invoice_id,amount_minor,currency,ledger_entry_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,application_id) DO UPDATE SET application_id=EXCLUDED.application_id RETURNING id",
+          [
+            auth.tenantId,
+            app.id,
+            app.account_id,
+            order.id,
+            invoiceId,
+            amount.toString(),
+            app.currency,
+            ledgerId,
+          ],
+        )
+      ).rows[0];
+      const lineAllocations = Array.isArray(
+        app.redemption_plan_json?.lineAllocations,
+      )
+        ? app.redemption_plan_json.lineAllocations
+        : [];
+      for (const allocation of lineAllocations) {
+        const invoiceLine = (
+          await c.query<any>(
+            "SELECT id FROM invoice_lines WHERE tenant_id=$1 AND invoice_id=$2 AND source_order_line_id=$3",
+            [auth.tenantId, invoiceId, allocation.orderLineId],
+          )
+        ).rows[0];
+        if (!invoiceLine)
+          this.conflict("STORED_VALUE_SETTLEMENT_LINE_NOT_FOUND");
+        await c.query(
+          `INSERT INTO stored_value_settlement_line_allocations(
+             tenant_id,application_id,settlement_allocation_id,order_line_id,invoice_line_id,
+             allocated_minor,currency,eligibility_snapshot_json)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT(tenant_id,settlement_allocation_id,invoice_line_id) DO NOTHING`,
+          [
+            auth.tenantId,
+            app.id,
+            settlement.id,
+            allocation.orderLineId,
+            invoiceLine.id,
+            allocation.allocatedMinor,
+            app.currency,
+            JSON.stringify(app.eligibility_snapshot_json ?? {}),
+          ],
+        );
+      }
       await this.evidence(
         c,
         auth,
@@ -1554,7 +2058,7 @@ export class StoredValueService {
   ) {
     const applications = (
       await c.query<any>(
-        `SELECT a.accepted_minor,r.expires_at,r.status reservation_status FROM pos_order_stored_value_applications a JOIN stored_value_reservations r ON r.tenant_id=a.tenant_id AND r.id=a.reservation_id WHERE a.tenant_id=$1 AND a.order_id=$2 AND a.status='RESERVED' ORDER BY a.id FOR UPDATE OF a,r`,
+        `SELECT a.*,r.expires_at,r.status reservation_status FROM pos_order_stored_value_applications a JOIN stored_value_reservations r ON r.tenant_id=a.tenant_id AND r.id=a.reservation_id WHERE a.tenant_id=$1 AND a.order_id=$2 AND a.status='RESERVED' ORDER BY a.id FOR UPDATE OF a,r`,
         [auth.tenantId, order.id],
       )
     ).rows;
@@ -1567,19 +2071,76 @@ export class StoredValueService {
       )
     )
       this.conflict("STORED_VALUE_RESERVATION_EXPIRED");
-    const eligible = BigInt(
+    const lines = (
+      await c.query<any>(
+        "SELECT * FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE' ORDER BY line_no,id",
+        [auth.tenantId, order.id],
+      )
+    ).rows;
+    let external = BigInt(
       (
         await c.query<any>(
-          "SELECT COALESCE(sum(net_minor) FILTER(WHERE line_type<>'GIFT_CARD' AND status='ACTIVE'),0) amount FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2",
+          `SELECT COALESCE(sum(pa.amount_minor),0) amount FROM payment_allocations pa
+             JOIN payments p ON p.tenant_id=pa.tenant_id AND p.id=pa.payment_id
+            WHERE pa.tenant_id=$1 AND pa.pos_order_id=$2 AND pa.allocation_type='ORDER_TOTAL' AND p.status='CAPTURED'`,
           [auth.tenantId, order.id],
         )
       ).rows[0].amount,
     );
+    const remaining = new Map<string, bigint>(
+      lines.map((line: any) => [line.id, BigInt(line.net_minor)]),
+    );
+    const policies = applications.map(
+      (app: any) => app.eligibility_snapshot_json ?? {},
+    );
+    for (const line of [
+      ...lines.filter((item: any) =>
+        policies.every((policy: any) => !this.lineEligible(item, policy)),
+      ),
+      ...lines.filter((item: any) =>
+        policies.some((policy: any) => this.lineEligible(item, policy)),
+      ),
+    ]) {
+      if (external <= 0n) break;
+      const net = remaining.get(line.id) ?? 0n;
+      const covered = external < net ? external : net;
+      external -= covered;
+      remaining.set(line.id, net - covered);
+    }
+    for (const app of applications) {
+      const allocations = Array.isArray(
+        app.redemption_plan_json?.lineAllocations,
+      )
+        ? app.redemption_plan_json.lineAllocations
+        : [];
+      const planned = allocations.reduce(
+        (sum: bigint, allocation: any) =>
+          sum + BigInt(allocation.allocatedMinor),
+        0n,
+      );
+      if (planned !== BigInt(app.accepted_minor))
+        this.conflict("STORED_VALUE_RESERVATION_CONFLICT");
+      for (const allocation of allocations) {
+        const line = lines.find(
+          (item: any) => item.id === allocation.orderLineId,
+        );
+        const amount = BigInt(allocation.allocatedMinor);
+        const available = remaining.get(allocation.orderLineId) ?? 0n;
+        if (
+          !line ||
+          !this.lineEligible(line, app.eligibility_snapshot_json ?? {}) ||
+          amount <= 0n ||
+          amount > available
+        )
+          this.conflict("STORED_VALUE_RESERVATION_CONFLICT");
+        remaining.set(allocation.orderLineId, available - amount);
+      }
+    }
     const reserved = applications.reduce(
       (sum, item) => sum + BigInt(item.accepted_minor),
       0n,
     );
-    if (reserved > eligible || reserved > BigInt(order.amount_paid_minor))
+    if (reserved > BigInt(order.amount_paid_minor))
       this.conflict("STORED_VALUE_RESERVATION_CONFLICT");
   }
   async releaseOrderApplications(
@@ -1608,20 +2169,106 @@ export class StoredValueService {
     c: PoolClient,
     auth: AccessClaims,
     order: any,
-    paymentId: string,
+    _paymentId: string,
     requestId: string,
   ) {
     const cards = (
       await c.query<any>(
-        `SELECT g.*,a.id account_id,a.pending_minor FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id WHERE g.tenant_id=$1 AND g.source_order_id=$2 AND g.status='PENDING_ACTIVATION' ORDER BY g.id FOR UPDATE OF g,a`,
+        `SELECT g.*,a.id account_id,a.pending_minor,l.line_no,l.net_minor
+           FROM gift_cards g
+           JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id
+           JOIN pos_order_lines l ON l.tenant_id=g.tenant_id AND l.id=g.source_order_line_id
+          WHERE g.tenant_id=$1 AND g.source_order_id=$2 AND g.status='PENDING_ACTIVATION'
+          ORDER BY l.line_no,g.id FOR UPDATE OF g,a`,
         [auth.tenantId, order.id],
       )
     ).rows;
+    if (!cards.length) return;
+    const lines = (
+      await c.query<any>(
+        "SELECT id,line_no,line_type,net_minor,gift_card_id FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2 AND status='ACTIVE' ORDER BY line_no,id",
+        [auth.tenantId, order.id],
+      )
+    ).rows;
+    const payments = (
+      await c.query<any>(
+        `SELECT p.id,p.currency,p.captured_at,
+                LEAST(p.captured_minor,COALESCE((SELECT sum(pa.amount_minor) FROM payment_allocations pa
+                  WHERE pa.tenant_id=p.tenant_id AND pa.payment_id=p.id AND pa.allocation_type='ORDER_TOTAL'),0)) funded_minor
+           FROM payments p
+          WHERE p.tenant_id=$1 AND p.pos_order_id=$2 AND p.status='CAPTURED'
+          ORDER BY p.captured_at,p.id FOR UPDATE OF p`,
+        [auth.tenantId, order.id],
+      )
+    ).rows;
+    let paymentIndex = 0;
+    let paymentRemaining = payments.length
+      ? BigInt(payments[0].funded_minor)
+      : 0n;
+    const fundingByCard = new Map<
+      string,
+      Array<{ paymentId: string; lineId: string; amount: bigint }>
+    >();
+    for (const line of [
+      ...lines.filter((item: any) => item.line_type === "GIFT_CARD"),
+      ...lines.filter((item: any) => item.line_type !== "GIFT_CARD"),
+    ]) {
+      let lineRemaining = BigInt(line.net_minor);
+      while (lineRemaining > 0n && paymentIndex < payments.length) {
+        if (paymentRemaining === 0n) {
+          paymentIndex += 1;
+          paymentRemaining =
+            paymentIndex < payments.length
+              ? BigInt(payments[paymentIndex].funded_minor)
+              : 0n;
+          continue;
+        }
+        const amount =
+          lineRemaining < paymentRemaining ? lineRemaining : paymentRemaining;
+        if (line.line_type === "GIFT_CARD" && line.gift_card_id) {
+          const allocations = fundingByCard.get(line.gift_card_id) ?? [];
+          allocations.push({
+            paymentId: payments[paymentIndex].id,
+            lineId: line.id,
+            amount,
+          });
+          fundingByCard.set(line.gift_card_id, allocations);
+        }
+        lineRemaining -= amount;
+        paymentRemaining -= amount;
+      }
+    }
     for (const card of cards) {
       const amount = BigInt(card.pending_minor);
+      const allocations = fundingByCard.get(card.id) ?? [];
+      if (allocations.reduce((sum, item) => sum + item.amount, 0n) !== amount)
+        this.conflict("GIFT_CARD_FUNDING_NOT_CAPTURED");
+      for (const allocation of allocations)
+        await c.query(
+          `INSERT INTO stored_value_funding_allocations(
+             tenant_id,payment_id,order_id,order_line_id,gift_card_id,branch_id,
+             funding_type,allocated_minor,currency,generation_key)
+           VALUES($1,$2,$3,$4,$5,$6,'ACTIVATION',$7,$8,$9)
+           ON CONFLICT(tenant_id,generation_key) DO NOTHING`,
+          [
+            auth.tenantId,
+            allocation.paymentId,
+            order.id,
+            allocation.lineId,
+            card.id,
+            order.branch_id,
+            allocation.amount.toString(),
+            card.currency,
+            `activate:${card.id}:${allocation.paymentId}:${allocation.lineId}`,
+          ],
+        );
+      const paymentIds = [
+        ...new Set(allocations.map((item) => item.paymentId)),
+      ];
+      const evidencePaymentId = paymentIds[0];
       await c.query(
         "INSERT INTO gift_card_activation_requests(tenant_id,gift_card_id,funding_payment_id,status,generation_key) VALUES($1,$2,$3,'COMMITTED',$4) ON CONFLICT(tenant_id,generation_key) DO NOTHING",
-        [auth.tenantId, card.id, paymentId, `activate:${card.id}`],
+        [auth.tenantId, card.id, evidencePaymentId, `activate:${card.id}`],
       );
       await this.post(c, auth, {
         accountId: card.account_id,
@@ -1631,13 +2278,27 @@ export class StoredValueService {
         pending: -amount,
         available: amount,
         orderId: order.id,
-        paymentId,
+        paymentId: paymentIds.length === 1 ? (evidencePaymentId ?? null) : null,
         policy: card.policy_snapshot_json,
         issued: amount,
+        branchId: order.branch_id,
       });
       await c.query(
-        "UPDATE gift_cards SET status='ACTIVE',activated_at=now(),source_payment_id=$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-        [auth.tenantId, card.id, paymentId],
+        `UPDATE gift_cards SET status='ACTIVE',activated_at=now(),
+           source_payment_id=$3,last_activity_branch_id=$4,
+           expires_at=CASE expiration_mode
+             WHEN 'FIXED_DATE' THEN (($5::jsonb->>'fixedExpiryDate')::date + COALESCE(($5::jsonb->>'graceDays')::int,0))::timestamptz
+             WHEN 'DAYS_AFTER_ACTIVATION' THEN now()+make_interval(days=>COALESCE(($5::jsonb->>'expirationDays')::int,0)+COALESCE(($5::jsonb->>'graceDays')::int,0))
+             WHEN 'DAYS_AFTER_LAST_ACTIVITY' THEN now()+make_interval(days=>COALESCE(($5::jsonb->>'expirationDays')::int,0)+COALESCE(($5::jsonb->>'graceDays')::int,0))
+             ELSE NULL END,
+           version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+        [
+          auth.tenantId,
+          card.id,
+          paymentIds.length === 1 ? evidencePaymentId : null,
+          order.branch_id,
+          JSON.stringify(card.policy_snapshot_json ?? {}),
+        ],
       );
       await this.evidence(
         c,
@@ -1650,6 +2311,10 @@ export class StoredValueService {
           orderId: order.id,
           amountMinor: amount.toString(),
           currency: card.currency,
+          fundingAllocations: allocations.map((item) => ({
+            paymentId: item.paymentId,
+            amountMinor: item.amount.toString(),
+          })),
         },
         order.branch_id,
       );
@@ -1711,11 +2376,12 @@ export class StoredValueService {
       async (c) => {
         const card = (
           await c.query<any>(
-            "SELECT g.*,a.id account_id,a.available_minor,a.reserved_minor FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id WHERE g.tenant_id=$1 AND g.id=$2 FOR UPDATE OF g,a",
+            "SELECT g.*,a.id account_id,a.available_minor,a.reserved_minor,a.lifetime_redeemed_minor FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id WHERE g.tenant_id=$1 AND g.id=$2 FOR UPDATE OF g,a",
             [auth.tenantId, id],
           )
         ).rows[0];
         if (!card) this.notFound();
+        const branchId = this.assertCardBranch(auth, card);
         if (card.version !== body.version)
           this.conflict("STORED_VALUE_VERSION_CONFLICT");
         try {
@@ -1725,15 +2391,10 @@ export class StoredValueService {
         }
         if (target === "CANCELLED" && BigInt(card.reserved_minor) > 0n)
           this.conflict("STORED_VALUE_RESERVATION_CONFLICT");
+        if (target === "CANCELLED" && BigInt(card.lifetime_redeemed_minor) > 0n)
+          this.conflict("GIFT_CARD_PARTIAL_USE_MANUAL_REVIEW");
         if (target === "CANCELLED" && BigInt(card.available_minor) > 0n)
-          await this.post(c, auth, {
-            accountId: card.account_id,
-            entryType: "PURCHASE_CANCELLATION",
-            generationKey: `cancel:${id}`,
-            currency: card.currency,
-            available: -BigInt(card.available_minor),
-            cancelled: BigInt(card.available_minor),
-          });
+          this.conflict("GIFT_CARD_CANCELLATION_EVIDENCE_REQUIRED");
         const updated = (
           await c.query<any>(
             "UPDATE gift_cards SET status=$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",
@@ -1746,9 +2407,16 @@ export class StoredValueService {
             : target === "ACTIVE"
               ? "gift_card.reactivated"
               : "gift_card.cancelled";
-        await this.evidence(c, auth, event, "gift_card", id, requestId, {
-          reason: body.reason ?? null,
-        });
+        await this.evidence(
+          c,
+          auth,
+          event,
+          "gift_card",
+          id,
+          requestId,
+          { reason: body.reason ?? null },
+          branchId ?? undefined,
+        );
         return updated;
       },
     );
@@ -1776,6 +2444,7 @@ export class StoredValueService {
           )
         ).rows[0];
         if (!old) this.notFound();
+        const branchId = this.assertCardBranch(auth, old);
         if (old.version !== body.version)
           this.conflict("STORED_VALUE_VERSION_CONFLICT");
         if (!body.reason || !["ACTIVE", "SUSPENDED"].includes(old.status))
@@ -1787,8 +2456,12 @@ export class StoredValueService {
           accountId = randomUUID();
         const reference = `GC-${credentials.last4}-${nextId.slice(0, 8).toUpperCase()}`;
         await c.query(
-          `INSERT INTO gift_cards(id,tenant_id,product_id,customer_id,card_reference,number_hash,number_last4,pin_hash,pin_version,form,status,currency,activated_at,policy_snapshot_json)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ACTIVE',$11,now(),$12)`,
+          `INSERT INTO gift_cards(
+             id,tenant_id,product_id,customer_id,card_reference,number_hash,number_last4,pin_hash,pin_version,
+             form,status,currency,activated_at,expires_at,policy_snapshot_json,source_order_id,source_order_line_id,
+             source_payment_id,issuance_branch_id,last_activity_branch_id,replaces_gift_card_id,replacement_reason,
+             replacement_authorization_json,legal_policy_id,legal_policy_version,jurisdiction,expiration_mode)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'ACTIVE',$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
           [
             nextId,
             auth.tenantId,
@@ -1803,7 +2476,25 @@ export class StoredValueService {
             old.pin_hash ? 1 : null,
             old.form,
             old.currency,
+            old.activated_at,
+            old.expires_at,
             JSON.stringify(old.policy_snapshot_json),
+            old.source_order_id,
+            old.source_order_line_id,
+            old.source_payment_id,
+            old.issuance_branch_id,
+            branchId,
+            id,
+            body.reason,
+            JSON.stringify({
+              actorUserId: auth.userId,
+              actorRoles: auth.roles,
+              requestId,
+            }),
+            old.legal_policy_id,
+            old.legal_policy_version,
+            old.jurisdiction,
+            old.expiration_mode,
           ],
         );
         await c.query(
@@ -1818,6 +2509,7 @@ export class StoredValueService {
             generationKey: `replace-out:${id}`,
             currency: old.currency,
             available: -amount,
+            branchId,
           });
           await this.post(c, auth, {
             accountId,
@@ -1825,6 +2517,7 @@ export class StoredValueService {
             generationKey: `replace-in:${id}`,
             currency: old.currency,
             available: amount,
+            branchId,
           });
         }
         await c.query(
@@ -1839,6 +2532,7 @@ export class StoredValueService {
           id,
           requestId,
           { replacementGiftCardId: nextId, reason: body.reason },
+          branchId ?? undefined,
         );
         return {
           replacedGiftCardId: id,
@@ -1852,6 +2546,134 @@ export class StoredValueService {
             pin: old.pin_hash ? credentials.pin : null,
             displayOnce: true,
           },
+        };
+      },
+    );
+  }
+
+  addGiftCardReloadLine(
+    auth: AccessClaims,
+    orderId: string,
+    input: unknown,
+    key: string,
+    requestId: string,
+  ) {
+    const body = giftCardReloadLineSchema.parse(input);
+    return this.command(
+      auth,
+      "gift-card.reload-line.add",
+      key,
+      { orderId, ...body },
+      async (c) => {
+        await this.enabled(c, auth.tenantId);
+        const order = (
+          await c.query<any>(
+            "SELECT * FROM pos_orders WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+            [auth.tenantId, orderId],
+          )
+        ).rows[0];
+        if (!order) this.notFound("POS_ORDER_NOT_FOUND");
+        this.branch(auth, order.branch_id);
+        if (order.status !== "DRAFT") this.conflict("POS_ORDER_STATUS_INVALID");
+        const lineState = (
+          await c.query<any>(
+            `SELECT count(*) FILTER (WHERE status='ACTIVE') active_count,
+                    COALESCE(max(line_no),0)+1 next_line_no
+               FROM pos_order_lines WHERE tenant_id=$1 AND pos_order_id=$2`,
+            [auth.tenantId, orderId],
+          )
+        ).rows[0];
+        const existingLines = Number(lineState.active_count);
+        const nextLineNo = Number(lineState.next_line_no);
+        if (existingLines)
+          this.conflict("GIFT_CARD_RELOAD_DEDICATED_ORDER_REQUIRED");
+        const card = (
+          await c.query<any>(
+            `SELECT g.*,p.reloadable,p.maximum_balance_minor,p.branch_scope_json,
+                    a.id account_id,a.available_minor,a.reserved_minor
+               FROM gift_cards g
+               JOIN gift_card_products p ON p.tenant_id=g.tenant_id AND p.id=g.product_id
+               JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id
+              WHERE g.tenant_id=$1 AND g.id=$2 FOR UPDATE OF g,a`,
+            [auth.tenantId, body.giftCardId],
+          )
+        ).rows[0];
+        if (!card) this.notFound();
+        this.assertCardBranch(auth, card);
+        if (card.version !== body.version)
+          this.conflict("STORED_VALUE_VERSION_CONFLICT");
+        if (card.status !== "ACTIVE" || !card.reloadable)
+          this.conflict("GIFT_CARD_RELOAD_NOT_ALLOWED");
+        if (card.currency !== order.currency)
+          this.conflict("STORED_VALUE_CURRENCY_MISMATCH");
+        if (card.customer_id && card.customer_id !== order.customer_id)
+          this.conflict("STORED_VALUE_CUSTOMER_MISMATCH");
+        const branches = [
+          ...this.policyArray(card.branch_scope_json, "purchaseBranchIds"),
+          ...this.policyArray(card.branch_scope_json, "branchIds"),
+        ];
+        if (branches.length && !branches.includes(order.branch_id))
+          this.conflict("GIFT_CARD_RELOAD_BRANCH_NOT_ALLOWED");
+        const amount = minor(body.amountMinor);
+        if (
+          BigInt(card.available_minor) + BigInt(card.reserved_minor) + amount >
+          BigInt(card.maximum_balance_minor)
+        )
+          this.conflict("GIFT_CARD_AMOUNT_LIMIT_EXCEEDED");
+        const lineId = randomUUID();
+        const snapshot = {
+          fundingType: "RELOAD",
+          giftCardId: card.id,
+          cardReference: card.card_reference,
+          assignedCustomerId: card.customer_id,
+          branchId: order.branch_id,
+          dedicatedFundingOrder: true,
+        };
+        await c.query(
+          `INSERT INTO pos_order_lines(
+             id,tenant_id,pos_order_id,line_no,line_type,description_snapshot_json,quantity,
+             unit_price_minor,gross_minor,taxable_minor,tax_minor,net_minor,tax_profile_snapshot_json,
+             source_snapshot_json,gift_card_product_id,gift_card_id)
+           VALUES($1,$2,$3,$4,'GIFT_CARD',$5,1,$6,$6,0,0,$6,'{}',$7,$8,$9)`,
+          [
+            lineId,
+            auth.tenantId,
+            orderId,
+            nextLineNo,
+            JSON.stringify({
+              name: "Gift card reload",
+              cardReference: card.card_reference,
+              liabilityClassification: "STORED_VALUE_RELOAD_FUNDING",
+            }),
+            amount.toString(),
+            JSON.stringify(snapshot),
+            card.product_id,
+            card.id,
+          ],
+        );
+        await c.query(
+          `UPDATE pos_orders SET subtotal_minor=subtotal_minor+$3,total_minor=total_minor+$3,
+             amount_due_minor=amount_due_minor+$3,version=version+1,updated_at=now()
+           WHERE tenant_id=$1 AND id=$2`,
+          [auth.tenantId, orderId, amount.toString()],
+        );
+        await this.evidence(
+          c,
+          auth,
+          "gift_card.reload_funding_created",
+          "gift_card",
+          card.id,
+          requestId,
+          { orderId, lineId, amountMinor: amount.toString() },
+          order.branch_id,
+        );
+        return {
+          giftCardId: card.id,
+          orderId,
+          lineId,
+          amountMinor: amount.toString(),
+          currency: card.currency,
+          fundingType: "RELOAD",
         };
       },
     );
@@ -1882,6 +2704,7 @@ export class StoredValueService {
           )
         ).rows[0];
         if (!card) this.notFound();
+        this.assertCardBranch(auth, card);
         if (card.version !== version)
           this.conflict("STORED_VALUE_VERSION_CONFLICT");
         if (card.status !== "ACTIVE" || !card.reloadable)
@@ -1891,18 +2714,69 @@ export class StoredValueService {
           BigInt(card.maximum_balance_minor)
         )
           this.conflict("GIFT_CARD_AMOUNT_LIMIT_EXCEEDED");
-        const payment = (
+        const funding = (
           await c.query<any>(
-            "SELECT * FROM payments WHERE tenant_id=$1 AND id=$2 AND status='CAPTURED' FOR SHARE",
-            [auth.tenantId, paymentId],
+            `SELECT p.*,l.id order_line_id,l.net_minor,l.source_snapshot_json,o.branch_id order_branch_id,
+                    COALESCE((SELECT sum(pa.amount_minor) FROM payment_allocations pa
+                      WHERE pa.tenant_id=p.tenant_id AND pa.payment_id=p.id
+                        AND pa.pos_order_id=p.pos_order_id AND pa.allocation_type='ORDER_TOTAL'),0) order_funded_minor,
+                    (SELECT count(*) FROM pos_order_lines x WHERE x.tenant_id=p.tenant_id
+                      AND x.pos_order_id=p.pos_order_id AND x.status='ACTIVE') active_line_count
+               FROM payments p
+               JOIN pos_orders o ON o.tenant_id=p.tenant_id AND o.id=p.pos_order_id
+               JOIN pos_order_lines l ON l.tenant_id=p.tenant_id AND l.pos_order_id=p.pos_order_id
+                AND l.status='ACTIVE' AND l.line_type='GIFT_CARD' AND l.gift_card_id=$3
+              WHERE p.tenant_id=$1 AND p.id=$2 AND p.status='CAPTURED'
+              FOR UPDATE OF p`,
+            [auth.tenantId, paymentId, id],
           )
         ).rows[0];
         if (
-          !payment ||
-          payment.currency !== card.currency ||
-          BigInt(payment.captured_minor) < amount
+          !funding ||
+          funding.currency !== card.currency ||
+          funding.branch_id !== funding.order_branch_id ||
+          funding.source_snapshot_json?.fundingType !== "RELOAD" ||
+          Number(funding.active_line_count) !== 1 ||
+          BigInt(funding.net_minor) !== amount ||
+          BigInt(funding.order_funded_minor) !== amount ||
+          BigInt(funding.captured_minor) < amount
         )
           this.conflict("GIFT_CARD_FUNDING_NOT_CAPTURED");
+        this.branch(auth, funding.branch_id);
+        await this.enforceVelocity(c, auth, {
+          action: "RELOAD",
+          branchId: funding.branch_id,
+          amount,
+          customerId: card.customer_id,
+          accountId: card.account_id,
+          giftCardId: id,
+          deviceId: input?.deviceId,
+          approvalReason: input?.approvalReason,
+          requestId,
+        });
+        try {
+          await c.query(
+            `INSERT INTO stored_value_funding_allocations(
+             tenant_id,payment_id,order_id,order_line_id,gift_card_id,branch_id,
+             funding_type,allocated_minor,currency,generation_key)
+           VALUES($1,$2,$3,$4,$5,$6,'RELOAD',$7,$8,$9)`,
+            [
+              auth.tenantId,
+              paymentId,
+              funding.pos_order_id,
+              funding.order_line_id,
+              id,
+              funding.branch_id,
+              amount.toString(),
+              card.currency,
+              `reload:${id}:${paymentId}:${funding.order_line_id}`,
+            ],
+          );
+        } catch (error: any) {
+          if (["23505", "23514"].includes(error?.code))
+            this.conflict("GIFT_CARD_FUNDING_ALREADY_ALLOCATED");
+          throw error;
+        }
         await c.query(
           "INSERT INTO gift_card_reload_requests(tenant_id,gift_card_id,funding_payment_id,amount_minor,currency,status,generation_key) VALUES($1,$2,$3,$4,$5,'COMMITTED',$6)",
           [
@@ -1922,11 +2796,17 @@ export class StoredValueService {
           available: amount,
           paymentId,
           issued: amount,
+          orderId: funding.pos_order_id,
+          branchId: funding.branch_id,
         });
         const updated = (
           await c.query<any>(
-            "UPDATE gift_cards SET version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING version",
-            [auth.tenantId, id],
+            `UPDATE gift_cards SET last_activity_branch_id=$3,
+               expires_at=CASE WHEN expiration_mode='DAYS_AFTER_LAST_ACTIVITY'
+                 THEN now()+make_interval(days=>COALESCE((policy_snapshot_json->>'expirationDays')::int,0)+COALESCE((policy_snapshot_json->>'graceDays')::int,0))
+                 ELSE expires_at END,
+               version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING version`,
+            [auth.tenantId, id, funding.branch_id],
           )
         ).rows[0];
         await this.evidence(
@@ -1941,7 +2821,7 @@ export class StoredValueService {
             amountMinor: amount.toString(),
             currency: card.currency,
           },
-          payment.branch_id,
+          funding.branch_id,
         );
         return {
           giftCardId: id,
@@ -1959,6 +2839,7 @@ export class StoredValueService {
   }
   async ledger(auth: AccessClaims, id: string) {
     this.access(auth);
+    await this.giftCard(auth, id);
     const customerId = auth.roles.includes("CUSTOMER")
       ? await this.ownCustomerId(auth)
       : null;
@@ -1978,6 +2859,14 @@ export class StoredValueService {
   }
   async orderApplications(auth: AccessClaims, orderId: string) {
     this.access(auth);
+    const order = (
+      await this.db.query<any>(
+        "SELECT branch_id FROM pos_orders WHERE tenant_id=$1 AND id=$2",
+        [auth.tenantId, orderId],
+      )
+    ).rows[0];
+    if (!order) this.notFound("POS_ORDER_NOT_FOUND");
+    this.branch(auth, order.branch_id);
     return (
       await this.db.query<any>(
         'SELECT id,application_type "applicationType",status,requested_minor::text "requestedMinor",accepted_minor::text "acceptedMinor",currency,version,created_at "createdAt" FROM pos_order_stored_value_applications WHERE tenant_id=$1 AND order_id=$2 ORDER BY created_at,id',
@@ -1993,10 +2882,15 @@ export class StoredValueService {
       customerId !== (await this.ownCustomerId(auth))
     )
       this.notFound("CUSTOMER_CREDIT_NOT_FOUND");
+    const branches = this.scopedBranches(auth);
     return (
       await this.db.query<any>(
-        'SELECT id,customer_id "customerId",currency,status,available_minor::text "availableMinor",reserved_minor::text "reservedMinor",redeemed_minor::text "redeemedMinor",version FROM stored_value_accounts WHERE tenant_id=$1 AND account_type=\'CUSTOMER_CREDIT\' AND customer_id=$2 ORDER BY currency',
-        [auth.tenantId, customerId],
+        `SELECT id,customer_id "customerId",currency,status,available_minor::text "availableMinor",reserved_minor::text "reservedMinor",redeemed_minor::text "redeemedMinor",version
+           FROM stored_value_accounts a WHERE tenant_id=$1 AND account_type='CUSTOMER_CREDIT' AND customer_id=$2
+            AND ($3::uuid[] IS NULL OR EXISTS(SELECT 1 FROM stored_value_ledger_entries l
+              WHERE l.tenant_id=a.tenant_id AND l.account_id=a.id AND l.branch_id=ANY($3::uuid[])))
+          ORDER BY currency`,
+        [auth.tenantId, customerId, branches],
       )
     ).rows;
   }
@@ -2005,10 +2899,13 @@ export class StoredValueService {
     const customerId = auth.roles.includes("CUSTOMER")
       ? await this.ownCustomerId(auth)
       : null;
+    const branches = this.scopedBranches(auth);
     return (
       await this.db.query<any>(
-        `SELECT a.id,a.customer_id "customerId",c.display_name "customerName",a.currency,a.status,a.available_minor::text "availableMinor",a.reserved_minor::text "reservedMinor",a.redeemed_minor::text "redeemedMinor",a.version FROM stored_value_accounts a JOIN customers c ON c.tenant_id=a.tenant_id AND c.id=a.customer_id WHERE a.tenant_id=$1 AND a.account_type='CUSTOMER_CREDIT' AND ($2::uuid IS NULL OR a.customer_id=$2) ORDER BY c.display_name,a.currency`,
-        [auth.tenantId, customerId],
+        `SELECT a.id,a.customer_id "customerId",c.display_name "customerName",a.currency,a.status,a.available_minor::text "availableMinor",a.reserved_minor::text "reservedMinor",a.redeemed_minor::text "redeemedMinor",a.version FROM stored_value_accounts a JOIN customers c ON c.tenant_id=a.tenant_id AND c.id=a.customer_id WHERE a.tenant_id=$1 AND a.account_type='CUSTOMER_CREDIT' AND ($2::uuid IS NULL OR a.customer_id=$2)
+          AND ($3::uuid[] IS NULL OR EXISTS(SELECT 1 FROM stored_value_ledger_entries l WHERE l.tenant_id=a.tenant_id AND l.account_id=a.id AND l.branch_id=ANY($3::uuid[])))
+          ORDER BY c.display_name,a.currency`,
+        [auth.tenantId, customerId, branches],
       )
     ).rows;
   }
@@ -2019,11 +2916,12 @@ export class StoredValueService {
       customerId !== (await this.ownCustomerId(auth))
     )
       this.notFound("CUSTOMER_CREDIT_NOT_FOUND");
+    const branches = this.scopedBranches(auth);
     return (
       await this.db.query<any>(
         `SELECT l.id,l.entry_type "entryType",l.available_delta_minor::text "availableDeltaMinor",l.reserved_delta_minor::text "reservedDeltaMinor",l.redeemed_delta_minor::text "redeemedDeltaMinor",l.currency,l.occurred_at "occurredAt"
-      FROM stored_value_ledger_entries l JOIN stored_value_accounts a ON a.tenant_id=l.tenant_id AND a.id=l.account_id WHERE l.tenant_id=$1 AND a.account_type='CUSTOMER_CREDIT' AND a.customer_id=$2 ORDER BY l.occurred_at DESC,l.id`,
-        [auth.tenantId, customerId],
+      FROM stored_value_ledger_entries l JOIN stored_value_accounts a ON a.tenant_id=l.tenant_id AND a.id=l.account_id WHERE l.tenant_id=$1 AND a.account_type='CUSTOMER_CREDIT' AND a.customer_id=$2 AND ($3::uuid[] IS NULL OR l.branch_id=ANY($3::uuid[])) ORDER BY l.occurred_at DESC,l.id`,
+        [auth.tenantId, customerId, branches],
       )
     ).rows;
   }
@@ -2044,10 +2942,11 @@ export class StoredValueService {
   }
   adjustments(auth: AccessClaims) {
     this.access(auth);
+    const branches = this.scopedBranches(auth);
     return this.db
       .query<any>(
-        'SELECT id,customer_id "customerId",currency,adjustment_type "adjustmentType",amount_minor::text "amountMinor",reason_code "reasonCode",note,status,requested_by_user_id "requestedByUserId",decided_by_user_id "decidedByUserId",version,created_at "createdAt" FROM stored_value_adjustment_requests WHERE tenant_id=$1 ORDER BY created_at DESC',
-        [auth.tenantId],
+        'SELECT id,branch_id "branchId",customer_id "customerId",currency,adjustment_type "adjustmentType",amount_minor::text "amountMinor",reason_code "reasonCode",note,status,requested_by_user_id "requestedByUserId",decided_by_user_id "decidedByUserId",version,created_at "createdAt" FROM stored_value_adjustment_requests WHERE tenant_id=$1 AND ($2::uuid[] IS NULL OR branch_id=ANY($2::uuid[])) ORDER BY created_at DESC',
+        [auth.tenantId, branches],
       )
       .then((x) => x.rows);
   }
@@ -2064,6 +2963,7 @@ export class StoredValueService {
       key,
       body,
       async (c) => {
+        this.branch(auth, body.branchId);
         const customer = await c.query(
           "SELECT 1 FROM customers WHERE tenant_id=$1 AND id=$2",
           [auth.tenantId, body.customerId],
@@ -2072,8 +2972,8 @@ export class StoredValueService {
         const id = randomUUID();
         const row = (
           await c.query<any>(
-            `INSERT INTO stored_value_adjustment_requests(id,tenant_id,customer_id,currency,adjustment_type,amount_minor,reason_code,note,requested_by_user_id)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+            `INSERT INTO stored_value_adjustment_requests(id,tenant_id,customer_id,currency,adjustment_type,amount_minor,reason_code,note,requested_by_user_id,branch_id)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
             [
               id,
               auth.tenantId,
@@ -2084,6 +2984,7 @@ export class StoredValueService {
               body.reasonCode,
               body.note,
               auth.userId,
+              body.branchId,
             ],
           )
         ).rows[0];
@@ -2095,6 +2996,7 @@ export class StoredValueService {
           id,
           requestId,
           { amountMinor: body.amountMinor, currency: body.currency },
+          body.branchId,
         );
         return row;
       },
@@ -2122,6 +3024,10 @@ export class StoredValueService {
           )
         ).rows[0];
         if (!row) this.notFound("CUSTOMER_CREDIT_NOT_FOUND");
+        if (!row.branch_id) {
+          if (!auth.roles.includes("SALON_OWNER"))
+            this.notFound("CUSTOMER_CREDIT_NOT_FOUND");
+        } else this.branch(auth, row.branch_id);
         if (row.version !== body.version)
           this.conflict("STORED_VALUE_VERSION_CONFLICT");
         if (row.status !== "PENDING")
@@ -2147,6 +3053,7 @@ export class StoredValueService {
             available: debit ? -amount : amount,
             adjustmentId: id,
             issued: debit ? 0n : amount,
+            branchId: row.branch_id,
           });
         }
         const updated = (
@@ -2173,6 +3080,7 @@ export class StoredValueService {
           id,
           requestId,
           { decision, ledgerId },
+          row.branch_id ?? undefined,
         );
         return updated;
       },
@@ -2205,17 +3113,30 @@ export class StoredValueService {
       )
     ).rows[0];
     if (!refund) this.notFound("REFUND_NOT_FOUND");
+    this.branch(auth, refund.branch_id);
     const allocations = (
       await this.db.query<any>(
         `SELECT s.id "settlementAllocationId",s.account_id "accountId",s.amount_minor::text "originalRedeemedMinor",s.currency,
-      COALESCE((SELECT sum(r.amount_minor) FROM stored_value_refund_allocations r WHERE r.tenant_id=s.tenant_id AND r.settlement_allocation_id=s.id),0)::text "restoredMinor"
+      COALESCE((SELECT sum(r.amount_minor) FROM stored_value_refund_allocations r WHERE r.tenant_id=s.tenant_id AND r.settlement_allocation_id=s.id),0)::text "restoredMinor",
+      COALESCE((SELECT jsonb_agg(jsonb_build_object(
+        'settlementLineAllocationId',sl.id,'invoiceLineId',sl.invoice_line_id,
+        'allocatedMinor',sl.allocated_minor::text,'restoredMinor',COALESCE((SELECT sum(ra.amount_minor)
+          FROM stored_value_refund_allocations ra WHERE ra.tenant_id=sl.tenant_id
+            AND ra.settlement_line_allocation_id=sl.id),0)::text) ORDER BY sl.created_at,sl.id)
+        FROM stored_value_settlement_line_allocations sl
+        WHERE sl.tenant_id=s.tenant_id AND sl.settlement_allocation_id=s.id),'[]'::jsonb) "lineAllocations"
       FROM stored_value_settlement_allocations s WHERE s.tenant_id=$1 AND s.order_id=$2`,
         [auth.tenantId, refund.pos_order_id],
       )
     ).rows;
     const plans = (
       await this.db.query<any>(
-        `SELECT id,settlement_allocation_id "settlementAllocationId",account_id "accountId",planned_minor::text "plannedMinor",completed_minor::text "completedMinor",currency,status,version FROM refund_stored_value_plans WHERE tenant_id=$1 AND refund_id=$2 ORDER BY created_at,id`,
+        `SELECT id,settlement_allocation_id "settlementAllocationId",
+                settlement_line_allocation_id "settlementLineAllocationId",
+                account_id "accountId",planned_minor::text "plannedMinor",
+                completed_minor::text "completedMinor",currency,status,version
+           FROM refund_stored_value_line_plans
+          WHERE tenant_id=$1 AND refund_id=$2 ORDER BY created_at,id`,
         [auth.tenantId, refundId],
       )
     ).rows;
@@ -2329,7 +3250,7 @@ export class StoredValueService {
   ) {
     const plans = (
       await c.query<any>(
-        "SELECT * FROM refund_stored_value_plans WHERE tenant_id=$1 AND refund_id=$2 AND status='PENDING' ORDER BY created_at,id FOR UPDATE",
+        "SELECT * FROM refund_stored_value_line_plans WHERE tenant_id=$1 AND refund_id=$2 AND status='PENDING' ORDER BY created_at,id FOR UPDATE",
         [auth.tenantId, refund.id],
       )
     ).rows;
@@ -2367,12 +3288,13 @@ export class StoredValueService {
       });
       const allocationId = randomUUID();
       await c.query(
-        "INSERT INTO stored_value_refund_allocations(id,tenant_id,refund_id,settlement_allocation_id,account_id,destination,amount_minor,currency,ledger_entry_id,generation_key) VALUES($1,$2,$3,$4,$5,'ORIGINAL_STORED_VALUE',$6,$7,$8,$9)",
+        "INSERT INTO stored_value_refund_allocations(id,tenant_id,refund_id,settlement_allocation_id,settlement_line_allocation_id,account_id,destination,amount_minor,currency,ledger_entry_id,generation_key) VALUES($1,$2,$3,$4,$5,$6,'ORIGINAL_STORED_VALUE',$7,$8,$9,$10)",
         [
           allocationId,
           auth.tenantId,
           refund.id,
           plan.settlement_allocation_id,
+          plan.settlement_line_allocation_id,
           plan.account_id,
           amount.toString(),
           plan.currency,
@@ -2381,7 +3303,7 @@ export class StoredValueService {
         ],
       );
       await c.query(
-        "UPDATE refund_stored_value_plans SET status='COMPLETED',completed_minor=planned_minor,ledger_entry_id=$3,completed_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+        "UPDATE refund_stored_value_line_plans SET status='COMPLETED',completed_minor=planned_minor,ledger_entry_id=$3,completed_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
         [auth.tenantId, plan.id, ledgerId],
       );
       if (account.gift_card_id)
@@ -2399,6 +3321,7 @@ export class StoredValueService {
         {
           refundId: refund.id,
           settlementAllocationId: plan.settlement_allocation_id,
+          settlementLineAllocationId: plan.settlement_line_allocation_id,
           amountMinor: amount.toString(),
           currency: plan.currency,
         },
@@ -2432,7 +3355,7 @@ export class StoredValueService {
       await c.query<any>(
         `SELECT
            EXISTS(SELECT 1 FROM refund_payment_allocations WHERE tenant_id=$1 AND refund_id=$2) OR
-           EXISTS(SELECT 1 FROM refund_stored_value_plans WHERE tenant_id=$1 AND refund_id=$2) OR
+           EXISTS(SELECT 1 FROM refund_stored_value_line_plans WHERE tenant_id=$1 AND refund_id=$2) OR
            EXISTS(SELECT 1 FROM stored_value_refund_allocations WHERE tenant_id=$1 AND refund_id=$2) AS conflict`,
         [auth.tenantId, refund.id],
       )
@@ -2536,40 +3459,52 @@ export class StoredValueService {
 
   async report(auth: AccessClaims, kind: string) {
     this.access(auth);
+    const branches = this.scopedBranches(auth);
     if (kind === "exceptions")
       return (
         await this.db.query<any>(
-          `SELECT id,account_id "accountId",exception_type "exceptionType",currency,expected_minor::text "expectedMinor",actual_minor::text "actualMinor",details_json details,status,created_at "createdAt",resolved_at "resolvedAt" FROM stored_value_reconciliation_exceptions WHERE tenant_id=$1 ORDER BY created_at DESC,id`,
-          [auth.tenantId],
+          `SELECT e.id,e.account_id "accountId",e.exception_type "exceptionType",e.currency,e.expected_minor::text "expectedMinor",e.actual_minor::text "actualMinor",e.details_json details,e.status,e.created_at "createdAt",e.resolved_at "resolvedAt"
+             FROM stored_value_reconciliation_exceptions e
+            WHERE e.tenant_id=$1 AND ($2::uuid[] IS NULL OR EXISTS(SELECT 1 FROM stored_value_ledger_entries l
+              WHERE l.tenant_id=e.tenant_id AND l.account_id=e.account_id AND l.branch_id=ANY($2::uuid[])))
+            ORDER BY e.created_at DESC,e.id`,
+          [auth.tenantId, branches],
         )
       ).rows;
     if (kind === "customer-credit")
       return (
         await this.db.query<any>(
-          `SELECT currency,count(*)::int accounts,sum(available_minor)::text "availableMinor",sum(reserved_minor)::text "reservedMinor",sum(available_minor+reserved_minor)::text "liabilityMinor" FROM stored_value_accounts WHERE tenant_id=$1 AND account_type='CUSTOMER_CREDIT' GROUP BY currency ORDER BY currency`,
-          [auth.tenantId],
+          `SELECT currency,count(*)::int accounts,sum(available_minor)::text "availableMinor",sum(reserved_minor)::text "reservedMinor",sum(available_minor+reserved_minor)::text "liabilityMinor" FROM stored_value_accounts a WHERE tenant_id=$1 AND account_type='CUSTOMER_CREDIT'
+            AND ($2::uuid[] IS NULL OR EXISTS(SELECT 1 FROM stored_value_ledger_entries l WHERE l.tenant_id=a.tenant_id AND l.account_id=a.id AND l.branch_id=ANY($2::uuid[])))
+            GROUP BY currency ORDER BY currency`,
+          [auth.tenantId, branches],
         )
       ).rows;
     if (kind === "aging")
       return (
         await this.db.query<any>(
-          `SELECT currency,date_trunc('month',COALESCE(activated_at,created_at)) "cohortMonth",count(*)::int cards,sum(a.available_minor+a.reserved_minor)::text "liabilityMinor" FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id WHERE g.tenant_id=$1 GROUP BY currency,date_trunc('month',COALESCE(activated_at,created_at)) ORDER BY "cohortMonth"`,
-          [auth.tenantId],
+          `SELECT g.currency,date_trunc('month',COALESCE(g.activated_at,g.created_at)) "cohortMonth",count(*)::int cards,sum(a.available_minor+a.reserved_minor)::text "liabilityMinor" FROM gift_cards g JOIN stored_value_accounts a ON a.tenant_id=g.tenant_id AND a.gift_card_id=g.id WHERE g.tenant_id=$1
+            AND ($2::uuid[] IS NULL OR COALESCE(g.last_activity_branch_id,g.issuance_branch_id)=ANY($2::uuid[]))
+            GROUP BY g.currency,date_trunc('month',COALESCE(g.activated_at,g.created_at)) ORDER BY "cohortMonth"`,
+          [auth.tenantId, branches],
         )
       ).rows;
     if (kind === "liability" || kind === "reconciliation") {
       const rows = (
         await this.db.query<any>(
-          `SELECT currency,account_type "accountType",sum(available_minor)::text "availableMinor",sum(reserved_minor)::text "reservedMinor",sum(available_minor+reserved_minor)::text "liabilityMinor" FROM stored_value_accounts WHERE tenant_id=$1 GROUP BY currency,account_type ORDER BY currency,account_type`,
-          [auth.tenantId],
+          `SELECT a.currency,a.account_type "accountType",sum(a.available_minor)::text "availableMinor",sum(a.reserved_minor)::text "reservedMinor",sum(a.available_minor+a.reserved_minor)::text "liabilityMinor" FROM stored_value_accounts a WHERE a.tenant_id=$1
+            AND ($2::uuid[] IS NULL OR EXISTS(SELECT 1 FROM stored_value_ledger_entries l WHERE l.tenant_id=a.tenant_id AND l.account_id=a.id AND l.branch_id=ANY($2::uuid[])))
+            GROUP BY a.currency,a.account_type ORDER BY a.currency,a.account_type`,
+          [auth.tenantId, branches],
         )
       ).rows;
       const mismatches =
         kind === "reconciliation"
           ? (
               await this.db.query<any>(
-                `SELECT a.id "accountId",a.currency,(a.pending_minor+a.available_minor+a.reserved_minor+a.redeemed_minor+a.expired_minor+a.cancelled_minor)::text projection,(SELECT COALESCE(sum(pending_delta_minor+available_delta_minor+reserved_delta_minor+redeemed_delta_minor+expired_delta_minor+cancelled_delta_minor),0)::text FROM stored_value_ledger_entries l WHERE l.tenant_id=a.tenant_id AND l.account_id=a.id) ledger FROM stored_value_accounts a WHERE a.tenant_id=$1`,
-                [auth.tenantId],
+                `SELECT a.id "accountId",a.currency,(a.pending_minor+a.available_minor+a.reserved_minor+a.redeemed_minor+a.expired_minor+a.cancelled_minor)::text projection,(SELECT COALESCE(sum(pending_delta_minor+available_delta_minor+reserved_delta_minor+redeemed_delta_minor+expired_delta_minor+cancelled_delta_minor),0)::text FROM stored_value_ledger_entries l WHERE l.tenant_id=a.tenant_id AND l.account_id=a.id) ledger FROM stored_value_accounts a WHERE a.tenant_id=$1
+                  AND ($2::uuid[] IS NULL OR EXISTS(SELECT 1 FROM stored_value_ledger_entries l WHERE l.tenant_id=a.tenant_id AND l.account_id=a.id AND l.branch_id=ANY($2::uuid[])))`,
+                [auth.tenantId, branches],
               )
             ).rows.filter((x) => x.projection !== x.ledger)
           : [];
@@ -2589,8 +3524,8 @@ export class StoredValueService {
           : null;
     return (
       await this.db.query<any>(
-        'SELECT entry_type "entryType",currency,count(*)::int count,sum(abs(pending_delta_minor)+abs(available_delta_minor)+abs(reserved_delta_minor)+abs(redeemed_delta_minor))::text "amountMinor" FROM stored_value_ledger_entries WHERE tenant_id=$1 AND ($2::text[] IS NULL OR entry_type=ANY($2)) GROUP BY entry_type,currency ORDER BY entry_type,currency',
-        [auth.tenantId, filter],
+        'SELECT entry_type "entryType",currency,count(*)::int count,sum(abs(pending_delta_minor)+abs(available_delta_minor)+abs(reserved_delta_minor)+abs(redeemed_delta_minor))::text "amountMinor" FROM stored_value_ledger_entries WHERE tenant_id=$1 AND ($2::text[] IS NULL OR entry_type=ANY($2)) AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[])) GROUP BY entry_type,currency ORDER BY entry_type,currency',
+        [auth.tenantId, filter, branches],
       )
     ).rows;
   }

@@ -45,25 +45,29 @@ INSERT INTO gift_card_products(
 
 INSERT INTO gift_cards(
   id,tenant_id,product_id,customer_id,card_reference,number_hash,number_last4,
-  form,status,currency,activated_at,policy_snapshot_json
+  form,status,currency,activated_at,policy_snapshot_json,issuance_branch_id,
+  last_activity_branch_id,legal_policy_id,legal_policy_version,jurisdiction,expiration_mode
 ) VALUES
 (
   'da200000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',
   'da100000-0000-4000-8000-000000000001','60000000-0000-4000-8000-000000000001',
   'GC-SEED-ACTIVE',encode(hmac('10000000-0000-4000-8000-000000000001:4111111111111111','test-only-stored-value-secret-change-in-production','sha256'),'hex'),
-  '1111','DIGITAL','ACTIVE','VND','2026-01-01','{"fixture":true,"expirationMode":"NO_EXPIRATION"}'
+  '1111','DIGITAL','ACTIVE','VND','2026-01-01','{"fixture":true,"expirationMode":"NO_EXPIRATION","assignmentPolicy":"BEARER_OR_CUSTOMER","assignedCustomerId":"60000000-0000-4000-8000-000000000001","bearerRedemptionAllowed":true,"tipAllowed":false,"giftCardFundingAllowed":false}',
+  '20000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','da000000-0000-4000-8000-000000000001',1,'VN','NO_EXPIRATION'
 ),
 (
   'da200000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001',
   'da100000-0000-4000-8000-000000000001',NULL,
   'GC-SEED-SUSPENDED',encode(hmac('10000000-0000-4000-8000-000000000001:4222222222222222','test-only-stored-value-secret-change-in-production','sha256'),'hex'),
-  '2222','PHYSICAL','SUSPENDED','VND','2026-01-01','{"fixture":true,"expirationMode":"NO_EXPIRATION"}'
+  '2222','PHYSICAL','SUSPENDED','VND','2026-01-01','{"fixture":true,"expirationMode":"NO_EXPIRATION","assignmentPolicy":"BEARER_OR_CUSTOMER","bearerRedemptionAllowed":true,"tipAllowed":false,"giftCardFundingAllowed":false}',
+  '20000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','da000000-0000-4000-8000-000000000001',1,'VN','NO_EXPIRATION'
 ),
 (
   'da200000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001',
   'da100000-0000-4000-8000-000000000001',NULL,
   'GC-SEED-DEPLETED',encode(hmac('10000000-0000-4000-8000-000000000001:4333333333333333','test-only-stored-value-secret-change-in-production','sha256'),'hex'),
-  '3333','DIGITAL','DEPLETED','VND','2026-01-01','{"fixture":true,"expirationMode":"NO_EXPIRATION"}'
+  '3333','DIGITAL','DEPLETED','VND','2026-01-01','{"fixture":true,"expirationMode":"NO_EXPIRATION","assignmentPolicy":"BEARER_OR_CUSTOMER","bearerRedemptionAllowed":true,"tipAllowed":false,"giftCardFundingAllowed":false}',
+  '20000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','da000000-0000-4000-8000-000000000001',1,'VN','NO_EXPIRATION'
 )
 ON CONFLICT DO NOTHING;
 
@@ -79,22 +83,34 @@ ON CONFLICT DO NOTHING;
 
 INSERT INTO stored_value_ledger_entries(
   id,tenant_id,account_id,entry_type,available_delta_minor,redeemed_delta_minor,
-  currency,policy_snapshot_json,generation_key,actor_user_id,occurred_at
+  currency,policy_snapshot_json,generation_key,actor_user_id,occurred_at,branch_id
 ) VALUES
-('da400000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','da300000-0000-4000-8000-000000000001','MIGRATION',500000,0,'VND','{"fixture":true}','seed:sprint10:active','30000000-0000-4000-8000-000000000001','2026-01-01'),
-('da400000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','da300000-0000-4000-8000-000000000002','MIGRATION',200000,0,'VND','{"fixture":true}','seed:sprint10:suspended','30000000-0000-4000-8000-000000000001','2026-01-01'),
-('da400000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001','da300000-0000-4000-8000-000000000003','MIGRATION',0,300000,'VND','{"fixture":true}','seed:sprint10:depleted','30000000-0000-4000-8000-000000000001','2026-01-01'),
-('da400000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000001','da300000-0000-4000-8000-000000000004','MIGRATION',300000,0,'VND','{"fixture":true}','seed:sprint10:customer-credit','30000000-0000-4000-8000-000000000001','2026-01-01')
+('da400000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','da300000-0000-4000-8000-000000000001','MIGRATION',500000,0,'VND','{"fixture":true}','seed:sprint10:active','30000000-0000-4000-8000-000000000001','2026-01-01','20000000-0000-4000-8000-000000000001'),
+('da400000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','da300000-0000-4000-8000-000000000002','MIGRATION',200000,0,'VND','{"fixture":true}','seed:sprint10:suspended','30000000-0000-4000-8000-000000000001','2026-01-01','20000000-0000-4000-8000-000000000001'),
+('da400000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001','da300000-0000-4000-8000-000000000003','MIGRATION',0,300000,'VND','{"fixture":true}','seed:sprint10:depleted','30000000-0000-4000-8000-000000000001','2026-01-01','20000000-0000-4000-8000-000000000001'),
+('da400000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000001','da300000-0000-4000-8000-000000000004','MIGRATION',300000,0,'VND','{"fixture":true}','seed:sprint10:customer-credit','30000000-0000-4000-8000-000000000001','2026-01-01','20000000-0000-4000-8000-000000000001')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO stored_value_adjustment_requests(
   id,tenant_id,customer_id,currency,adjustment_type,amount_minor,reason_code,note,
-  status,requested_by_user_id
+  status,requested_by_user_id,branch_id
 ) VALUES (
   'da500000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001',
   '60000000-0000-4000-8000-000000000001','VND','SERVICE_RECOVERY_CREDIT',100000,
   'SERVICE_RECOVERY','Deterministic Sprint 10 dual-control fixture','PENDING',
-  '30000000-0000-4000-8000-000000000016'
+  '30000000-0000-4000-8000-000000000016','20000000-0000-4000-8000-000000000001'
 ) ON CONFLICT DO NOTHING;
+
+INSERT INTO stored_value_reconciliation_exceptions(
+  tenant_id,account_id,exception_type,currency,expected_minor,actual_minor,
+  details_json,generation_key
+)
+SELECT a.tenant_id,a.id,'FUNDING_ALLOCATION_BACKFILL_REQUIRED',a.currency,
+       a.lifetime_issued_minor,0,jsonb_build_object('fixture',true,'failClosed',true),
+       'sprint10-seed:funding:'||a.id
+FROM stored_value_accounts a
+WHERE a.tenant_id='10000000-0000-4000-8000-000000000001'
+  AND a.account_type='GIFT_CARD' AND a.lifetime_issued_minor>0
+ON CONFLICT DO NOTHING;
 
 COMMIT;

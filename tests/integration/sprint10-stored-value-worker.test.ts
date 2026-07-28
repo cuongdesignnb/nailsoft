@@ -49,8 +49,8 @@ describe.sequential("Sprint 10 stored-value Worker", () => {
       await client.query(
         `INSERT INTO stored_value_reservations(
            id,tenant_id,account_id,order_id,customer_id,currency,requested_minor,
-           accepted_minor,status,expires_at,generation_key)
-         SELECT $1,$2,$3,o.id,o.customer_id,o.currency,1000,1000,'ACTIVE',now()-interval '1 minute',$4
+           accepted_minor,status,expires_at,generation_key,branch_id)
+         SELECT $1,$2,$3,o.id,o.customer_id,o.currency,1000,1000,'ACTIVE',now()-interval '1 minute',$4,o.branch_id
            FROM pos_orders o WHERE o.tenant_id=$2 AND o.id=$5`,
         [reservation, tenant, account, `test-worker:${reservation}`, order],
       );

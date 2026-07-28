@@ -12,3 +12,5 @@
 | Legal policy read/manage           |   Yes |     Yes |        No |      No |         No |       Read |        No |       No |         Denied |
 
 Platform support requires an explicit support-access grant; the platform role alone receives no salon stored-value permission. Customer reads resolve the linked customer from authenticated contact and return not-found for any other customer/card.
+
+Owner rows are tenant-scoped. Manager rows are always restricted to assigned branches through issuance/activity, reservation, funding, ledger or adjustment attribution. Cross-branch redemption may be allowed by the immutable product snapshot, but the actor must still be authorized for the redemption order branch. Accountant reporting follows the permission plus branch scope carried by the authenticated workspace.

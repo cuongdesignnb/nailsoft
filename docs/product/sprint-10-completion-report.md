@@ -1,77 +1,89 @@
-# Sprint 10 Completion Report
+# Sprint 10 Closure Report
 
-Status: READY FOR BA/PO ACCEPTANCE — local closure criteria passed. Acceptance still requires GitHub Actions for the exact final commit to succeed.
+Status: `READY FOR EXACT-COMMIT CI` — closure implementation and local QA are complete. BA/PO acceptance remains blocked only until GitHub Actions succeeds for the exact final commit.
 
 ## Git
 
-- Branch: `main`
-- Start checkpoint: `eccc1d0c5b32acb48504ab15747e7be1895a628c`
-- Closure evidence commit: this report update; exact SHA and exact-final-commit CI are reported at handoff because a commit cannot contain its own hash.
-- Working tree: must be clean after final commit and push verification.
+- Branch: `main`.
+- Start checkpoint and foundation commit: `8966925bfbf2745e28c18ef9c3690e42a7feda16`.
+- Foundation CI: run `30369302098`, `SUCCESS`.
+- Closure implementation commit: pending final QA commit.
+- Final evidence commit: pending exact-commit CI evidence.
+- `origin/main`, clean working tree and Docker-off evidence are recorded at final handoff.
 
-## Migration and data
+## Migration
 
-- Migration: `0019_gift_card_customer_credit_stored_value`.
-- Fresh migrate, deterministic seed, rollback to `0018`, re-migrate and seed replay: passed.
-- Existing Sprint 1–9 migrations were not modified.
-- Added product/card/account, immutable ledger, balance projection, reservations, settlement allocations, purchase-refund plan, adjustment, legal-policy, daily snapshot, reconciliation and export foundations.
-- Tenant-scoped composite references, uniqueness constraints, append-only guards and projection write guards are enforced in PostgreSQL.
+- Added `0020_sprint10_stored_value_correctness_hardening` without modifying migrations `0001–0019`.
+- Added immutable payment-to-card funding allocations, immutable application-to-invoice-line settlement allocations, refund line plans and cumulative restore guards.
+- Added card/reservation/ledger/adjustment branch attribution, replacement lineage, legal-policy fields, daily velocity counters and high-value approvals.
+- Deterministic backfill is limited to exact evidence. Ambiguous historical funding remains fail-closed as a reconciliation exception; no funding is fabricated.
+- Fresh migrate and deterministic seed replay: passed.
+- Rollback from `0020` to `0019`, re-migrate to `0020`, and seed replay: passed.
+- Data preservation evidence across rollback/re-migrate: appointments `40`, Gift Cards `3`, payments `3` before and after.
 
-## Delivered functions
+## Redemption safety
 
-- Gift Card product CRUD, issue, funding, activation, masked lookup, suspend/reactivate/cancel, replacement, reload, balance and ledger history.
-- Customer Credit account, credit/refund destination, own-wallet balance/history and dual-control adjustment workflow.
-- POS funding line and stored-value reserve/release/commit integration, split tender and eligible-due calculation. Gift Card cannot fund Gift Card or tip, and receives no discount.
-- Exact stored-value refund restoration from settlement allocation. Customer-credit destination creates credit without duplicating the original tender allocation.
-- Unused Gift Card purchase cancellation is limited to a fully unused card and captured original funding; mixed or used cases fail closed for manual review.
-- Audit, idempotency, outbox, realtime refetch routing, TTL release, snapshots, reconciliation, delivery and export Worker foundations.
-- Stored-value liability and reconciliation reporting count both captured external funding and stored-value settlements without treating Gift Card funding as service revenue.
+- Redemption plans expose eligible, external-paid, existing stored-value, remaining eligible, current due, tip due, requested, accepted and unused minor-unit amounts.
+- Accepted value is capped by available balance, remaining eligible line due and current order due after external payments.
+- External tender funds Gift Card and policy-ineligible lines before stored-value-eligible lines. Tip uses only explicit tip payment allocation.
+- Exact line allocations and eligibility snapshots are persisted and revalidated before final payment commit.
+- Gift Card funding lines and tips cannot be covered by Gift Card or Customer Credit.
 
-## API and contracts
+## Funding
 
-- OpenAPI and Sprint 10 API draft cover products, cards, lookup, lifecycle commands, customer credit, reservations, POS redemption, refunds, adjustments, reports, exports and customer wallet endpoints.
-- Command validation includes optimistic version, idempotency key, currency/minor-unit amount, dual-control reason and refund destination.
-- Domain/database conflicts map to stable stored-value error codes instead of unhandled `500` responses.
+- Activation deterministically allocates all captured `ORDER_TOTAL` evidence to Gift Card lines and requires exact face value before posting liability.
+- Split funding uses multiple immutable rows; `source_payment_id` is retained only for single-payment funding.
+- Reload requires a dedicated single-line funding order matching branch, currency, card and amount.
+- PostgreSQL caps allocation by captured/order-funded payment and funding-line amounts. Concurrent reuse maps to a domain conflict.
 
-## Authorization and security
+## Refund
 
-- Owner/Manager/Cashier/Accountant/Technician/Marketing/Platform role boundaries are documented and tested.
-- Technician and ungranted Platform Super Admin are denied salon stored-value data.
-- Public lookup exposes masked card identity only; token/PIN hash and full credentials never appear in API, audit, event or logs.
-- HMAC tokenization, persisted attempt/lockout state, tenant scope, rate-limit seam, dual control and non-PII event payloads are implemented.
-- Expiration, dormancy and breakage remain disabled until a versioned jurisdiction policy is approved.
+- Invoice issuance persists exact stored-value allocation per invoice line.
+- Refund planning intersects only the selected invoice line's original stored-value allocation.
+- Repeated partial refunds use cumulative desired-minus-completed/pending proportional restoration.
+- PostgreSQL enforces cumulative restoration no greater than the original line allocation.
+- Gift Card purchase refunds resolve all exact funding payments, including split-payment activation.
 
-## UI
+## Ownership and authorization
 
-- Admin Web: Gift Card products, card list/detail/lifecycle actions, Customer Credit, adjustments, liabilities, reconciliation and POS stored-value state use real APIs.
-- Owner Mobile: liability, reconciliation and exception summaries with permission-aware manager actions.
-- Staff Mobile: limited own-scope state; protected stored-value management actions remain denied.
-- Screens include loading, empty, error/retry, permission denied, validation, version-conflict and success feedback states.
+- Card snapshots include assignment, customer, bearer capability, purchase/redemption branches and eligible-line policy.
+- Assigned cards require the order customer to match and return `STORED_VALUE_CUSTOMER_MISMATCH` without customer disclosure.
+- Owner retains tenant scope. Branch Manager card lifecycle, Customer Credit, adjustment and reporting access is branch-filtered.
+- Product purchase branch, redemption branch and service/product eligibility are server-enforced and snapshotted.
 
-## QA evidence
+## Lifecycle and legal policy
 
-- Lint: 13/13 packages passed.
-- Typecheck: 13/13 packages passed.
-- Unit/mobile: 34 files, 112 tests passed.
-- Contract: 2 files, 3 tests passed.
-- PostgreSQL integration/concurrency/security: all 45 fixture-isolated files passed; Sprint 10 focused invariant and Worker suites passed 6/6.
-- Authenticated deep E2E: 3/3 scenarios passed (purchase/activate/split redemption/exact restore/unused purchase refund; customer-credit refund; dual-control/role denial).
-- Build: 13/13 packages passed, including Admin Web, Booking Web and both Expo web exports.
-- Migration fresh/down/up and deterministic seed replay: passed.
-- Local capacity smoke: 2,727 requests, 0% errors/timeouts; scenario p95 6.92–8.53 ms. This is local evidence only, not a production performance claim.
-- Git diff whitespace check: passed.
-- Exact final commit GitHub Actions and clean working tree: verified at handoff.
+- Generic cancellation cannot destroy monetary value; any lifetime redemption requires manual review and monetary cancellation requires refund evidence.
+- Replacement atomically transfers value and preserves expiry, legal, assignment, branch and eligibility policy plus lineage.
+- Issuance accepts only effective approved legal policy. Unapproved references fail closed; no policy defaults to `NO_EXPIRATION`.
+- Activation applies fixed-date, activation-day or last-activity expiry plus grace. No automatic breakage revenue is recorded.
 
-## Technical debt and release risks
+## Fraud controls
 
-- Production `STORED_VALUE_HMAC_SECRET`, rotation rehearsal and gateway velocity limits are release configuration.
-- Email/SMS delivery, private export object generation/download and lifecycle deletion require approved production providers.
-- Production-scale million-ledger/hot-account benchmark and long-running Worker/reconciliation soak remain required before go-live.
-- Global repository format check still includes pre-existing unrelated formatting debt; changed-file whitespace validation passes and unrelated files were not reformatted.
+- Issue, redeem/reserve and reload enforce persisted branch-local daily counters across actor, device, customer and account dimensions.
+- High-value operations require Owner/Manager reason and immutable approval evidence.
+- Reserve uses persisted lookup and recent-reservation limits; card number and PIN remain redacted.
+
+## Tests and CI
+
+- Added ten required PostgreSQL/API integration files and eight authenticated closure E2E files.
+- Added unit coverage for current-due caps and cumulative proportional restoration.
+- Added CI lanes for correctness, funding/refund, authorization/fraud and closure E2E while retaining Sprint 1–10 regression.
+- Unit: `34` files / `114` tests passed.
+- Contract: `2` files / `3` tests passed.
+- Sprint 10 mobile/contract smoke: `2` files / `4` tests passed.
+- PostgreSQL integration regression: all `55` integration files passed with deterministic reset/seed before every file.
+- Closure E2E: all `8` required authenticated scenarios passed with reset/seed before every spec.
+- Sprint 10 foundation E2E regression: `3/3` passed.
+- Lint: `13/13` packages passed.
+- Typecheck: `13/13` packages passed.
+- Build: `13/13` packages passed.
+- `git diff --check`: passed; only the repository's Windows line-ending notices remain.
+- Exact-final-commit GitHub Actions evidence: pending commit and push.
 
 ## Scope confirmation
 
-- Sprint 11 was not implemented.
-- Subscription, marketing automation, AI and unapproved expiration/breakage behavior were not implemented.
-- PostgreSQL remains the source of truth; Redis/realtime signals are not authoritative.
-- Docker is used only for QA and must report `DOCKER_SERVICES_RUNNING=0` at handoff.
+- Sprint 11 was not started.
+- Marketing automation, AI and General Ledger were not implemented.
+- PostgreSQL remains authoritative.
+- Docker was used only for QA, then stopped with `docker compose down`; verified `DOCKER_SERVICES_RUNNING=0` without deleting volumes.

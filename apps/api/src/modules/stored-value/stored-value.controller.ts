@@ -348,6 +348,26 @@ export class StoredValueController {
     );
   }
 
+  @Post("pos-orders/:orderId/gift-card-reload-lines")
+  @RequirePermission("gift_card.reload")
+  async addGiftCardReloadLine(
+    @Param("orderId") id: string,
+    @Body() body: unknown,
+    @Headers("idempotency-key") key: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(
+      await this.service.addGiftCardReloadLine(
+        request.auth,
+        id,
+        body,
+        key,
+        requestId(request),
+      ),
+      request,
+    );
+  }
+
   @Post("pos-orders/:orderId/gift-card-lines")
   @RequirePermission("gift_card.issue")
   async addGiftCardLine(

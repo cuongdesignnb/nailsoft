@@ -101,8 +101,9 @@ describe.sequential("Sprint 10 stored-value PostgreSQL invariants", () => {
     const attempts = await Promise.allSettled(
       Array.from({ length: 20 }, (_, index) =>
         pool.query(
-          `INSERT INTO stored_value_reservations(tenant_id,account_id,order_id,customer_id,currency,requested_minor,accepted_minor,expires_at,generation_key)
-      VALUES($1,'da300000-0000-4000-8000-000000000001',$2,$3,$4,1,1,now()+interval '5 minutes',$5)`,
+          `INSERT INTO stored_value_reservations(tenant_id,account_id,order_id,customer_id,currency,requested_minor,accepted_minor,expires_at,generation_key,branch_id)
+      SELECT $1,'da300000-0000-4000-8000-000000000001',$2,$3,$4,1,1,now()+interval '5 minutes',$5,o.branch_id
+        FROM pos_orders o WHERE o.tenant_id=$1 AND o.id=$2`,
           [
             tenant,
             order.id,

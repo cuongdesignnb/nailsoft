@@ -1152,6 +1152,10 @@ export class PosService {
           ],
         );
         await this.allocatePayment(client, auth, order, paymentId, captured);
+        // Captured external tender is allocated before stored value. Revalidate
+        // immutable redemption line plans now so a late split tender cannot make
+        // stored value fund a tip or a gift-card funding line.
+        await this.storedValue.revalidateOrderApplications(client, auth, order);
         if (cashSession) {
           await client.query(
             `INSERT INTO cash_movements(

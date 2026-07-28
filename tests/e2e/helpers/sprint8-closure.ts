@@ -246,3 +246,7 @@ export async function setupLoyalty(points = 1000) {
 export async function dbRow<T = any>(sql: string, values: unknown[] = []) {
   return (await pool.query<T & pg.QueryResultRow>(sql, values)).rows[0];
 }
+
+export async function dbRows<T = any>(sql: string, values: unknown[] = []) {
+  return (await pool.query<T & pg.QueryResultRow>(sql, values)).rows;
+}

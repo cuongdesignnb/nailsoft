@@ -684,6 +684,7 @@ export const loyaltyProgramSchema = z
   .strict();
 export const loyaltyAdjustmentSchema = z
   .object({
+    branchId: uuidSchema,
     customerId: uuidSchema,
     pointsDelta: z
       .number()
@@ -1089,6 +1090,17 @@ export const giftCardLineSchema = z
     customerId: uuidSchema.optional().nullable(),
     form: z.enum(["PHYSICAL", "DIGITAL"]),
     deliveryChannel: z.enum(["EMAIL", "SMS", "PRINT", "NONE"]).default("NONE"),
+    deviceId: z.string().trim().min(1).max(200).optional(),
+    approvalReason: z.string().trim().min(3).max(1000).optional(),
+  })
+  .strict();
+export const giftCardReloadLineSchema = z
+  .object({
+    giftCardId: uuidSchema,
+    amountMinor: moneyMinorStringSchema,
+    version: z.number().int().positive(),
+    deviceId: z.string().trim().min(1).max(200).optional(),
+    approvalReason: z.string().trim().min(3).max(1000).optional(),
   })
   .strict();
 export const storedValueLookupSchema = z
@@ -1103,6 +1115,8 @@ export const storedValueReserveSchema = z
     number: z.string().trim().min(12).max(64).optional(),
     pin: z.string().trim().min(4).max(12).optional(),
     version: z.number().int().positive(),
+    deviceId: z.string().trim().min(1).max(200).optional(),
+    approvalReason: z.string().trim().min(3).max(1000).optional(),
   })
   .strict();
 export const storedValueVersionSchema = z
@@ -1113,6 +1127,7 @@ export const storedValueVersionSchema = z
   .strict();
 export const customerCreditAdjustmentSchema = z
   .object({
+    branchId: uuidSchema,
     customerId: uuidSchema,
     currency: z.string().regex(/^[A-Z]{3}$/),
     adjustmentType: z.enum([

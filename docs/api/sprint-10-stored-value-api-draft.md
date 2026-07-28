@@ -7,3 +7,13 @@ Surfaces: versioned `/gift-card-products`; masked `/gift-cards` lookup/lifecycle
 Sensitive inputs (`number`, `pin`) are write-only and redacted before idempotency/audit hashing. Issuance/replacement credentials are display-once. Realtime payloads contain identifiers and `refetch: true` only.
 
 Primary conflicts: `STORED_VALUE_FEATURE_DISABLED`, `GIFT_CARD_INVALID`, `GIFT_CARD_LOCKED`, `GIFT_CARD_NOT_ACTIVE`, `GIFT_CARD_FUNDING_NOT_CAPTURED`, `GIFT_CARD_DISCOUNT_NOT_ALLOWED`, `STORED_VALUE_INSUFFICIENT_BALANCE`, `STORED_VALUE_VERSION_CONFLICT`, `STORED_VALUE_RESERVATION_CONFLICT`, `STORED_VALUE_CUSTOMER_MISMATCH`, `CUSTOMER_CREDIT_SELF_APPROVAL_DENIED`, and `STORED_VALUE_REFUND_ALLOCATION_CONFLICT`.
+
+## Closure contract
+
+- `GET /v1/pos-orders/{id}/stored-value/eligibility` returns the server-authoritative external-first plan, current order due, tip due, and maximum stored-value amount.
+- Reserve responses include accepted/unused amounts and exact `lineAllocations`; the same plan is persisted for finalize revalidation.
+- `POST /v1/pos-orders/{id}/gift-card-reload-lines` creates a dedicated reload funding intent. `POST /v1/gift-cards/{id}/reload` accepts only the captured payment for that exact order line.
+- Activation and reload persist immutable funding evidence before ledger posting. Split activation funding returns through ledger/report evidence rather than a misleading final-payment reference.
+- Refund plans expose `settlementLineAllocationId`; restoration cannot reference or consume another invoice line's allocation.
+
+Additional conflicts include `GIFT_CARD_PURCHASE_BRANCH_NOT_ALLOWED`, `GIFT_CARD_REDEMPTION_BRANCH_NOT_ALLOWED`, `GIFT_CARD_RELOAD_DEDICATED_ORDER_REQUIRED`, `GIFT_CARD_FUNDING_ALREADY_ALLOCATED`, `GIFT_CARD_CANCELLATION_EVIDENCE_REQUIRED`, `GIFT_CARD_PARTIAL_USE_MANUAL_REVIEW`, `STORED_VALUE_LEGAL_POLICY_NOT_APPROVED`, `STORED_VALUE_DAILY_LIMIT_EXCEEDED`, `STORED_VALUE_HIGH_VALUE_APPROVAL_REQUIRED`, and `STORED_VALUE_RESERVE_RATE_LIMITED`.

@@ -144,6 +144,46 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint9-inventory-worker.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 10 stored-value PostgreSQL invariants and concurrency
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint10-stored-value-invariants.test.ts tests/integration/sprint10-stored-value-worker.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 10 stored-value correctness integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint10-external-first-redemption.test.ts \
+            tests/integration/sprint10-assigned-card-ownership.test.ts \
+            tests/integration/sprint10-card-cancellation-safety.test.ts \
+            tests/integration/sprint10-replacement-expiry.test.ts \
+            tests/integration/sprint10-legal-expiration-policy.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
+      - name: Sprint 10 funding and refund allocation integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint10-funding-allocation.test.ts \
+            tests/integration/sprint10-refund-line-allocation.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
+      - name: Sprint 10 authorization and fraud integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint10-branch-authorization.test.ts \
+            tests/integration/sprint10-velocity-limits.test.ts \
+            tests/integration/sprint10-reserve-fraud-controls.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
       - name: Reset focused regression fixture
         run: pnpm db:reset && pnpm db:seed
       - name: Public booking tenant-scoped deep integration
@@ -271,6 +311,24 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint9-inventory-deep.spec.ts --config=playwright.api.config.ts
       - name: Sprint 10 Gift Card purchase redemption refund Customer Credit and dual-control E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint10-stored-value.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 10 closure authenticated E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/e2e/sprint10-external-first-split-tender.spec.ts \
+            tests/e2e/sprint10-multipayment-gift-card-funding.spec.ts \
+            tests/e2e/sprint10-assigned-card-cross-customer.spec.ts \
+            tests/e2e/sprint10-cross-branch-authorization.spec.ts \
+            tests/e2e/sprint10-partial-line-refund-allocation.spec.ts \
+            tests/e2e/sprint10-partially-redeemed-cancel.spec.ts \
+            tests/e2e/sprint10-replacement-expiry.spec.ts \
+            tests/e2e/sprint10-reload-payment-reuse.spec.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec playwright test "$spec" --config=playwright.api.config.ts
+          done
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke
