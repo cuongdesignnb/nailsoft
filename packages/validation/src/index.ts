@@ -684,7 +684,6 @@ export const loyaltyProgramSchema = z
   .strict();
 export const loyaltyAdjustmentSchema = z
   .object({
-    branchId: uuidSchema,
     customerId: uuidSchema,
     pointsDelta: z
       .number()
