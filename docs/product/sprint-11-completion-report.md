@@ -1,16 +1,18 @@
 # Sprint 11 Completion Report
 
-STATUS=`READY_FOR_BA_PO_ACCEPTANCE`
+STATUS=`DONE`
 
 SPRINT_11_START_CHECKPOINT=`8df5f1203cdeaf3e209c7339d98dbcd88fa03c5e`
 SPRINT_11_IMPLEMENTATION_COMMIT=`47b20e328513c8f17668697719941c9e7c2035e8`
 CI_REGRESSION_FIX_COMMIT=`af56e86f3247bb11ef6a3a8e8b27e9d1a1564d9d`
 CI_TIMEOUT_HARDENING_COMMIT=`3558b4d36e094b5020a62245fc11d18090160593`
-FINAL_EVIDENCE_COMMIT=`SELF_RESOLVED_IN_IMMUTABLE_HANDOFF`
+PRIOR_EVIDENCE_COMMIT=`d939dac44042fb7adbf0e6fdbb6436f049a9ddb4`
+CORRECTNESS_CLOSURE_COMMIT=`6524a5faf196c75e014dd5742dce2b17f4115c64`
+FINAL_EVIDENCE_COMMIT=`2934ba5944d01bee133f56c364d214cffa668376`
 
-CI_RUN_ID=`SELF_RESOLVED_IN_IMMUTABLE_HANDOFF`
-CI_URL=`SELF_RESOLVED_IN_IMMUTABLE_HANDOFF`
-CI_STATUS=`SUCCESS_REQUIRED_FOR_HANDOFF`
+CI_RUN_ID=`30439947080`
+CI_URL=`https://github.com/cuongdesignnb/nailsoft/actions/runs/30439947080`
+CI_STATUS=`SUCCESS`
 
 MIGRATION=`0021_notifications_marketing_reviews_service_recovery`
 MIGRATION_FRESH=`PASS`
@@ -22,7 +24,7 @@ Implemented: append-only versioned consent; default marketing not granted; immed
 
 UI: functional Admin communication/marketing/review/recovery screens; Customer preferences/consents/unsubscribe/review; Owner approvals/alerts; Staff assigned recovery/contact. Loading, empty, error/retry, permission, success and offline command states are included. No global redesign was started.
 
-Scope: email only. Sprint 12, SMS, advanced automation, AI, full CRM/CDP and provider-specific production delivery are not implemented.
+Scope: email only. SMS, advanced automation, AI, full CRM/CDP and provider-specific production delivery are not implemented. Sprint 12 was authorized separately after this report became historical `DONE` evidence.
 
 ## Local QA evidence
 
@@ -47,12 +49,12 @@ ADRs 0061-0067 cover durable email delivery, consent/suppression evidence, immut
 - SMS, advanced automation, AI and Sprint 12 are explicitly out of scope.
 - The repository-wide Next.js ESLint-plugin migration warning predates Sprint 11 and remains non-blocking.
 
-The final evidence commit and its exact successful GitHub Actions run are recorded in the immutable BA/PO handoff because a commit cannot contain its own future SHA or workflow run ID. Sprint 11 remains subject to formal BA/Product Owner acceptance and Sprint 12 is not authorized by this report.
+BA/Product Owner accepted Sprint 11. The immutable final evidence is commit `2934ba5944d01bee133f56c364d214cffa668376`; GitHub Actions run `30439947080` completed successfully, the working tree was clean, and Docker had zero running project services after QA.
 
 ## Correctness closure
 
 CLOSURE_START_CHECKPOINT=`d939dac44042fb7adbf0e6fdbb6436f049a9ddb4`
-CLOSURE_IMPLEMENTATION_COMMIT=`SELF_RESOLVED_IN_IMMUTABLE_HANDOFF`
+CLOSURE_IMPLEMENTATION_COMMIT=`6524a5faf196c75e014dd5742dce2b17f4115c64`
 MIGRATION_0022=`0022_sprint11_engagement_correctness_hardening`
 MIGRATION_FRESH=`PASS`
 MIGRATION_ROLLBACK=`PASS_TO_0021`

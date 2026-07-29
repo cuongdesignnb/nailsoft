@@ -38,8 +38,16 @@ const titles: Record<string, string> = {
   storedValueAccess: "Stored-value access",
   recoveryTasks: "My recovery tasks",
   recoveryContact: "Recovery contact log",
+  timeClock: "My time clock",
+  attendanceHistory: "My attendance history",
+  myTimesheets: "My timesheets and corrections",
+  payStatements: "My pay statements",
 };
 function pathFor(screen: string, id?: string) {
+  if (screen === "timeClock") return "/v1/staff/me/time-clock/status";
+  if (screen === "attendanceHistory") return "/v1/staff/me/attendance";
+  if (screen === "myTimesheets") return "/v1/staff/me/timesheets";
+  if (screen === "payStatements") return "/v1/staff/me/pay-statements";
   if (screen === "staffToday") return "/v1/staff/me/today";
   if (screen === "myEarnings" || screen === "commissionHistory")
     return "/v1/staff/me/commissions";
@@ -234,6 +242,37 @@ export default function StaffScreen() {
       response.ok
         ? `${action} completed.`
         : (body.error?.message ?? "Command failed. Retry safely."),
+    );
+    await load();
+  }
+  async function timeClockCommand(
+    action: "clock-in" | "clock-out" | "breaks/start" | "breaks/end",
+  ) {
+    if (!navigator.onLine) {
+      setMessage(
+        "Internet connection required. Time-clock writes are never queued offline.",
+      );
+      return;
+    }
+    const response = await apiFetch(`/v1/staff/me/time-clock/${action}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+      },
+      body: JSON.stringify(
+        action === "clock-in"
+          ? { branchId: branch, source: "STAFF_MOBILE" }
+          : action === "breaks/start"
+            ? { breakType: "UNPAID_MEAL", source: "STAFF_MOBILE" }
+            : { source: "STAFF_MOBILE" },
+      ),
+    });
+    const result = await response.json().catch(() => ({}));
+    setMessage(
+      response.ok
+        ? "Server confirmed the time-clock command."
+        : (result.error?.message ?? "Command failed safely."),
     );
     await load();
   }
@@ -469,6 +508,47 @@ export default function StaffScreen() {
             </Text>
             <Text>
               Start, pause, resume, complete and transfer require internet.
+            </Text>
+          </View>
+        )}
+        {screen === "timeClock" && (
+          <View style={{ gap: 12 }}>
+            <Text style={{ fontSize: 22, fontWeight: "700" }}>
+              {data[0]?.clockedIn ? "Clocked in" : "Not clocked in"}
+            </Text>
+            <Text>Server time: {data[0]?.serverNow ?? "Refreshing…"}</Text>
+            <Text>
+              Current break: {data[0]?.session?.openBreakId ? "Open" : "None"}
+            </Text>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              {!data[0]?.clockedIn && (
+                <Button
+                  title="Clock in"
+                  onPress={() => void timeClockCommand("clock-in")}
+                />
+              )}
+              {data[0]?.clockedIn && !data[0]?.session?.openBreakId && (
+                <Button
+                  title="Start break"
+                  onPress={() => void timeClockCommand("breaks/start")}
+                />
+              )}
+              {data[0]?.session?.openBreakId && (
+                <Button
+                  title="End break"
+                  onPress={() => void timeClockCommand("breaks/end")}
+                />
+              )}
+              {data[0]?.clockedIn && (
+                <Button
+                  title="Clock out"
+                  onPress={() => void timeClockCommand("clock-out")}
+                />
+              )}
+            </View>
+            <Text>
+              Device time and location are evidence only; server UTC time is
+              authoritative.
             </Text>
           </View>
         )}

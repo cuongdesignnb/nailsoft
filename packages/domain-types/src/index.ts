@@ -33,6 +33,42 @@ export interface ApiFailure {
   meta: { requestId: string; timestamp: string };
 }
 export type ApiResponse<T> = ApiSuccess<T> | ApiFailure;
+export type TimeClockEventType =
+  | "CLOCK_IN"
+  | "CLOCK_OUT"
+  | "BREAK_START"
+  | "BREAK_END"
+  | "MANUAL_SESSION_OPEN"
+  | "MANUAL_SESSION_CLOSE"
+  | "EVENT_VOID_REQUESTED"
+  | "EVENT_VOID_APPROVED";
+export type AttendanceSessionState =
+  "OPEN" | "CLOSED" | "REVIEW_REQUIRED" | "ADJUSTED" | "VOIDED";
+export type TimesheetState =
+  "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED" | "LOCKED" | "REOPENED";
+export type PayrollRunState =
+  | "DRAFT"
+  | "CALCULATING"
+  | "CALCULATED"
+  | "PENDING_APPROVAL"
+  | "APPROVED"
+  | "FINALIZED"
+  | "VOID_PENDING"
+  | "VOIDED"
+  | "FAILED";
+export interface TimeClockStatus {
+  clockedIn: boolean;
+  serverNow: string;
+  session: Record<string, unknown> | null;
+}
+export interface PayStatementSummary {
+  id: string;
+  staffId: string;
+  netPayMinor: string;
+  currency: string;
+  paymentStatus: "UNPAID" | "PROCESSING" | "PAID" | "REVERSED";
+  generatedAt: string;
+}
 export interface LocalOperation<T = unknown> {
   operationId: string;
   type: string;

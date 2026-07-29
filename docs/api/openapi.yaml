@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.13.1,
-    description: Sprint 11 closure-hardened email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
+    version: 0.14.0,
+    description: Sprint 12 time clock attendance timesheet workforce compliance deterministic payroll pay statements payout and reconciliation plus Sprint 11 closure-hardened email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
     supplier and purchase operations plus Sprint 8 voucher,
     loyalty,
     membership and service package benefits plus Sprint 7 refund,
@@ -18,6 +18,235 @@ info:
 servers: [{ url: http://localhost:3001/v1 }]
 security: [{ bearerAuth: [], tenantContext: [] }]
 paths:
+  /staff/me/time-clock/status:
+    get:
+      {
+        tags: [workforce],
+        summary: Read own authoritative clock status,
+        responses: { "200": { description: Status } },
+      }
+  /staff/me/time-clock/clock-in:
+    post:
+      {
+        tags: [workforce],
+        summary: Clock in using server UTC time,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          {
+            "200": { description: Attendance session },
+            "409": { description: Already clocked in or evidence required },
+          },
+      }
+  /staff/me/time-clock/clock-out:
+    post:
+      {
+        tags: [workforce],
+        summary: Clock out and close attendance projection,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses:
+          { "200": { description: Closed or review-required session } },
+      }
+  /staff/me/time-clock/breaks/start:
+    post:
+      {
+        tags: [workforce],
+        summary: Start one paid or unpaid break,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Open break } },
+      }
+  /staff/me/time-clock/breaks/end:
+    post:
+      {
+        tags: [workforce],
+        summary: End open break,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Closed break } },
+      }
+  /time-clock/sessions:
+    get:
+      {
+        tags: [workforce],
+        summary: List tenant and branch-scoped attendance sessions,
+        responses: { "200": { description: Sessions } },
+      }
+  /time-clock/exceptions:
+    get:
+      {
+        tags: [workforce],
+        summary: List attendance exceptions,
+        responses: { "200": { description: Exceptions } },
+      }
+  /timesheets:
+    get:
+      {
+        tags: [timesheet],
+        summary: List scoped timesheet snapshots,
+        responses: { "200": { description: Timesheets } },
+      }
+  /timesheets/{timesheetId}/approve:
+    post:
+      parameters:
+        [
+          {
+            name: timesheetId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      responses:
+        {
+          "200": { description: Approved with dual control },
+          "403": { description: Self approval denied },
+        }
+  /timesheets/{timesheetId}/adjustments:
+    parameters:
+      - {
+          name: timesheetId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    get:
+      {
+        tags: [timesheet],
+        summary: List append-only correction requests,
+        responses: { "200": { description: Adjustment requests } },
+      }
+    post:
+      {
+        tags: [timesheet],
+        summary: Request a versioned timesheet correction,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        responses: { "200": { description: Draft adjustment request } },
+      }
+  /workforce-compliance/policies/{policyId}/versions/{versionId}/activate:
+    post:
+      parameters:
+        [
+          {
+            name: policyId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          {
+            name: versionId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      responses:
+        {
+          "200": { description: Legally reviewed policy activated },
+          "409": { description: Legal review required },
+        }
+  /payroll/runs/{runId}/calculate:
+    post:
+      parameters:
+        [
+          {
+            name: runId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      responses:
+        {
+          "200": { description: Deterministic calculation },
+          "409": { description: Policy rate source or currency conflict },
+        }
+  /payroll/runs/{runId}/workers:
+    get:
+      parameters:
+        - {
+            name: runId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      responses:
+        { "200": { description: Payroll workers and source fingerprints } }
+  /payroll/exceptions:
+    get:
+      {
+        tags: [payroll],
+        summary: List blocking and reviewed payroll exceptions,
+        responses: { "200": { description: Payroll exceptions } },
+      }
+  /payroll/runs/{runId}/approve:
+    post:
+      parameters:
+        [
+          {
+            name: runId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      responses:
+        {
+          "200": { description: Independently approved },
+          "403": { description: Self approval denied },
+        }
+  /payroll/runs/{runId}/finalize:
+    post:
+      parameters:
+        [
+          {
+            name: runId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      responses:
+        {
+          "200": { description: Immutable finalization and statements },
+          "409": { description: Blocking exception or changed fingerprint },
+        }
+  /payout-batches/{batchId}/process:
+    post:
+      parameters:
+        [
+          {
+            name: batchId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      responses:
+        {
+          "200": { description: Processing started },
+          "409": { description: Provider not configured },
+        }
+  /payout-items/{itemId}/record-manual-payment:
+    post:
+      parameters:
+        [
+          {
+            name: itemId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      responses:
+        {
+          "200": { description: Paid with approved evidence },
+          "409": { description: Evidence required or already paid },
+        }
   /customer/me/communication-preferences:
     get:
       {
@@ -102,8 +331,23 @@ paths:
       {
         tags: [marketing],
         summary: Create a scoped segment using only implemented filters,
-        requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CustomerSegmentInput" } } } },
-        responses: { "200": { description: Created }, "409": { description: Unsupported filter or branch mismatch } },
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { $ref: "#/components/schemas/CustomerSegmentInput" },
+                  },
+              },
+          },
+        responses:
+          {
+            "200": { description: Created },
+            "409": { description: Unsupported filter or branch mismatch },
+          },
       }
   /marketing-campaigns:
     get:
@@ -143,23 +387,55 @@ paths:
       {
         tags: [marketing],
         summary: Pause new delivery claims for a RUNNING campaign while retaining remaining recipients; SCHEDULED campaigns cannot be paused,
-        parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
-        responses: { "200": { description: Paused }, "409": { description: Campaign is not RUNNING } },
+        parameters:
+          [
+            {
+              in: path,
+              name: campaignId,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses:
+          {
+            "200": { description: Paused },
+            "409": { description: Campaign is not RUNNING },
+          },
       }
   /marketing-campaigns/{campaignId}/resume:
     post:
       {
         tags: [marketing],
         summary: Resume a PAUSED campaign for remaining recipients exactly once,
-        parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
-        responses: { "200": { description: Running }, "409": { description: Campaign is not PAUSED } },
+        parameters:
+          [
+            {
+              in: path,
+              name: campaignId,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses:
+          {
+            "200": { description: Running },
+            "409": { description: Campaign is not PAUSED },
+          },
       }
   /marketing-campaigns/{campaignId}/cancel:
     post:
       {
         tags: [marketing],
         summary: Cancel a non-terminal campaign and terminalize all unsent delivery evidence,
-        parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
+        parameters:
+          [
+            {
+              in: path,
+              name: campaignId,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
         responses: { "200": { description: Cancelled } },
       }
   /marketing-campaigns/{campaignId}/report:
@@ -167,7 +443,15 @@ paths:
       {
         tags: [marketing],
         summary: Read persisted terminal audience counters,
-        parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
+        parameters:
+          [
+            {
+              in: path,
+              name: campaignId,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
         responses: { "200": { description: Campaign report } },
       }
   /review-requests:
@@ -213,8 +497,14 @@ paths:
       summary: Immediately withdraw marketing consent
       responses:
         {
-          "200": { description: Generic accepted response; valid tokens are persisted idempotently without a client idempotency header },
-          "503": { description: A valid token could not be persisted; caller may retry safely },
+          "200":
+            {
+              description: Generic accepted response; valid tokens are persisted idempotently without a client idempotency header,
+            },
+          "503":
+            {
+              description: A valid token could not be persisted; caller may retry safely,
+            },
         }
   /service-recovery/cases:
     get:
@@ -3650,7 +3940,12 @@ components:
       additionalProperties: false
       required: [name, filters]
       properties:
-        branchId: { type: string, format: uuid, description: Required for non-Owner actors }
+        branchId:
+          {
+            type: string,
+            format: uuid,
+            description: Required for non-Owner actors,
+          }
         name: { type: string, minLength: 1, maxLength: 200 }
         filters:
           type: object

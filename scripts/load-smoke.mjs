@@ -556,6 +556,50 @@ const scenarios = [
       }),
   },
   {
+    name: "attendance-sessions",
+    setup: async (worker) => auth(`load-attendance-${worker}`),
+    run: (state) =>
+      request("/v1/time-clock/sessions", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "timesheet-list",
+    setup: async (worker) => auth(`load-timesheet-${worker}`),
+    run: (state) =>
+      request("/v1/timesheets", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "payroll-run-list",
+    setup: async (worker) => auth(`load-payroll-${worker}`),
+    run: (state) =>
+      request("/v1/payroll/runs", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "payout-batch-list",
+    setup: async (worker) => auth(`load-payout-${worker}`),
+    run: (state) =>
+      request("/v1/payout-batches", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
     name: "availability-explain",
     setup: async (worker) => auth(`load-explain-${worker}`),
     run: (state) =>

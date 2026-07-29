@@ -114,6 +114,12 @@ export default function Home() {
               : "Session unavailable."}
           </Text>
           {[
+            "attendanceSummary",
+            "missingPunchAlerts",
+            "timesheetApprovals",
+            "payrollApprovals",
+            "payoutApprovals",
+            "payrollFailures",
             "operationalSummary",
             "financialSummary",
             "pendingRefunds",

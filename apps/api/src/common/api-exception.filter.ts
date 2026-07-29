@@ -48,6 +48,11 @@ export class ApiExceptionFilter implements ExceptionFilter {
         "REFUND_PROVIDER_REFERENCE_CONFLICT",
       commission_entries_one_adjustment_request:
         "COMMISSION_ADJUSTMENT_ALREADY_POSTED",
+      attendance_one_active_session_idx: "TIME_CLOCK_ALREADY_CLOCKED_IN",
+      attendance_one_open_break_idx: "TIME_CLOCK_BREAK_ALREADY_OPEN",
+      staff_pay_rate_no_overlap: "PAY_RATE_OVERLAP",
+      payroll_source_unique_usage: "PAYROLL_SOURCE_ALREADY_USED",
+      payout_item_paid_evidence: "PAYOUT_EVIDENCE_REQUIRED",
     };
     const status =
       databaseCode === "23505" ||

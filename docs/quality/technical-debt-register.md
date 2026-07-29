@@ -57,3 +57,13 @@
 - SMS, advanced marketing automation, CRM/CDP enrichment, public review syndication and AI are intentionally outside Sprint 11 and require separately authorized scope.
 - A provider call that has already begun before a consent-withdrawal commit cannot be recalled transactionally. The lease/preflight boundary prevents every call not yet started and records truthful provider evidence after the boundary; production adapters must support provider-side suppression/webhook reconciliation where available.
 - The closure intentionally narrows segment filters to `branchVisited`, `locale`, `tagId`, contactable and marketing-consent semantics. Service/category/spend/tier/recovery/recent-campaign filters require separately tested query plans before they may be advertised.
+
+# Sprint 12 carry-forward
+
+- Production payroll and payout are disabled until a qualified reviewer activates a versioned jurisdiction policy. No default seed value represents actual labor or tax law.
+- Production payroll provider/bank adapter, signed webhook verification, credential rotation and provider sandbox certification remain release configuration; missing configuration fails closed and never fabricates `PAID`.
+- Tax is an approved withholding input only. Jurisdiction-specific calculation, filing and statutory forms require a separate Change Request and legal sign-off.
+- Payroll export metadata/private keys exist; production object rendering, CSV injection test corpus, signed URL expiry and deletion/retention controls must be verified with the selected object store.
+- Local deterministic load/concurrency evidence is not a production claim. Run high-volume clock, payroll source and provider-event soak on production-like staging before go-live.
+- Kiosk PIN/gateway throttling and device-secret rotation depend on deployment gateway/secret manager; domain device trust and lockout fields are present.
+- Commission and tip source types are uniquely reserved in the payroll allocation ledger; end-to-end production settlement import needs final finance reconciliation against provider/commission period calendars.

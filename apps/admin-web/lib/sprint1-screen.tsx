@@ -13,6 +13,7 @@ import Sprint8Screen from "./sprint8-screen";
 import Sprint9Screen from "./sprint9-screen";
 import Sprint10Screen from "./sprint10-screen";
 import Sprint11Screen from "./sprint11-screen";
+import Sprint12Screen from "./sprint12-screen";
 
 type Resource = {
   title: string;
@@ -188,6 +189,16 @@ function unwrap(body: any): any[] {
 
 export default function Sprint1Screen() {
   const pathname = usePathname();
+  if (
+    pathname.startsWith("/admin/time-clock") ||
+    pathname.startsWith("/admin/timesheets") ||
+    pathname.startsWith("/admin/timesheet-periods") ||
+    pathname.startsWith("/admin/workforce") ||
+    pathname.startsWith("/admin/payroll") ||
+    pathname.startsWith("/admin/payout") ||
+    /^\/admin\/staff\/[^/]+\/pay-profile$/.test(pathname)
+  )
+    return <Sprint12Screen pathname={pathname} />;
   if (
     pathname.startsWith("/admin/communications") ||
     pathname.startsWith("/admin/marketing") ||

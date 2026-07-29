@@ -20,6 +20,8 @@ import { StoredValueMaintenanceProcessor } from "./stored-value-maintenance.proc
 import { EmailProvider } from "./email.provider.js";
 import { EngagementProcessor } from "./engagement.processor.js";
 import { EngagementPoller } from "./engagement.poller.js";
+import { WorkforceProcessor } from "./workforce.processor.js";
+import { WorkforcePoller } from "./workforce.poller.js";
 
 @Module({
   providers: [
@@ -44,6 +46,8 @@ import { EngagementPoller } from "./engagement.poller.js";
     EmailProvider,
     EngagementProcessor,
     EngagementPoller,
+    WorkforceProcessor,
+    WorkforcePoller,
   ],
   exports: [OutboxRepository, OutboxEventRouter, OutboxProcessor],
 })

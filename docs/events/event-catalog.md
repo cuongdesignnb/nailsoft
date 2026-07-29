@@ -137,3 +137,13 @@ Reviews and recovery: `review.request_created`, `review.submitted`, `review.publ
 Payloads carry tenant/branch/aggregate identifiers, status/version and `refetch: true`. They exclude email addresses/bodies, token values, review customer contact, recovery statements and provider secrets. Worker invalidations (`communication.updated`, `marketing.updated`, `review.updated`, `service_recovery.updated`) are refetch signals only.
 
 Sprint 11 closure makes `marketing.campaign_completed` a Worker-derived, replay-safe terminal event containing generation and refetch identifiers plus persisted sent/suppressed/failed/cancelled counters. Owning-domain customer-credit and loyalty adjustment decisions synchronize `service_recovery.compensation_posted` or `service_recovery.compensation_failed` through PostgreSQL triggers and the transactional outbox; payloads contain references and state only, never ledger notes or customer contact.
+
+# Sprint 12 workforce and payroll events
+
+Time clock: `time_clock.clocked_in`, `time_clock.clocked_out`, `time_clock.break_started`, `time_clock.break_ended`, `time_clock.exception_created`, `time_clock.exception_resolved`.
+
+Timesheet/compliance: `timesheet.submitted`, `timesheet.approved`, `timesheet.rejected`, `timesheet.reopened`, `timesheet.locked`, `timesheet.adjustment_requested`, `timesheet.adjustment_approved`, `timesheet.adjustment_applied`, `workforce.policy_created`, `workforce.policy_activated`, `workforce.violation_created`, `workforce.violation_resolved`.
+
+Payroll/payout: `pay_profile.updated`, `pay_rate.created`, `pay_rate.deactivated`, `payroll.run_created`, `payroll.calculated`, `payroll.submitted`, `payroll.approved`, `payroll.finalized`, `payroll.void_requested`, `payroll.voided`, `payroll.exception_created`, `payroll.source_allocated`, `payout.batch_created`, `payout.batch_approved`, `payout.processing_started`, `payout.item_paid`, `payout.item_failed`, `payout.reversal_requested`, `payout.reversed`, `payout.reconciliation_resolved`.
+
+Realtime invalidations are `time_clock.status_updated`, `attendance.session_updated`, `attendance.exception_updated`, `timesheet.updated`, `timesheet.adjustment_updated`, `workforce.compliance_updated`, `payroll.run_updated`, `payroll.worker_updated`, `payroll.exception.updated`, `pay_statement.ready`, `payout.batch.updated`, `payout.item.updated`, and `payout.reconciliation.updated`. Payloads contain IDs plus `refetch: true`; full pay statements, rates/totals, bank references, device secrets, PINs and raw location never leave authoritative PostgreSQL through realtime.

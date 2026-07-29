@@ -101,6 +101,10 @@ export default function Home() {
               : "Session unavailable."}
           </Text>
           {[
+            "timeClock",
+            "attendanceHistory",
+            "myTimesheets",
+            "payStatements",
             "staffToday",
             "myEarnings",
             "commissionHistory",

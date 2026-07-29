@@ -64,8 +64,20 @@ const titles: Record<string, string> = {
   lowRatingAlerts: "Low-rating alerts",
   recoverySla: "Recovery and SLA",
   compensationApprovals: "Compensation approvals",
+  attendanceSummary: "Attendance summary",
+  missingPunchAlerts: "Missing punch alerts",
+  timesheetApprovals: "Timesheet approvals",
+  payrollApprovals: "Payroll approvals and finalization",
+  payoutApprovals: "Payout approvals",
+  payrollFailures: "Payroll and payout exceptions",
 };
 function endpoint(screen: string, id?: string) {
+  if (screen === "attendanceSummary") return "/v1/workforce/reports/attendance";
+  if (screen === "missingPunchAlerts") return "/v1/time-clock/exceptions";
+  if (screen === "timesheetApprovals") return "/v1/timesheets";
+  if (screen === "payrollApprovals") return "/v1/payroll/runs";
+  if (screen === "payoutApprovals") return "/v1/payout-batches";
+  if (screen === "payrollFailures") return "/v1/payroll/reports/exceptions";
   if (screen === "operationalSummary")
     return `/v1/operations/summary?branchId=${branch}`;
   if (screen === "walkInQueue") return `/v1/walk-ins?branchId=${branch}`;
@@ -305,6 +317,30 @@ export default function OwnerScreen() {
     );
     await load();
   }
+  async function workforceDecision(path: string, item: any) {
+    if (!navigator.onLine) {
+      setMessage("Internet connection required. Approval was not queued.");
+      return;
+    }
+    const response = await apiFetch(`/v1/${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        version: item.version,
+        reason: "Independently reviewed in Owner Mobile",
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setMessage(
+      response.ok
+        ? "Workforce approval completed."
+        : (body.error?.message ?? "Decision failed safely."),
+    );
+    await load();
+  }
   async function bookingCommand(
     action: "confirm" | "cancel" | "waive-deposit",
   ) {
@@ -523,6 +559,53 @@ export default function OwnerScreen() {
                         }
                       />
                     </View>
+                  )}
+                {screen === "timesheetApprovals" &&
+                  item.state === "SUBMITTED" && (
+                    <Button
+                      title="Approve timesheet"
+                      onPress={() =>
+                        void workforceDecision(
+                          `timesheets/${item.id}/approve`,
+                          item,
+                        )
+                      }
+                    />
+                  )}
+                {screen === "payrollApprovals" &&
+                  item.state === "PENDING_APPROVAL" && (
+                    <Button
+                      title="Approve payroll"
+                      onPress={() =>
+                        void workforceDecision(
+                          `payroll/runs/${item.id}/approve`,
+                          item,
+                        )
+                      }
+                    />
+                  )}
+                {screen === "payrollApprovals" && item.state === "APPROVED" && (
+                  <Button
+                    title="Finalize payroll"
+                    onPress={() =>
+                      void workforceDecision(
+                        `payroll/runs/${item.id}/finalize`,
+                        item,
+                      )
+                    }
+                  />
+                )}
+                {screen === "payoutApprovals" &&
+                  item.state === "PENDING_APPROVAL" && (
+                    <Button
+                      title="Approve payout"
+                      onPress={() =>
+                        void workforceDecision(
+                          `payout-batches/${item.id}/approve`,
+                          item,
+                        )
+                      }
+                    />
                   )}
               </View>
             ))}

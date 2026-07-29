@@ -1,4 +1,57 @@
 import { z } from "zod";
+export const workforceMoneyMinorSchema = z.string().regex(/^\d+$/);
+export const timeClockCommandSchema = z
+  .object({
+    branchId: z.string().uuid(),
+    deviceId: z.string().uuid().optional(),
+    clientOccurredAt: z.string().datetime({ offset: true }).optional(),
+    source: z
+      .enum(["STAFF_MOBILE", "OWNER_MOBILE", "ADMIN_WEB", "KIOSK", "API"])
+      .optional(),
+    locationEvidence: z.record(z.string(), z.unknown()).optional(),
+    reasonCode: z.string().trim().max(80).optional(),
+    note: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+export const timeClockBreakSchema = z
+  .object({
+    breakType: z.enum(["PAID_REST", "UNPAID_MEAL", "OTHER"]).optional(),
+    note: z.string().trim().max(2000).optional(),
+  })
+  .strict();
+export const workforceVersionCommandSchema = z
+  .object({
+    version: z.number().int().positive(),
+    reason: z.string().trim().min(3).max(2000).optional(),
+  })
+  .strict();
+export const payRateVersionSchema = z
+  .object({
+    branchId: z.string().uuid().optional().nullable(),
+    componentType: z.enum([
+      "REGULAR_HOURLY_RATE",
+      "OVERTIME_MULTIPLIER",
+      "DOUBLE_TIME_MULTIPLIER",
+      "SALARY_PERIOD_AMOUNT",
+      "FIXED_ALLOWANCE",
+      "SERVICE_COMMISSION_OVERRIDE",
+      "RETAIL_COMMISSION_OVERRIDE",
+    ]),
+    amountMinor: workforceMoneyMinorSchema.optional(),
+    multiplierNumerator: workforceMoneyMinorSchema.optional(),
+    multiplierDenominator: workforceMoneyMinorSchema.optional(),
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    effectiveFrom: z.string().date(),
+    effectiveTo: z.string().date().optional().nullable(),
+  })
+  .strict();
+export const manualPayoutEvidenceSchema = z
+  .object({
+    externalReference: z.string().trim().min(3).max(200),
+    evidence: z.record(z.string(), z.unknown()),
+    reason: z.string().trim().min(3).max(2000),
+  })
+  .strict();
 export const uuidSchema = z.string().uuid();
 export const tenantContextSchema = z.object({
   tenantId: uuidSchema,

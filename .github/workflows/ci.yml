@@ -73,7 +73,7 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 11 closure migration rollback to 0021 and re-migrate
+      - name: Sprint 12 migration rollback to 0022 and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
@@ -154,6 +154,19 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint11-public-scope-segment.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 11 compensation posting integration
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint11-review-compensation-correctness.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 12 workforce payroll PostgreSQL concurrency and authenticated API
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint12-workforce-payroll-invariants.test.ts \
+            tests/integration/sprint12-workforce-api.test.ts \
+            tests/integration/sprint12-payout-worker.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
       - name: Sprint 10 stored-value correctness integration
         shell: bash
         run: |
@@ -343,6 +356,8 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint11-engagement-deep.spec.ts --config=playwright.api.config.ts
       - name: Sprint 11 closure authenticated and public E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint11-closure-correctness.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 12 authenticated workforce payroll and payout E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint12-workforce-payroll.spec.ts --config=playwright.api.config.ts
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke
@@ -351,6 +366,8 @@ jobs:
         run: pnpm exec vitest run tests/mobile/sprint10-mobile-smoke.test.ts tests/contract/sprint10-stored-value-contract.test.ts
       - name: Sprint 11 Owner Staff and Customer functional smoke
         run: pnpm exec vitest run tests/mobile/sprint11-engagement-mobile-smoke.test.ts apps/worker/test/sprint11-email-provider.test.ts
+      - name: Sprint 12 Owner and Staff Mobile functional smoke
+        run: pnpm exec vitest run tests/mobile/sprint12-workforce-mobile-smoke.test.ts apps/api/test/sprint12-ui-contract.test.ts
       - name: Scheduling and booking load smoke
         env:
           LOAD_DURATION_SECONDS: 2
@@ -406,6 +423,13 @@ jobs:
           LOAD_WARMUP_SECONDS: 1
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: communication-messages,marketing-campaigns,verified-reviews,recovery-cases
+        run: pnpm load:smoke
+      - name: Sprint 12 workforce payroll and payout load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: attendance-sessions,timesheet-list,payroll-run-list,payout-batch-list
         run: pnpm load:smoke
       - name: Build API
         run: pnpm --filter @nailsoft/api build

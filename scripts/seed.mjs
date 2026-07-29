@@ -47,6 +47,11 @@ try {
   );
   if (sprint11.rowCount)
     await c.query(await readFile("infra/seeds/sprint11.sql", "utf8"));
+  const sprint12 = await c.query(
+    "SELECT 1 FROM schema_migrations WHERE version='0023_time_clock_payroll_payout_workforce_compliance'",
+  );
+  if (sprint12.rowCount)
+    await c.query(await readFile("infra/seeds/sprint12.sql", "utf8"));
 } finally {
   await c.end();
 }

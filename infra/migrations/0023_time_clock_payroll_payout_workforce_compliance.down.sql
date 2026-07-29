@@ -1,0 +1,13 @@
+BEGIN;
+DELETE FROM role_permissions WHERE permission_code IN(SELECT code FROM permissions WHERE code ~ '^(time_clock|timesheet|workforce|pay_profile|pay_rate|payroll|payout)\.');
+DELETE FROM permissions WHERE code ~ '^(time_clock|timesheet|workforce|pay_profile|pay_rate|payroll|payout)\.';
+DROP TABLE IF EXISTS payroll_export_jobs,payout_reconciliations,payout_provider_events,payout_attempts,payout_items,payout_batches,pay_statements,payroll_finalization_snapshots,payroll_approval_history,payroll_exceptions,payroll_source_allocations,payroll_employer_contribution_lines,payroll_deduction_lines,payroll_earning_lines,payroll_run_workers CASCADE;
+ALTER TABLE staff_timesheets DROP CONSTRAINT IF EXISTS staff_timesheets_source_run_fk;
+DROP TABLE IF EXISTS payroll_runs,payroll_periods,payroll_calendars,staff_payment_methods,staff_pay_rate_versions,staff_pay_profiles,timesheet_approvals,timesheet_adjustment_history,timesheet_adjustment_requests,timesheet_day_entries,staff_timesheets,timesheet_periods,workforce_compliance_waivers,workforce_compliance_violations,workforce_compliance_policy_versions,workforce_compliance_policies,attendance_projection_checkpoints,attendance_exceptions,attendance_breaks,attendance_sessions,time_clock_events,time_clock_devices,time_clock_policies CASCADE;
+DROP FUNCTION IF EXISTS sprint12_prevent_finalized_child_mutation();
+DROP FUNCTION IF EXISTS sprint12_prevent_finalized_source_mutation();
+DROP FUNCTION IF EXISTS sprint12_pay_statement_content_immutable();
+DROP FUNCTION IF EXISTS sprint12_prevent_finalized_run_mutation();
+DROP FUNCTION IF EXISTS sprint12_prevent_any_mutation();
+DELETE FROM schema_migrations WHERE version='0023_time_clock_payroll_payout_workforce_compliance';
+COMMIT;
