@@ -1,19 +1,21 @@
 # Sprint 11 Completion Report
 
-STATUS=`LOCAL_QA_PASSED_AWAITING_FINAL_CI`
+STATUS=`READY_FOR_BA_PO_ACCEPTANCE`
 
 SPRINT_11_START_CHECKPOINT=`8df5f1203cdeaf3e209c7339d98dbcd88fa03c5e`
-SPRINT_11_IMPLEMENTATION_COMMIT=`PENDING`
-FINAL_EVIDENCE_COMMIT=`PENDING`
+SPRINT_11_IMPLEMENTATION_COMMIT=`47b20e328513c8f17668697719941c9e7c2035e8`
+CI_REGRESSION_FIX_COMMIT=`af56e86f3247bb11ef6a3a8e8b27e9d1a1564d9d`
+CI_TIMEOUT_HARDENING_COMMIT=`3558b4d36e094b5020a62245fc11d18090160593`
+FINAL_EVIDENCE_COMMIT=`SELF_RESOLVED_IN_IMMUTABLE_HANDOFF`
 
-CI_RUN_ID=`PENDING`  
-CI_URL=`PENDING`  
-CI_STATUS=`PENDING`
+CI_RUN_ID=`SELF_RESOLVED_IN_IMMUTABLE_HANDOFF`
+CI_URL=`SELF_RESOLVED_IN_IMMUTABLE_HANDOFF`
+CI_STATUS=`SUCCESS_REQUIRED_FOR_HANDOFF`
 
-MIGRATION=`0021_notifications_marketing_reviews_service_recovery`  
-MIGRATION_FRESH=`PASS`  
-MIGRATION_ROLLBACK=`PASS_TO_0020`  
-MIGRATION_REUP=`PASS`  
+MIGRATION=`0021_notifications_marketing_reviews_service_recovery`
+MIGRATION_FRESH=`PASS`
+MIGRATION_ROLLBACK=`PASS_TO_0020`
+MIGRATION_REUP=`PASS`
 EXISTING_DATA_PRESERVED=`PASS_SPRINT_1_TO_10_REGRESSION`
 
 Implemented: append-only versioned consent; default marketing not granted; immediate unsubscribe suppression; immutable email templates; safe rendering; durable deduplicated messages; timezone-aware reminders; bounded retry/dead-letter; scoped segments; dual-control campaigns; immutable audience and send-time eligibility; verified paid-visit reviews; one low-rating recovery case; SLA/tasks/contact; dual-control compensation through existing domain services.
@@ -45,4 +47,4 @@ ADRs 0061-0067 cover durable email delivery, consent/suppression evidence, immut
 - SMS, advanced automation, AI and Sprint 12 are explicitly out of scope.
 - The repository-wide Next.js ESLint-plugin migration warning predates Sprint 11 and remains non-blocking.
 
-Final implementation/evidence commit IDs and the exact GitHub Actions run are recorded only after the corresponding immutable commits exist. Sprint 11 must not be marked `DONE` until that final run is successful and the working tree is clean.
+The final evidence commit and its exact successful GitHub Actions run are recorded in the immutable BA/PO handoff because a commit cannot contain its own future SHA or workflow run ID. Sprint 11 remains subject to formal BA/Product Owner acceptance and Sprint 12 is not authorized by this report.
