@@ -18,8 +18,11 @@ test("multiple captured payments exactly fund one gift-card liability", async ()
     await pay(owner, order.id, 10_000, "s10-multi-funding-10");
     await pay(owner, order.id, 110_000, "s10-multi-funding-service");
     const allocations = await dbRows<{ allocated_minor: string }>(
-      `SELECT allocated_minor::text FROM stored_value_funding_allocations
-        WHERE gift_card_id=$1 ORDER BY created_at,id`,
+      `SELECT f.allocated_minor::text
+         FROM stored_value_funding_allocations f
+         JOIN payments p ON p.tenant_id=f.tenant_id AND p.id=f.payment_id
+        WHERE f.gift_card_id=$1
+        ORDER BY p.captured_at,p.id`,
       [card.giftCardId],
     );
     expect(allocations.map((item) => item.allocated_minor)).toEqual([
