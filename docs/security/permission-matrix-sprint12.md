@@ -13,3 +13,5 @@
 | Payout approve/reverse             | Yes, dual control | explicit only |           No |         No |                  No default |                No |       No |
 
 Platform Super Admin receives no Sprint 12 salon-data permission. Support Access Grant remains mandatory. Route guards are complemented by tenant, branch and own-staff checks inside the service.
+
+Closure rules: adjustment apply retains `timesheet.approve`; correction creation/submission retains `payroll.adjustment.manage`, while correction approval retains `payroll.run.approve`. Provider-result reconciliation is an authenticated adapter boundary using `payout.reconciliation.resolve`; it validates the stable provider key, provider code, exact amount and currency before state change. Manual recording retains `payout.manual_record` and also requires an approved batch, independent actors, a staff-owned compatible method and hashed evidence.

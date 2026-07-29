@@ -579,6 +579,16 @@ export class TimesheetController {
       r,
     );
   }
+  @Post("timesheet-adjustments/:id/apply")
+  @RequirePermission("timesheet.approve")
+  async adjustmentApply(
+    @Param("id") id: string,
+    @Body() b: any,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.s.applyAdjustment(r.auth, id, b, key(k), rid(r)), r);
+  }
   @Post("timesheet-adjustments/:id/cancel")
   @RequirePermission("timesheet.adjustment.request")
   async adjustmentCancel(
@@ -788,6 +798,78 @@ export class PayrollWorkforceController {
     @Req() r: AuthenticatedRequest,
   ) {
     return ok(await this.s.createRun(r.auth, b, key(k), rid(r)), r);
+  }
+  @Post("payroll/corrections")
+  @RequirePermission("payroll.adjustment.manage")
+  async createCorrection(
+    @Body() b: any,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(
+      await this.s.createPayrollCorrection(r.auth, b, key(k), rid(r)),
+      r,
+    );
+  }
+  @Post("payroll/corrections/:id/submit")
+  @RequirePermission("payroll.adjustment.manage")
+  async submitCorrection(
+    @Param("id") id: string,
+    @Body() b: any,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(
+      await this.s.payrollCorrectionTransition(
+        r.auth,
+        id,
+        "PENDING_APPROVAL",
+        b,
+        key(k),
+        rid(r),
+      ),
+      r,
+    );
+  }
+  @Post("payroll/corrections/:id/approve")
+  @RequirePermission("payroll.run.approve")
+  async approveCorrection(
+    @Param("id") id: string,
+    @Body() b: any,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(
+      await this.s.payrollCorrectionTransition(
+        r.auth,
+        id,
+        "APPROVED",
+        b,
+        key(k),
+        rid(r),
+      ),
+      r,
+    );
+  }
+  @Post("payroll/corrections/:id/reject")
+  @RequirePermission("payroll.run.approve")
+  async rejectCorrection(
+    @Param("id") id: string,
+    @Body() b: any,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(
+      await this.s.payrollCorrectionTransition(
+        r.auth,
+        id,
+        "REJECTED",
+        b,
+        key(k),
+        rid(r),
+      ),
+      r,
+    );
   }
   @Get("payroll/runs/:id")
   @RequirePermission("payroll.run.read")
@@ -1142,6 +1224,18 @@ export class PayrollWorkforceController {
   ) {
     return ok(
       await this.s.recordManualPayment(r.auth, id, b, key(k), rid(r)),
+      r,
+    );
+  }
+  @Post("payout-provider-events")
+  @RequirePermission("payout.reconciliation.resolve")
+  async providerEvent(
+    @Body() b: any,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(
+      await this.s.recordPayoutProviderEvent(r.auth, b, key(k), rid(r)),
       r,
     );
   }

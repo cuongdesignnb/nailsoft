@@ -27,6 +27,9 @@ INSERT INTO timesheet_periods(id,tenant_id,code,starts_on,ends_on,state,timezone
 INSERT INTO staff_timesheets(id,tenant_id,period_id,staff_id,state,regular_seconds,overtime_seconds,payable_seconds,scheduled_seconds,unpaid_break_seconds,branch_allocation_json,fingerprint,submitted_by_user_id,approved_by_user_id) VALUES
 ('f1200000-0000-4000-8000-000000000060','10000000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000050','47000000-0000-4000-8000-000000000003','LOCKED',27000,0,27000,28800,1800,'{"20000000-0000-4000-8000-000000000001":27000}','seed-timesheet-locked','30000000-0000-4000-8000-000000000003','30000000-0000-4000-8000-000000000002'),
 ('f1200000-0000-4000-8000-000000000061','10000000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000051','47000000-0000-4000-8000-000000000005','SUBMITTED',14400,0,14400,14400,0,'{"20000000-0000-4000-8000-000000000001":14400}','seed-timesheet-submitted','30000000-0000-4000-8000-000000000005',NULL) ON CONFLICT DO NOTHING;
+INSERT INTO staff_pay_profiles(tenant_id,staff_id,status)
+SELECT tenant_id,id,'INCOMPLETE' FROM staff_profiles
+ON CONFLICT(tenant_id,staff_id) DO NOTHING;
 UPDATE staff_pay_profiles SET profile_type='HOURLY_PLUS_COMMISSION',status='ACTIVE',currency='VND',effective_from='2026-01-01' WHERE tenant_id='10000000-0000-4000-8000-000000000001' AND staff_id IN('47000000-0000-4000-8000-000000000003','47000000-0000-4000-8000-000000000005');
 INSERT INTO staff_pay_rate_versions(id,tenant_id,pay_profile_id,component_type,amount_minor,currency,effective_from,version,fingerprint,created_by_user_id)
 SELECT 'f1200000-0000-4000-8000-000000000070',tenant_id,id,'REGULAR_HOURLY_RATE',50000,'VND','2026-01-01',1,'seed-rate-staff3','30000000-0000-4000-8000-000000000001' FROM staff_pay_profiles WHERE tenant_id='10000000-0000-4000-8000-000000000001' AND staff_id='47000000-0000-4000-8000-000000000003' ON CONFLICT DO NOTHING;
@@ -40,8 +43,11 @@ INSERT INTO payroll_periods(id,tenant_id,calendar_id,timesheet_period_id,starts_
 INSERT INTO payroll_runs(id,tenant_id,payroll_period_id,run_type,state,currency,source_fingerprint,gross_pay_minor,net_pay_minor,worker_count,prepared_by_user_id,approved_by_user_id,finalized_by_user_id,finalized_at) VALUES
 ('f1200000-0000-4000-8000-000000000090','10000000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000081','REGULAR','FINALIZED','VND','seed-final-source',375000,375000,1,'30000000-0000-4000-8000-000000000004','30000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002','2026-08-01'),
 ('f1200000-0000-4000-8000-000000000091','10000000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000082','REGULAR','DRAFT','VND',NULL,0,0,0,'30000000-0000-4000-8000-000000000004',NULL,NULL,NULL) ON CONFLICT DO NOTHING;
-INSERT INTO payroll_run_workers(id,tenant_id,payroll_run_id,staff_id,pay_profile_version_json,policy_version_json,source_fingerprint,gross_pay_minor,net_pay_minor,currency,state) VALUES
-('f1200000-0000-4000-8000-000000000092','10000000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000090','47000000-0000-4000-8000-000000000003','{"rateId":"f1200000-0000-4000-8000-000000000070"}','{"id":"f1200000-0000-4000-8000-000000000011"}','seed-timesheet-locked',375000,375000,'VND','FINALIZED') ON CONFLICT DO NOTHING;
+INSERT INTO payroll_run_workers(id,tenant_id,payroll_run_id,staff_id,pay_profile_id,policy_version_id,pay_profile_version_json,policy_version_json,source_fingerprint,gross_pay_minor,net_pay_minor,currency,state)
+SELECT 'f1200000-0000-4000-8000-000000000092','10000000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000090','47000000-0000-4000-8000-000000000003',p.id,'f1200000-0000-4000-8000-000000000011','{"rateId":"f1200000-0000-4000-8000-000000000070"}','{"id":"f1200000-0000-4000-8000-000000000011"}','seed-timesheet-locked',375000,375000,'VND','FINALIZED'
+FROM staff_pay_profiles p
+WHERE p.tenant_id='10000000-0000-4000-8000-000000000001' AND p.staff_id='47000000-0000-4000-8000-000000000003'
+ON CONFLICT DO NOTHING;
 INSERT INTO payroll_finalization_snapshots(id,tenant_id,payroll_run_id,snapshot_json,source_fingerprint,calculation_version,finalized_by_user_id,finalized_at) VALUES
 ('f1200000-0000-4000-8000-000000000093','10000000-0000-4000-8000-000000000001','f1200000-0000-4000-8000-000000000090','{"grossPayMinor":"375000","netPayMinor":"375000","testFixture":true}','seed-final-source','sprint12-v1','30000000-0000-4000-8000-000000000002','2026-08-01') ON CONFLICT DO NOTHING;
 INSERT INTO pay_statements(id,tenant_id,payroll_run_id,payroll_worker_id,staff_id,employer_snapshot_json,statement_json,net_pay_minor,currency,payment_status,generated_at) VALUES

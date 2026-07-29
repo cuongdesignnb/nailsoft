@@ -62,13 +62,18 @@ export class WorkforceProcessor implements OnModuleDestroy {
   }
   async processPayouts() {
     await this.recoverUnknownPayouts();
+    const reconciled = await this.reconcileUnknownPayout();
+    if (reconciled) return reconciled;
     const claim = await this.claimPayout();
     if (!claim) return 0;
-    let result: { ok: true; reference: string } | { ok: false; code: string };
+    let result:
+      | { ok: true; reference: string }
+      | { ok: false; code: string }
+      | { ok: null; code: string };
     try {
       result = await this.submitPayout(claim);
     } catch {
-      result = { ok: false, code: "PAYOUT_PROVIDER_UNAVAILABLE" };
+      result = { ok: null, code: "PROVIDER_RESULT_UNKNOWN" };
     }
     await this.finishPayout(claim, result);
     return 1;
@@ -79,20 +84,37 @@ export class WorkforceProcessor implements OnModuleDestroy {
       await client.query("BEGIN");
       const row = (
         await client.query<any>(
-          `SELECT i.*,b.provider_code,b.method,b.id batch_id_value,
-             COALESCE((SELECT max(a.attempt_no) FROM payout_attempts a WHERE a.tenant_id=i.tenant_id AND a.payout_item_id=i.id),0)+1 attempt_no
+          `SELECT i.*,b.provider_code,b.method,b.id batch_id_value
            FROM payout_items i JOIN payout_batches b ON b.tenant_id=i.tenant_id AND b.id=i.batch_id
            WHERE i.state='PROCESSING' AND b.state='PROCESSING' AND b.method='EXTERNAL_PAYROLL_PROVIDER'
-             AND NOT EXISTS(SELECT 1 FROM payout_attempts a WHERE a.tenant_id=i.tenant_id AND a.payout_item_id=i.id AND a.state IN('PENDING','SUBMITTED'))
+             AND NOT EXISTS(SELECT 1 FROM payout_attempts a WHERE a.tenant_id=i.tenant_id AND a.payout_item_id=i.id AND a.state IN('PENDING','SUBMITTED','UNKNOWN'))
              AND COALESCE((SELECT max(a.next_retry_at) FROM payout_attempts a WHERE a.tenant_id=i.tenant_id AND a.payout_item_id=i.id AND a.state='FAILED'),'-infinity'::timestamptz)<=now()
            ORDER BY i.created_at FOR UPDATE OF i SKIP LOCKED LIMIT 1`,
         )
-      ).rows[0];
+      ).rows[0]!;
       if (!row) {
         await client.query("COMMIT");
         return null;
       }
-      const requestKey = `payout:${row.tenant_id}:${row.id}:${row.attempt_no}`;
+      // The row lock may have waited for another claimant. Re-check attempts in
+      // a fresh READ COMMITTED statement so a concurrent provider intent that
+      // committed while we waited cannot be duplicated.
+      const attemptState = (
+        await client.query<{ active: boolean; next_attempt_no: number }>(
+          `SELECT EXISTS(
+             SELECT 1 FROM payout_attempts
+             WHERE tenant_id=$1 AND payout_item_id=$2 AND state IN('PENDING','SUBMITTED','UNKNOWN')
+           ) active,
+           COALESCE(max(attempt_no),0)::int+1 next_attempt_no
+           FROM payout_attempts WHERE tenant_id=$1 AND payout_item_id=$2`,
+          [row.tenant_id, row.id],
+        )
+      ).rows[0]!;
+      if (attemptState.active) {
+        await client.query("COMMIT");
+        return null;
+      }
+      const requestKey = row.provider_request_key;
       const attempt = (
         await client.query<any>(
           `INSERT INTO payout_attempts(tenant_id,payout_item_id,attempt_no,state,provider_request_key,safe_request_json)
@@ -100,7 +122,7 @@ export class WorkforceProcessor implements OnModuleDestroy {
           [
             row.tenant_id,
             row.id,
-            row.attempt_no,
+            attemptState.next_attempt_no,
             requestKey,
             row.requested_minor,
             row.currency,
@@ -108,7 +130,12 @@ export class WorkforceProcessor implements OnModuleDestroy {
         )
       ).rows[0];
       await client.query("COMMIT");
-      return { ...row, attemptId: attempt.id, requestKey };
+      return {
+        ...row,
+        attempt_no: attemptState.next_attempt_no,
+        attemptId: attempt.id,
+        requestKey,
+      };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -116,13 +143,23 @@ export class WorkforceProcessor implements OnModuleDestroy {
       client.release();
     }
   }
-  private async submitPayout(claim: any) {
+  private async submitPayout(
+    claim: any,
+  ): Promise<
+    | { ok: true; reference: string }
+    | { ok: false; code: string }
+    | { ok: null; code: string }
+  > {
     if (
       process.env.PAYOUT_PROVIDER_MODE === "FAKE" &&
       process.env.NODE_ENV !== "production"
     ) {
       if (process.env.PAYOUT_FAKE_RESULT === "FAILED")
         return { ok: false as const, code: "FAKE_PROVIDER_DECLINED" };
+      if (process.env.PAYOUT_FAKE_RESULT === "LOST_RESPONSE")
+        throw new Error("simulated response loss after provider acceptance");
+      if (process.env.PAYOUT_FAKE_RESULT === "UNKNOWN")
+        return { ok: null, code: "PROVIDER_RESULT_UNKNOWN" };
       return {
         ok: true as const,
         reference: `FAKE-${claim.id}-${claim.attempt_no}`,
@@ -132,7 +169,10 @@ export class WorkforceProcessor implements OnModuleDestroy {
   }
   private async finishPayout(
     claim: any,
-    result: { ok: true; reference: string } | { ok: false; code: string },
+    result:
+      | { ok: true; reference: string }
+      | { ok: false; code: string }
+      | { ok: null; code: string },
   ) {
     const client = await this.pool.connect();
     try {
@@ -147,7 +187,7 @@ export class WorkforceProcessor implements OnModuleDestroy {
         await client.query("ROLLBACK");
         return;
       }
-      if (result.ok) {
+      if (result.ok === true) {
         await client.query(
           `UPDATE payout_attempts SET state='CONFIRMED',provider_reference=$3,safe_response_json=jsonb_build_object('confirmed',true),completed_at=now()
            WHERE tenant_id=$1 AND id=$2 AND state='SUBMITTED'`,
@@ -162,7 +202,7 @@ export class WorkforceProcessor implements OnModuleDestroy {
           "UPDATE pay_statements SET payment_status='PAID' WHERE tenant_id=$1 AND id=$2",
           [claim.tenant_id, current.pay_statement_id],
         );
-      } else {
+      } else if (result.ok === false) {
         const terminal = Number(claim.attempt_no) >= 3;
         await client.query(
           `UPDATE payout_attempts SET state='FAILED',error_code=$3,next_retry_at=CASE WHEN $4 THEN NULL ELSE now()+($5||' seconds')::interval END,completed_at=now()
@@ -180,6 +220,17 @@ export class WorkforceProcessor implements OnModuleDestroy {
             "UPDATE payout_items SET state='FAILED',failure_code=$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
             [claim.tenant_id, claim.id, result.code],
           );
+      } else {
+        await client.query(
+          `UPDATE payout_attempts SET state='UNKNOWN',error_code=$3,safe_response_json=jsonb_build_object('outcome','UNKNOWN'),completed_at=now()
+           WHERE tenant_id=$1 AND id=$2 AND state='SUBMITTED'`,
+          [claim.tenant_id, claim.attemptId, result.code],
+        );
+        await client.query(
+          `UPDATE payout_items SET state='UNKNOWN',unknown_since=now(),failure_code=$3,lease_expires_at=NULL,
+             version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2`,
+          [claim.tenant_id, claim.id, result.code],
+        );
       }
       await client.query(
         `UPDATE payout_batches b SET state=CASE
@@ -195,7 +246,11 @@ export class WorkforceProcessor implements OnModuleDestroy {
          VALUES($1::uuid,$2::text,'payout_item',$3::uuid,jsonb_build_object('id',$3::uuid,'refetch',true),'{"type":"SYSTEM"}','{"schemaVersion":1}')`,
         [
           claim.tenant_id,
-          result.ok ? "payout.item_paid" : "payout.item_failed",
+          result.ok === true
+            ? "payout.item_paid"
+            : result.ok === false
+              ? "payout.item_failed"
+              : "payout.item_unknown",
           claim.id,
         ],
       );
@@ -212,10 +267,76 @@ export class WorkforceProcessor implements OnModuleDestroy {
       `WITH stale AS (
          UPDATE payout_attempts SET state='UNKNOWN',error_code='PROVIDER_RESULT_UNKNOWN',completed_at=now()
          WHERE state='SUBMITTED' AND started_at<now()-interval '5 minutes' RETURNING tenant_id,payout_item_id
-       ) UPDATE payout_items i SET state='FAILED',failure_code='PROVIDER_RESULT_UNKNOWN',version=version+1,updated_at=now()
+       ) UPDATE payout_items i SET state='UNKNOWN',unknown_since=now(),failure_code='PROVIDER_RESULT_UNKNOWN',version=version+1,updated_at=now()
          FROM stale s WHERE i.tenant_id=s.tenant_id AND i.id=s.payout_item_id AND i.state='PROCESSING'`,
     );
     return result.rowCount ?? 0;
+  }
+  private async reconcileUnknownPayout() {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const item = (
+        await client.query<any>(
+          `SELECT i.*,b.provider_code FROM payout_items i
+           JOIN payout_batches b ON b.tenant_id=i.tenant_id AND b.id=i.batch_id
+           WHERE i.state='UNKNOWN' ORDER BY i.unknown_since FOR UPDATE OF i SKIP LOCKED LIMIT 1`,
+        )
+      ).rows[0];
+      if (!item) {
+        await client.query("COMMIT");
+        return 0;
+      }
+      const fake =
+        process.env.PAYOUT_PROVIDER_MODE === "FAKE" &&
+        process.env.NODE_ENV !== "production";
+      const outcome =
+        fake && process.env.PAYOUT_FAKE_RESULT === "LOST_RESPONSE"
+          ? "CONFIRMED"
+          : fake && process.env.PAYOUT_FAKE_RECONCILE_RESULT === "FAILED"
+            ? "FAILED"
+            : "MANUAL_REVIEW";
+      if (outcome === "CONFIRMED") {
+        const reference = `FAKE-${item.id}-STABLE`;
+        await client.query(
+          `UPDATE payout_attempts SET state='CONFIRMED',provider_reference=$3,
+             safe_response_json=jsonb_build_object('reconciled',true),completed_at=now()
+           WHERE tenant_id=$1 AND payout_item_id=$2 AND state='UNKNOWN'`,
+          [item.tenant_id, item.id, reference],
+        );
+        await client.query(
+          `UPDATE payout_items SET state='PAID',confirmed_minor=requested_minor,provider_reference=$3,
+             paid_at=now(),failure_code=NULL,unknown_since=NULL,version=version+1,updated_at=now()
+           WHERE tenant_id=$1 AND id=$2`,
+          [item.tenant_id, item.id, reference],
+        );
+        await client.query(
+          "UPDATE pay_statements SET payment_status='PAID' WHERE tenant_id=$1 AND id=$2",
+          [item.tenant_id, item.pay_statement_id],
+        );
+      } else if (outcome === "FAILED") {
+        await client.query(
+          "UPDATE payout_attempts SET state='FAILED',error_code='PROVIDER_CONFIRMED_FAILED',completed_at=now() WHERE tenant_id=$1 AND payout_item_id=$2 AND state='UNKNOWN'",
+          [item.tenant_id, item.id],
+        );
+        await client.query(
+          "UPDATE payout_items SET state='FAILED',failure_code='PROVIDER_CONFIRMED_FAILED',unknown_since=NULL,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+          [item.tenant_id, item.id],
+        );
+      } else {
+        await client.query(
+          "UPDATE payout_items SET state='MANUAL_REVIEW',failure_code='PROVIDER_OUTCOME_REQUIRES_REVIEW',version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+          [item.tenant_id, item.id],
+        );
+      }
+      await client.query("COMMIT");
+      return 1;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
   async claimExport() {
     const client = await this.pool.connect();

@@ -11,3 +11,7 @@
 | Regression   | lint, strict typecheck, unit, PostgreSQL integration, contract, Playwright, build, load smoke for Sprints 1–11                                                          |
 
 Production-scale performance requires staging; local fixtures are capacity evidence only.
+
+## Closure hardening evidence
+
+The required closure suite adds 12 isolated PostgreSQL integration files and 11 authenticated API E2E files. Coverage includes deterministic clock-out projection/replay, correction `APPLIED`, submit/approve/lock guards, hourly/overtime/commission-only and multi-branch rate calculation, FK-safe recalculation, persisted exceptions, database-exact BigInt payout totals, 20-way stable-provider-key concurrency with `UNKNOWN` reconciliation, manual payout authorization/evidence, supplemental correction finalization, and used policy/rate immutability. CI resets and reseeds before every stateful file; no retry, skipped assertion, or `continue-on-error` is used.

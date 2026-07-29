@@ -73,7 +73,7 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 12 migration rollback to 0022 and re-migrate
+      - name: Sprint 12 hardening migration rollback to 0023 and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
@@ -162,6 +162,69 @@ jobs:
             tests/integration/sprint12-workforce-payroll-invariants.test.ts \
             tests/integration/sprint12-workforce-api.test.ts \
             tests/integration/sprint12-payout-worker.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
+      - name: Sprint 12 attendance-to-timesheet correctness
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint12-attendance-timesheet-projection.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 12 adjustment and lock concurrency
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint12-timesheet-adjustment-apply.test.ts \
+            tests/integration/sprint12-timesheet-lock-guards.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
+      - name: Sprint 12 payroll profile and rate calculation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint12-pay-profile-calculation.test.ts \
+            tests/integration/sprint12-branch-rate-resolution.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
+      - name: Sprint 12 payroll recalculation and exception materialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint12-payroll-recalculation.test.ts \
+            tests/integration/sprint12-payroll-exception-materialization.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
+      - name: Sprint 12 payout bigint and exactly-once
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint12-bigint-payout-total.test.ts \
+            tests/integration/sprint12-payout-idempotency-unknown.test.ts \
+            tests/integration/sprint12-manual-payout-authorization.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
+      - name: Sprint 12 supplemental correction and source immutability
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint12-supplemental-correction.test.ts \
+            tests/integration/sprint12-policy-rate-immutability.test.ts
           do
             pnpm db:reset
             pnpm db:seed
@@ -358,6 +421,27 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint11-closure-correctness.spec.ts --config=playwright.api.config.ts
       - name: Sprint 12 authenticated workforce payroll and payout E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint12-workforce-payroll.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 12 closure authenticated deep E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/e2e/sprint12-time-clock-to-timesheet.spec.ts \
+            tests/e2e/sprint12-missed-punch-adjustment.spec.ts \
+            tests/e2e/sprint12-timesheet-review-lock.spec.ts \
+            tests/e2e/sprint12-hourly-overtime-payroll.spec.ts \
+            tests/e2e/sprint12-commission-only-payroll.spec.ts \
+            tests/e2e/sprint12-multibranch-pay-rate.spec.ts \
+            tests/e2e/sprint12-payroll-recalculate.spec.ts \
+            tests/e2e/sprint12-payroll-finalize-source-dedupe.spec.ts \
+            tests/e2e/sprint12-supplemental-payroll.spec.ts \
+            tests/e2e/sprint12-payout-exactly-once.spec.ts \
+            tests/e2e/sprint12-manual-payout-evidence.spec.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec playwright test "$spec" --config=playwright.api.config.ts
+          done
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke

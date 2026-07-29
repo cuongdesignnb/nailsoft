@@ -10,7 +10,7 @@ Own scope: `GET /staff/me/time-clock/status`, `/attendance`; `POST /staff/me/tim
 
 ## Timesheets and compliance
 
-`GET|POST /timesheet-periods`; commands `/open-submission`, `/start-review`, `/lock`, `/close`. `GET /timesheets`, `/timesheets/{id}`; commands `/submit`, `/approve`, `/reject`, `/reopen`, `/lock`. `GET|POST /timesheets/{id}/adjustments`; adjustment commands `/submit`, `/approve`, `/reject`, `/cancel`.
+`GET|POST /timesheet-periods`; commands `/open-submission`, `/start-review`, `/lock`, `/close`. `GET /timesheets`, `/timesheets/{id}`; commands `/submit`, `/approve`, `/reject`, `/reopen`, `/lock`. `GET|POST /timesheets/{id}/adjustments`; adjustment commands `/submit`, `/approve`, `/reject`, `/apply`, `/cancel`. `apply` appends an `attendance_correction_event`, rebuilds the projection, and never mutates the original clock ledger.
 
 Own scope: `GET /staff/me/timesheets`, `/staff/me/timesheets/{id}`; `POST /staff/me/timesheets/{id}/submit`, `/adjustments`.
 
@@ -20,13 +20,13 @@ Policies: `GET|POST /workforce-compliance/policies`; `POST /policies/{id}/versio
 
 `GET /staff/{staffId}/pay-profile`; `POST /staff/{staffId}/pay-profile/update`; `GET|POST /staff/{staffId}/pay-rates`; `POST /staff/{staffId}/pay-rates/{rateId}/deactivate`.
 
-`GET|POST /payroll-calendars`; commands `/update`, `/activate`, `/deactivate`. `GET /payroll/periods`; `POST /payroll/periods/generate`. `GET|POST /payroll/runs`; `GET /payroll/runs/{runId}`; commands `/calculate`, `/recalculate`, `/submit`, `/approve`, `/finalize`, `/request-void`, `/approve-void`. Worker and exception reads are nested below the run; exception commands acknowledge/resolve/waive.
+`GET|POST /payroll-calendars`; commands `/update`, `/activate`, `/deactivate`. `GET /payroll/periods`; `POST /payroll/periods/generate`. `GET|POST /payroll/runs`; `GET /payroll/runs/{runId}`; commands `/calculate`, `/recalculate`, `/submit`, `/approve`, `/finalize`, `/request-void`, `/approve-void`. `POST /payroll/corrections`, then `/{id}/submit|approve|reject`, creates independently approved sources for supplemental/correction runs without mutating an original statement. Recalculation deletes only draft children in FK order and increments `calculationGeneration`. Worker and exception reads are nested below the run; exception commands acknowledge/resolve/waive.
 
 Statements: `GET /pay-statements`, `/{id}`, `/staff/me/pay-statements`, `/staff/me/pay-statements/{id}`.
 
 ## Payout and reporting
 
-`GET|POST /payout-batches`; commands `/{id}/submit|approve|process|cancel|retry-failed`; item reads and `record-manual-payment`, `request-reversal`, `approve-reversal`; reconciliation read/resolve.
+`GET|POST /payout-batches`; commands `/{id}/submit|approve|process|cancel|retry-failed`; item reads and `record-manual-payment`, `request-reversal`, `approve-reversal`; reconciliation read/resolve. `POST /payout-provider-events` reconciles an authenticated provider result against the payout item's stable provider key. Unknown outcomes stay `UNKNOWN` until provider polling/event evidence confirms success or failure; retries never create a new provider key.
 
 Reports: `/workforce/reports/{attendance|exceptions|overtime|break-compliance|timesheets}` and `/payroll/reports/{summary|earnings|commission-tip|exceptions|payout|reconciliation}`. Export: `POST /payroll/exports`, `GET /payroll/exports/{id}`.
 

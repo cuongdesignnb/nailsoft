@@ -6,15 +6,15 @@ Local deterministic targets: clock command p95 < 350 ms; staff status < 250 ms; 
 
 Any local result is explicitly not a production claim. Production-scale payroll/provider latency needs staging with representative branches, staff, events, timesheets, source allocations and provider sandbox.
 
-## Local smoke evidence — 2026-07-29
+## Local closure smoke evidence — 2026-07-30
 
-Environment: Windows development workstation, PostgreSQL/Redis Docker Compose, two concurrent authenticated workers, one-second warm-up and two-second measured window per read scenario.
+Environment: Windows development workstation, PostgreSQL/Redis Docker Compose, ten concurrent authenticated workers, one-second warm-up and 60-second measured window per read scenario.
 
 | Scenario | Requests | Throughput/s | p95 ms | Error rate |
 | --- | ---: | ---: | ---: | ---: |
-| Attendance sessions | 634 | 317.0 | 7.61 | 0% |
-| Timesheet list | 634 | 317.0 | 7.57 | 0% |
-| Payroll run list | 699 | 349.5 | 6.61 | 0% |
-| Payout batch list | 698 | 349.0 | 6.96 | 0% |
+| Attendance sessions | 52,191 | 869.85 | 13.11 | 0% |
+| Timesheet list | 52,504 | 875.07 | 12.83 | 0% |
+| Payroll run list | 52,637 | 877.28 | 12.80 | 0% |
+| Payout batch list | 55,923 | 932.05 | 12.13 | 0% |
 
-These short local results validate query/index regressions only. They do not substantiate production p95, sustained write contention, provider latency, or the production-scale dataset requested by the SRS.
+These local results validate read-path and index regressions only. They do not substantiate production p95, sustained write contention, provider latency, or the production-scale dataset requested by the SRS.

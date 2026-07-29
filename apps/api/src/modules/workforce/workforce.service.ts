@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { PoolClient } from "pg";
+import { DateTime } from "luxon";
 import { DatabaseService } from "../../infrastructure/database.service.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
@@ -139,6 +140,351 @@ export class WorkforceService {
         v,
       ]),
     );
+  }
+
+  private allocate(total: bigint, weights: bigint[]) {
+    const sum = weights.reduce((value, item) => value + item, 0n);
+    if (sum <= 0n) return weights.map(() => 0n);
+    let used = 0n;
+    return weights.map((weight, index) => {
+      const value =
+        index === weights.length - 1 ? total - used : (total * weight) / sum;
+      used += value;
+      return value;
+    });
+  }
+
+  private async rebuildTimesheet(
+    c: PoolClient,
+    tenantId: string,
+    timesheetId: string,
+  ) {
+    const sheet = (
+      await c.query<any>(
+        `SELECT t.*,p.starts_on::text starts_on,p.ends_on::text ends_on,p.timezone
+         FROM staff_timesheets t JOIN timesheet_periods p ON p.tenant_id=t.tenant_id AND p.id=t.period_id
+         WHERE t.tenant_id=$1 AND t.id=$2 FOR UPDATE OF t`,
+        [tenantId, timesheetId],
+      )
+    ).rows[0];
+    if (!sheet)
+      throw new NotFoundException({
+        code: "TIMESHEET_NOT_FOUND",
+        message: "Timesheet not found",
+      });
+    if (sheet.state === "LOCKED" || sheet.source_locked_at)
+      throw new ConflictException({
+        code: "TIMESHEET_LOCKED",
+        message: "Locked timesheet projection is immutable",
+      });
+
+    const sessions = (
+      await c.query<any>(
+        `SELECT s.*,b.timezone branch_timezone
+         FROM attendance_sessions s JOIN branches b ON b.tenant_id=s.tenant_id AND b.id=s.branch_id
+         WHERE s.tenant_id=$1 AND s.staff_id=$2 AND s.ended_at IS NOT NULL
+           AND (s.started_at AT TIME ZONE b.timezone)::date <= $4::date
+           AND (s.ended_at AT TIME ZONE b.timezone)::date >= $3::date
+           AND s.state IN('CLOSED','REVIEW_REQUIRED','ADJUSTED')
+         ORDER BY s.started_at,s.id FOR SHARE OF s`,
+        [tenantId, sheet.staff_id, sheet.starts_on, sheet.ends_on],
+      )
+    ).rows;
+    const entries = new Map<
+      string,
+      {
+        localDate: string;
+        branchId: string;
+        sessionIds: string[];
+        regular: bigint;
+        overtime: bigint;
+        payable: bigint;
+        paidBreak: bigint;
+        unpaidBreak: bigint;
+      }
+    >();
+    for (const session of sessions) {
+      const zone = session.branch_timezone || sheet.timezone;
+      const start = DateTime.fromJSDate(new Date(session.started_at), {
+        zone: "utc",
+      }).setZone(zone);
+      const end = DateTime.fromJSDate(new Date(session.ended_at), {
+        zone: "utc",
+      }).setZone(zone);
+      const slices: Array<{ date: string; seconds: bigint }> = [];
+      let cursor = start;
+      while (cursor < end) {
+        const boundary = cursor.startOf("day").plus({ days: 1 });
+        const sliceEnd = boundary < end ? boundary : end;
+        const seconds = BigInt(
+          Math.max(0, Math.floor(sliceEnd.diff(cursor, "seconds").seconds)),
+        );
+        if (seconds > 0n) slices.push({ date: cursor.toISODate()!, seconds });
+        cursor = sliceEnd;
+      }
+      const weights = slices.map((slice) => slice.seconds);
+      const regular = this.allocate(BigInt(session.regular_seconds), weights);
+      const overtime = this.allocate(BigInt(session.overtime_seconds), weights);
+      const payable = this.allocate(BigInt(session.payable_seconds), weights);
+      const paidBreak = this.allocate(
+        BigInt(session.paid_break_seconds),
+        weights,
+      );
+      const unpaidBreak = this.allocate(
+        BigInt(session.unpaid_break_seconds),
+        weights,
+      );
+      slices.forEach((slice, index) => {
+        if (
+          slice.date < String(sheet.starts_on) ||
+          slice.date > String(sheet.ends_on)
+        )
+          return;
+        const mapKey = `${slice.date}:${session.branch_id}`;
+        const entry =
+          entries.get(mapKey) ??
+          ({
+            localDate: slice.date,
+            branchId: session.branch_id,
+            sessionIds: [] as string[],
+            regular: 0n,
+            overtime: 0n,
+            payable: 0n,
+            paidBreak: 0n,
+            unpaidBreak: 0n,
+          } satisfies typeof entries extends Map<string, infer V> ? V : never);
+        entry.sessionIds.push(session.id);
+        entry.regular += regular[index]!;
+        entry.overtime += overtime[index]!;
+        entry.payable += payable[index]!;
+        entry.paidBreak += paidBreak[index]!;
+        entry.unpaidBreak += unpaidBreak[index]!;
+        entries.set(mapKey, entry);
+      });
+    }
+    const ordered = [...entries.values()].sort((left, right) =>
+      `${left.localDate}:${left.branchId}`.localeCompare(
+        `${right.localDate}:${right.branchId}`,
+      ),
+    );
+    const inputFingerprint = deterministicFingerprint(
+      sessions.map((session: any) => ({
+        id: session.id,
+        fingerprint: session.fingerprint,
+        version: session.version,
+      })),
+    );
+    const fingerprint = deterministicFingerprint(
+      ordered.map((entry) => ({
+        ...entry,
+        regular: entry.regular.toString(),
+        overtime: entry.overtime.toString(),
+        payable: entry.payable.toString(),
+        paidBreak: entry.paidBreak.toString(),
+        unpaidBreak: entry.unpaidBreak.toString(),
+      })),
+    );
+    await c.query(
+      "DELETE FROM timesheet_day_entries WHERE tenant_id=$1 AND timesheet_id=$2",
+      [tenantId, timesheetId],
+    );
+    for (const entry of ordered)
+      await c.query(
+        `INSERT INTO timesheet_day_entries(
+           tenant_id,timesheet_id,local_date,branch_id,source_session_ids,
+           regular_seconds,overtime_seconds,payable_seconds,paid_break_seconds,unpaid_break_seconds,fingerprint
+         ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          tenantId,
+          timesheetId,
+          entry.localDate,
+          entry.branchId,
+          entry.sessionIds,
+          entry.regular.toString(),
+          entry.overtime.toString(),
+          entry.payable.toString(),
+          entry.paidBreak.toString(),
+          entry.unpaidBreak.toString(),
+          deterministicFingerprint(entry),
+        ],
+      );
+    const totals = ordered.reduce(
+      (value, entry) => ({
+        regular: value.regular + entry.regular,
+        overtime: value.overtime + entry.overtime,
+        payable: value.payable + entry.payable,
+        paidBreak: value.paidBreak + entry.paidBreak,
+        unpaidBreak: value.unpaidBreak + entry.unpaidBreak,
+      }),
+      {
+        regular: 0n,
+        overtime: 0n,
+        payable: 0n,
+        paidBreak: 0n,
+        unpaidBreak: 0n,
+      },
+    );
+    const branchAllocation = Object.fromEntries(
+      ordered.map((entry) => [
+        `${entry.localDate}:${entry.branchId}`,
+        entry.payable.toString(),
+      ]),
+    );
+    return (
+      await c.query<any>(
+        `UPDATE staff_timesheets SET regular_seconds=$3,overtime_seconds=$4,payable_seconds=$5,
+           paid_break_seconds=$6,unpaid_break_seconds=$7,branch_allocation_json=$8,
+           fingerprint=$9,projection_input_fingerprint=$10,projected_at=now(),
+           state=CASE WHEN state='APPROVED' THEN 'REOPENED' ELSE state END,
+           approved_by_user_id=CASE WHEN state='APPROVED' THEN NULL ELSE approved_by_user_id END,
+           approved_fingerprint=CASE WHEN state='APPROVED' THEN NULL ELSE approved_fingerprint END,
+           version=version+1,updated_at=now()
+         WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [
+          tenantId,
+          timesheetId,
+          totals.regular.toString(),
+          totals.overtime.toString(),
+          totals.payable.toString(),
+          totals.paidBreak.toString(),
+          totals.unpaidBreak.toString(),
+          JSON.stringify(branchAllocation),
+          fingerprint,
+          inputFingerprint,
+        ],
+      )
+    ).rows[0];
+  }
+
+  private async projectClosedSession(
+    c: PoolClient,
+    a: AccessClaims,
+    session: any,
+  ) {
+    const bounds = (
+      await c.query<any>(
+        `SELECT (s.started_at AT TIME ZONE b.timezone)::date::text starts_on,
+                (s.ended_at AT TIME ZONE b.timezone)::date::text ends_on,b.timezone
+         FROM attendance_sessions s JOIN branches b ON b.tenant_id=s.tenant_id AND b.id=s.branch_id
+         WHERE s.tenant_id=$1 AND s.id=$2`,
+        [a.tenantId, session.id],
+      )
+    ).rows[0];
+    let period = (
+      await c.query<any>(
+        `SELECT * FROM timesheet_periods WHERE tenant_id=$1 AND starts_on<=$2 AND ends_on>=$3 AND state<>'LOCKED'
+         ORDER BY starts_on DESC LIMIT 1 FOR UPDATE`,
+        [a.tenantId, bounds.starts_on, bounds.ends_on],
+      )
+    ).rows[0];
+    if (!period) {
+      period = (
+        await c.query<any>(
+          `INSERT INTO timesheet_periods(tenant_id,code,starts_on,ends_on,timezone)
+           VALUES($1,$2,$3,$4,$5)
+           ON CONFLICT(tenant_id,code) DO UPDATE SET code=EXCLUDED.code RETURNING *`,
+          [
+            a.tenantId,
+            `AUTO-${bounds.starts_on}-${bounds.ends_on}`,
+            bounds.starts_on,
+            bounds.ends_on,
+            bounds.timezone,
+          ],
+        )
+      ).rows[0];
+    }
+    const sheet = (
+      await c.query<any>(
+        `INSERT INTO staff_timesheets(tenant_id,period_id,staff_id,fingerprint)
+         VALUES($1,$2,$3,$4)
+         ON CONFLICT(tenant_id,period_id,staff_id) DO UPDATE SET updated_at=staff_timesheets.updated_at
+         RETURNING *`,
+        [a.tenantId, period.id, session.staff_id, deterministicFingerprint([])],
+      )
+    ).rows[0];
+    return this.rebuildTimesheet(c, a.tenantId, sheet.id);
+  }
+
+  private async assertTimesheetClear(
+    c: PoolClient,
+    tenantId: string,
+    sheet: any,
+    transition: TimesheetState,
+  ) {
+    const blockers = (
+      await c.query<any>(
+        `SELECT
+           EXISTS(
+             SELECT 1 FROM attendance_sessions s JOIN branches b ON b.tenant_id=s.tenant_id AND b.id=s.branch_id
+             WHERE s.tenant_id=t.tenant_id AND s.staff_id=t.staff_id AND s.state='OPEN'
+               AND (s.started_at AT TIME ZONE b.timezone)::date BETWEEN p.starts_on AND p.ends_on
+           ) open_session,
+           EXISTS(
+             SELECT 1 FROM attendance_breaks br JOIN attendance_sessions s ON s.tenant_id=br.tenant_id AND s.id=br.session_id
+             JOIN branches b ON b.tenant_id=s.tenant_id AND b.id=s.branch_id
+             WHERE br.tenant_id=t.tenant_id AND s.staff_id=t.staff_id AND br.state='OPEN'
+               AND (br.started_at AT TIME ZONE b.timezone)::date BETWEEN p.starts_on AND p.ends_on
+           ) open_break,
+           EXISTS(
+             SELECT 1 FROM attendance_exceptions e LEFT JOIN attendance_sessions s ON s.tenant_id=e.tenant_id AND s.id=e.session_id
+             JOIN branches b ON b.tenant_id=e.tenant_id AND b.id=e.branch_id
+             WHERE e.tenant_id=t.tenant_id AND e.staff_id=t.staff_id AND e.severity='BLOCKING'
+               AND e.state IN('OPEN','ACKNOWLEDGED')
+               AND COALESCE((s.started_at AT TIME ZONE b.timezone)::date,e.created_at::date) BETWEEN p.starts_on AND p.ends_on
+           ) blocking_exception,
+           EXISTS(
+             SELECT 1 FROM timesheet_adjustment_requests r WHERE r.tenant_id=t.tenant_id AND r.timesheet_id=t.id AND r.state='APPROVED'
+           ) unapplied_adjustment,
+           COALESCE((SELECT sum(d.payable_seconds) FROM timesheet_day_entries d WHERE d.tenant_id=t.tenant_id AND d.timesheet_id=t.id),0)::text entry_payable,
+           (SELECT count(*) FROM timesheet_day_entries d WHERE d.tenant_id=t.tenant_id AND d.timesheet_id=t.id AND d.branch_id IS NULL)::int missing_branch
+         FROM staff_timesheets t JOIN timesheet_periods p ON p.tenant_id=t.tenant_id AND p.id=t.period_id
+         WHERE t.tenant_id=$1 AND t.id=$2`,
+        [tenantId, sheet.id],
+      )
+    ).rows[0];
+    if (blockers?.open_session || blockers?.open_break)
+      throw new ConflictException({
+        code: "TIMESHEET_OPEN_ATTENDANCE_SESSION",
+        message: "Open attendance session or break blocks review",
+      });
+    if (blockers?.blocking_exception)
+      throw new ConflictException({
+        code: "TIMESHEET_HAS_BLOCKING_EXCEPTION",
+        message: "Blocking attendance exception must be resolved",
+      });
+    if (blockers?.unapplied_adjustment)
+      throw new ConflictException({
+        code: "TIMESHEET_ADJUSTMENT_NOT_APPLIED",
+        message: "Approved adjustment must be applied",
+      });
+    if (
+      BigInt(blockers?.entry_payable ?? "0") !==
+        BigInt(sheet.payable_seconds) ||
+      Number(blockers?.missing_branch ?? 0) > 0 ||
+      !sheet.projected_at ||
+      !sheet.projection_input_fingerprint
+    )
+      throw new ConflictException({
+        code: "TIMESHEET_PROJECTION_STALE",
+        message: "Timesheet projection is stale or incomplete",
+      });
+    if (
+      transition === "APPROVED" &&
+      sheet.submitted_fingerprint &&
+      sheet.submitted_fingerprint !== sheet.fingerprint
+    )
+      throw new ConflictException({
+        code: "TIMESHEET_FINGERPRINT_CHANGED",
+        message: "Timesheet changed after submission",
+      });
+    if (
+      transition === "LOCKED" &&
+      sheet.approved_fingerprint !== sheet.fingerprint
+    )
+      throw new ConflictException({
+        code: "TIMESHEET_FINGERPRINT_CHANGED",
+        message: "Approved fingerprint no longer matches",
+      });
   }
 
   async clockStatus(a: AccessClaims, staffId?: string) {
@@ -331,6 +677,7 @@ export class WorkforceService {
               ],
             )
           ).rows[0];
+          await this.projectClosedSession(c, a, session);
         }
         await this.emit(
           c,
@@ -796,16 +1143,32 @@ export class WorkforceService {
             code: "TIMESHEET_SELF_APPROVAL_DENIED",
             message: "Dual control required",
           });
+        if (["SUBMITTED", "APPROVED", "LOCKED"].includes(to))
+          await this.assertTimesheetClear(c, a.tenantId, old, to);
+        if (body?.fingerprint && body.fingerprint !== old.fingerprint)
+          throw new ConflictException({
+            code: "TIMESHEET_FINGERPRINT_CHANGED",
+            message: "Expected fingerprint does not match",
+          });
         const fields =
           to === "SUBMITTED"
-            ? ",submitted_by_user_id=$4"
+            ? ",submitted_by_user_id=$4,submitted_fingerprint=fingerprint"
             : to === "APPROVED"
-              ? ",approved_by_user_id=$4"
-              : "";
+              ? ",approved_by_user_id=$4,approved_fingerprint=fingerprint"
+              : to === "LOCKED"
+                ? ",locked_fingerprint=fingerprint"
+                : to === "REOPENED"
+                  ? ",approved_by_user_id=NULL,approved_fingerprint=NULL"
+                  : "";
+        const capturesActor = ["SUBMITTED", "APPROVED"].includes(to);
+        const versionParameter = capturesActor ? 5 : 4;
+        const parameters = capturesActor
+          ? [a.tenantId, id, to, a.userId, body?.version ?? old.version]
+          : [a.tenantId, id, to, body?.version ?? old.version];
         const row = (
           await c.query<any>(
-            `UPDATE staff_timesheets SET state=$3,version=version+1,updated_at=now()${fields} WHERE tenant_id=$1 AND id=$2 AND version=$5 RETURNING *`,
-            [a.tenantId, id, to, a.userId, body?.version ?? old.version],
+            `UPDATE staff_timesheets SET state=$3,version=version+1,updated_at=now()${fields} WHERE tenant_id=$1 AND id=$2 AND version=$${versionParameter} RETURNING *`,
+            parameters,
           )
         ).rows[0];
         if (!row)
@@ -992,6 +1355,244 @@ export class WorkforceService {
           key,
         );
         return this.view(row);
+      },
+    );
+  }
+
+  async applyAdjustment(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    return this.command(
+      a,
+      key,
+      "timesheet.adjustment.apply",
+      { id, ...body },
+      async (c) => {
+        const adjustment = (
+          await c.query<any>(
+            `SELECT r.*,t.staff_id,t.state timesheet_state,t.source_locked_at,t.fingerprint timesheet_fingerprint
+             FROM timesheet_adjustment_requests r
+             JOIN staff_timesheets t ON t.tenant_id=r.tenant_id AND t.id=r.timesheet_id
+             WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE OF r,t`,
+            [a.tenantId, id],
+          )
+        ).rows[0];
+        if (!adjustment)
+          throw new NotFoundException({
+            code: "TIMESHEET_ADJUSTMENT_NOT_FOUND",
+            message: "Adjustment not found",
+          });
+        if (adjustment.state === "APPLIED") {
+          const applied = (
+            await c.query<any>(
+              "SELECT * FROM attendance_correction_events WHERE tenant_id=$1 AND adjustment_id=$2",
+              [a.tenantId, id],
+            )
+          ).rows[0];
+          return {
+            ...this.view(adjustment),
+            correctionEvent: this.view(applied),
+          };
+        }
+        if (adjustment.state !== "APPROVED")
+          throw new ConflictException({
+            code: "TIMESHEET_ADJUSTMENT_STATUS_INVALID",
+            message: "Only an approved adjustment can be applied",
+          });
+        if (
+          adjustment.timesheet_state === "LOCKED" ||
+          adjustment.source_locked_at
+        )
+          throw new ConflictException({
+            code: "TIMESHEET_LOCKED",
+            message: "Timesheet was locked before adjustment apply",
+          });
+        const change = adjustment.requested_change_json ?? {};
+        const sessionId = change.sessionId ? String(change.sessionId) : null;
+        let session: any = null;
+        if (sessionId) {
+          session = (
+            await c.query<any>(
+              "SELECT * FROM attendance_sessions WHERE tenant_id=$1 AND id=$2 AND staff_id=$3 FOR UPDATE",
+              [a.tenantId, sessionId, adjustment.staff_id],
+            )
+          ).rows[0];
+          if (!session)
+            throw new NotFoundException({
+              code: "ATTENDANCE_SESSION_NOT_FOUND",
+              message: "Adjustment target session not found",
+            });
+        }
+        const beforeFingerprint = String(adjustment.timesheet_fingerprint);
+        if (session) {
+          const startedAt = change.startedAt ?? session.started_at;
+          let endedAt = change.endedAt ?? session.ended_at;
+          let branchId = change.branchId ?? session.branch_id;
+          let state = session.state;
+          let regular = BigInt(session.regular_seconds);
+          let overtime = BigInt(session.overtime_seconds);
+          let payable = BigInt(session.payable_seconds);
+          let paidBreak = BigInt(session.paid_break_seconds);
+          let unpaidBreak = BigInt(session.unpaid_break_seconds);
+          if (
+            adjustment.adjustment_type === "ADD_CLOCK_EVENT" ||
+            adjustment.adjustment_type === "REPLACE_CLOCK_EVENT"
+          ) {
+            endedAt = change.occurredAt ?? change.endedAt ?? endedAt;
+            if (!endedAt)
+              throw new ConflictException({
+                code: "TIMESHEET_ADJUSTMENT_INVALID",
+                message: "Corrected clock-out time is required",
+              });
+            state = "ADJUSTED";
+            const elapsed = elapsedSeconds(
+              new Date(startedAt),
+              new Date(endedAt),
+            );
+            payable =
+              change.payableSeconds === undefined
+                ? elapsed > unpaidBreak
+                  ? elapsed - unpaidBreak
+                  : 0n
+                : BigInt(change.payableSeconds);
+            regular =
+              change.regularSeconds === undefined
+                ? payable
+                : BigInt(change.regularSeconds);
+            overtime = BigInt(change.overtimeSeconds ?? 0);
+          } else if (adjustment.adjustment_type === "VOID_CLOCK_EVENT") {
+            state = "VOIDED";
+            regular = overtime = payable = paidBreak = unpaidBreak = 0n;
+          } else if (adjustment.adjustment_type === "CHANGE_PAYABLE_TIME") {
+            payable = BigInt(
+              this.required(change.payableSeconds, "payableSeconds"),
+            );
+            overtime = BigInt(change.overtimeSeconds ?? 0);
+            regular = BigInt(change.regularSeconds ?? payable - overtime);
+            state = "ADJUSTED";
+          } else if (
+            adjustment.adjustment_type === "CHANGE_BRANCH_ATTRIBUTION"
+          ) {
+            branchId = this.required(change.branchId, "branchId");
+            state = "ADJUSTED";
+          } else if (
+            adjustment.adjustment_type === "CHANGE_BREAK_TYPE" ||
+            adjustment.adjustment_type === "ADD_BREAK"
+          ) {
+            const breakSeconds = BigInt(
+              this.required(change.durationSeconds, "durationSeconds"),
+            );
+            const isUnpaid = change.breakType === "UNPAID_MEAL";
+            if (isUnpaid) {
+              unpaidBreak = breakSeconds;
+              payable =
+                elapsedSeconds(new Date(startedAt), new Date(endedAt)) -
+                unpaidBreak;
+            } else paidBreak = breakSeconds;
+            regular = payable > overtime ? payable - overtime : 0n;
+            state = "ADJUSTED";
+          }
+          if (regular < 0n || overtime < 0n || payable < 0n)
+            throw new ConflictException({
+              code: "TIMESHEET_ADJUSTMENT_INVALID",
+              message: "Corrected attendance values cannot be negative",
+            });
+          const sessionFingerprint = deterministicFingerprint({
+            correctionId: id,
+            branchId,
+            startedAt: new Date(startedAt).toISOString(),
+            endedAt: endedAt ? new Date(endedAt).toISOString() : null,
+            regular: regular.toString(),
+            overtime: overtime.toString(),
+            payable: payable.toString(),
+            paidBreak: paidBreak.toString(),
+            unpaidBreak: unpaidBreak.toString(),
+          });
+          await c.query(
+            `UPDATE attendance_sessions SET branch_id=$3,started_at=$4,ended_at=$5,state=$6,
+               regular_seconds=$7,overtime_seconds=$8,payable_seconds=$9,paid_break_seconds=$10,
+               unpaid_break_seconds=$11,fingerprint=$12,version=version+1,updated_at=now()
+             WHERE tenant_id=$1 AND id=$2`,
+            [
+              a.tenantId,
+              session.id,
+              branchId,
+              startedAt,
+              endedAt,
+              state,
+              regular.toString(),
+              overtime.toString(),
+              payable.toString(),
+              paidBreak.toString(),
+              unpaidBreak.toString(),
+              sessionFingerprint,
+            ],
+          );
+        }
+        const rebuilt = await this.rebuildTimesheet(
+          c,
+          a.tenantId,
+          adjustment.timesheet_id,
+        );
+        const correction = (
+          await c.query<any>(
+            `INSERT INTO attendance_correction_events(
+               tenant_id,adjustment_id,timesheet_id,session_id,correction_type,correction_json,
+               before_fingerprint,after_fingerprint,actor_user_id,request_id,idempotency_key_hash
+             ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+            [
+              a.tenantId,
+              id,
+              adjustment.timesheet_id,
+              sessionId,
+              adjustment.adjustment_type,
+              JSON.stringify(change),
+              beforeFingerprint,
+              rebuilt.fingerprint,
+              a.userId,
+              requestId,
+              this.idem.subject(key),
+            ],
+          )
+        ).rows[0];
+        const row = (
+          await c.query<any>(
+            `UPDATE timesheet_adjustment_requests SET state='APPLIED',applied_at=now(),applied_by_user_id=$3,
+               before_fingerprint=$4,after_fingerprint=$5,version=version+1,updated_at=now()
+             WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+            [a.tenantId, id, a.userId, beforeFingerprint, rebuilt.fingerprint],
+          )
+        ).rows[0];
+        await this.adjustmentHistory(
+          c,
+          a,
+          row,
+          "APPROVED",
+          "APPLIED",
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          "timesheet.adjustment_applied",
+          "timesheet_adjustment",
+          id,
+          null,
+          requestId,
+          this.view(adjustment),
+          this.view(row),
+          body?.reason ?? adjustment.reason,
+          key,
+        );
+        return {
+          ...this.view(row),
+          correctionEvent: this.view(correction),
+          timesheet: this.view(rebuilt),
+        };
       },
     );
   }
@@ -1478,6 +2079,21 @@ export class WorkforceService {
   }
   async createRun(a: AccessClaims, body: any, key: string, requestId: string) {
     return this.command(a, key, "payroll.run.create", body, async (c) => {
+      const runType = body?.runType ?? "REGULAR";
+      const correctionOf = body?.correctionOfPayrollRunId ?? null;
+      if (["SUPPLEMENTAL", "CORRECTION"].includes(runType)) {
+        const original = (
+          await c.query<any>(
+            "SELECT id FROM payroll_runs WHERE tenant_id=$1 AND id=$2 AND state='FINALIZED'",
+            [a.tenantId, correctionOf],
+          )
+        ).rows[0];
+        if (!original)
+          throw new ConflictException({
+            code: "PAYROLL_CORRECTION_ORIGINAL_REQUIRED",
+            message: "Supplemental payroll requires a finalized original run",
+          });
+      }
       const period = (
         await c.query<any>(
           "SELECT p.*,c.currency FROM payroll_periods p JOIN payroll_calendars c ON c.tenant_id=p.tenant_id AND c.id=p.calendar_id WHERE p.tenant_id=$1 AND p.id=$2 AND p.state='READY'",
@@ -1491,13 +2107,14 @@ export class WorkforceService {
         });
       const row = (
         await c.query<any>(
-          `INSERT INTO payroll_runs(tenant_id,payroll_period_id,run_type,currency,prepared_by_user_id) VALUES($1,$2,$3,$4,$5) RETURNING *`,
+          `INSERT INTO payroll_runs(tenant_id,payroll_period_id,run_type,currency,prepared_by_user_id,correction_of_payroll_run_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING *`,
           [
             a.tenantId,
             period.id,
-            body?.runType ?? "REGULAR",
+            runType,
             period.currency,
             a.userId,
+            correctionOf,
           ],
         )
       ).rows[0];
@@ -1517,7 +2134,802 @@ export class WorkforceService {
       return this.view(row);
     });
   }
+  async createPayrollCorrection(
+    a: AccessClaims,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    return this.command(
+      a,
+      key,
+      "payroll.correction.create",
+      body,
+      async (c) => {
+        const original = (
+          await c.query<any>(
+            `SELECT s.*,r.state run_state FROM pay_statements s
+           JOIN payroll_runs r ON r.tenant_id=s.tenant_id AND r.id=s.payroll_run_id
+           WHERE s.tenant_id=$1 AND s.id=$2 AND r.id=$3`,
+            [
+              a.tenantId,
+              this.required(body?.originalStatementId, "originalStatementId"),
+              this.required(body?.originalPayrollRunId, "originalPayrollRunId"),
+            ],
+          )
+        ).rows[0];
+        if (!original || original.run_state !== "FINALIZED")
+          throw new ConflictException({
+            code: "PAYROLL_CORRECTION_ORIGINAL_REQUIRED",
+            message: "Correction must reference a finalized pay statement",
+          });
+        const delta = BigInt(this.required(body?.deltaMinor, "deltaMinor"));
+        if (delta === 0n)
+          throw new ConflictException({
+            code: "PAYROLL_CORRECTION_ZERO_DELTA",
+            message: "Correction delta cannot be zero",
+          });
+        if (body?.currency !== original.currency)
+          throw new ConflictException({
+            code: "PAYROLL_CURRENCY_MISMATCH",
+            message: "Correction currency must match original statement",
+          });
+        const reason = this.required(body?.reason, "reason");
+        const fingerprint = deterministicFingerprint({
+          originalPayrollRunId: original.payroll_run_id,
+          originalStatementId: original.id,
+          staffId: original.staff_id,
+          deltaMinor: delta.toString(),
+          currency: original.currency,
+          reason,
+          evidence: redactWorkforceEvidence(body?.evidence ?? {}),
+        });
+        const row = (
+          await c.query<any>(
+            `INSERT INTO payroll_correction_sources(
+             tenant_id,original_payroll_run_id,original_statement_id,staff_id,delta_minor,currency,
+             reason,evidence_json,fingerprint,requested_by_user_id
+           ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+            [
+              a.tenantId,
+              original.payroll_run_id,
+              original.id,
+              original.staff_id,
+              delta.toString(),
+              original.currency,
+              reason,
+              JSON.stringify(redactWorkforceEvidence(body?.evidence ?? {})),
+              fingerprint,
+              a.userId,
+            ],
+          )
+        ).rows[0];
+        await this.emit(
+          c,
+          a,
+          "payroll.correction_created",
+          "payroll_correction",
+          row.id,
+          null,
+          requestId,
+          null,
+          this.view(row),
+          reason,
+          key,
+        );
+        return this.view(row);
+      },
+    );
+  }
+  async payrollCorrectionTransition(
+    a: AccessClaims,
+    id: string,
+    to: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED",
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    return this.command(
+      a,
+      key,
+      `payroll.correction.${to.toLowerCase()}`,
+      { id, to, ...body },
+      async (c) => {
+        const old = (
+          await c.query<any>(
+            "SELECT * FROM payroll_correction_sources WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+            [a.tenantId, id],
+          )
+        ).rows[0];
+        if (!old)
+          throw new NotFoundException({
+            code: "PAYROLL_CORRECTION_NOT_FOUND",
+            message: "Payroll correction not found",
+          });
+        const valid: Record<string, string[]> = {
+          DRAFT: ["PENDING_APPROVAL", "CANCELLED"],
+          PENDING_APPROVAL: ["APPROVED", "REJECTED", "CANCELLED"],
+        };
+        if (!valid[old.state]?.includes(to))
+          throw new ConflictException({
+            code: "PAYROLL_CORRECTION_STATUS_INVALID",
+            message: "Invalid payroll correction transition",
+          });
+        if (to === "APPROVED" && old.requested_by_user_id === a.userId)
+          throw new ForbiddenException({
+            code: "PAYROLL_SELF_APPROVAL_DENIED",
+            message: "Correction requester cannot approve",
+          });
+        const row = (
+          await c.query<any>(
+            `UPDATE payroll_correction_sources SET state=$3,
+               approved_by_user_id=CASE WHEN $3='APPROVED' THEN $4 ELSE approved_by_user_id END,
+               approved_at=CASE WHEN $3='APPROVED' THEN now() ELSE approved_at END,
+               version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+            [a.tenantId, id, to, a.userId],
+          )
+        ).rows[0];
+        await this.emit(
+          c,
+          a,
+          `payroll.correction_${to.toLowerCase()}`,
+          "payroll_correction",
+          id,
+          null,
+          requestId,
+          this.view(old),
+          this.view(row),
+          body?.reason,
+          key,
+        );
+        return this.view(row);
+      },
+    );
+  }
   async calculateRun(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    return this.command(
+      a,
+      key,
+      "payroll.run.calculate.v2",
+      { id, ...body },
+      async (c) => {
+        await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+          `payroll:${a.tenantId}:${id}`,
+        ]);
+        const run = (
+          await c.query<any>(
+            `SELECT r.*,p.starts_on,p.ends_on,p.timesheet_period_id
+             FROM payroll_runs r JOIN payroll_periods p ON p.tenant_id=r.tenant_id AND p.id=r.payroll_period_id
+             WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE OF r`,
+            [a.tenantId, id],
+          )
+        ).rows[0];
+        if (!run)
+          throw new NotFoundException({
+            code: "PAYROLL_RUN_NOT_FOUND",
+            message: "Payroll run not found",
+          });
+        if (
+          ![
+            "DRAFT",
+            "CALCULATED",
+            "FAILED",
+            "PENDING_APPROVAL",
+            "APPROVED",
+          ].includes(run.state)
+        )
+          throw new ConflictException({
+            code: "PAYROLL_RUN_STATUS_INVALID",
+            message: "Finalized payroll cannot be recalculated",
+          });
+
+        const policy = (
+          await c.query<any>(
+            `SELECT v.* FROM workforce_compliance_policies p
+             JOIN workforce_compliance_policy_versions v ON v.tenant_id=p.tenant_id AND v.policy_id=p.id
+             WHERE p.tenant_id=$1 AND p.status='ACTIVE' AND v.legal_review_status='APPROVED'
+               AND v.effective_from<=$2 AND (v.effective_to IS NULL OR v.effective_to>=$3)
+             ORDER BY v.version DESC LIMIT 1`,
+            [a.tenantId, run.ends_on, run.starts_on],
+          )
+        ).rows[0];
+
+        // FK-safe recalculation: children first, then workers; only this run's
+        // unconsumed claims are released.
+        await c.query(
+          "DELETE FROM payroll_deduction_lines d USING payroll_run_workers w WHERE d.tenant_id=$1 AND d.tenant_id=w.tenant_id AND d.payroll_worker_id=w.id AND w.payroll_run_id=$2",
+          [a.tenantId, id],
+        );
+        await c.query(
+          "DELETE FROM payroll_employer_contribution_lines d USING payroll_run_workers w WHERE d.tenant_id=$1 AND d.tenant_id=w.tenant_id AND d.payroll_worker_id=w.id AND w.payroll_run_id=$2",
+          [a.tenantId, id],
+        );
+        await c.query(
+          "DELETE FROM payroll_earning_lines d USING payroll_run_workers w WHERE d.tenant_id=$1 AND d.tenant_id=w.tenant_id AND d.payroll_worker_id=w.id AND w.payroll_run_id=$2",
+          [a.tenantId, id],
+        );
+        await c.query(
+          "DELETE FROM payroll_exceptions WHERE tenant_id=$1 AND payroll_run_id=$2",
+          [a.tenantId, id],
+        );
+        await c.query(
+          "DELETE FROM payroll_source_allocations WHERE tenant_id=$1 AND payroll_run_id=$2 AND state='CLAIMED'",
+          [a.tenantId, id],
+        );
+        await c.query(
+          "UPDATE payroll_correction_sources SET state='APPROVED',claimed_by_payroll_run_id=NULL,updated_at=now() WHERE tenant_id=$1 AND claimed_by_payroll_run_id=$2 AND state='CLAIMED'",
+          [a.tenantId, id],
+        );
+        await c.query(
+          "DELETE FROM payroll_run_workers WHERE tenant_id=$1 AND payroll_run_id=$2",
+          [a.tenantId, id],
+        );
+        if (["PENDING_APPROVAL", "APPROVED"].includes(run.state))
+          await c.query(
+            `INSERT INTO payroll_approval_history(tenant_id,payroll_run_id,decision,actor_user_id,reason,snapshot_json,source_fingerprint)
+             VALUES($1,$2,'CALCULATION_INVALIDATED',$3,'Recalculation invalidated approval',$4,$5)`,
+            [
+              a.tenantId,
+              id,
+              a.userId,
+              JSON.stringify(this.view(run)),
+              run.source_fingerprint ?? "",
+            ],
+          );
+
+        if (!policy) {
+          await c.query(
+            `INSERT INTO payroll_exceptions(tenant_id,payroll_run_id,exception_type,severity,details_json,generation_key)
+             VALUES($1,$2,'MISSING_POLICY','BLOCKING',$3,$4)`,
+            [
+              a.tenantId,
+              id,
+              JSON.stringify({ startsOn: run.starts_on, endsOn: run.ends_on }),
+              `${id}:MISSING_POLICY`,
+            ],
+          );
+          const failed = (
+            await c.query<any>(
+              `UPDATE payroll_runs SET state='FAILED',approved_by_user_id=NULL,blocking_exception_count=1,
+                 gross_pay_minor=0,net_pay_minor=0,worker_count=0,calculation_generation=calculation_generation+1,
+                 source_fingerprint=$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+              [
+                a.tenantId,
+                id,
+                deterministicFingerprint({ runId: id, missingPolicy: true }),
+              ],
+            )
+          ).rows[0];
+          return this.view(failed);
+        }
+
+        const supplemental = ["SUPPLEMENTAL", "CORRECTION"].includes(
+          run.run_type,
+        );
+        const profiles = (
+          await c.query<any>(
+            `SELECT p.* FROM staff_pay_profiles p
+             WHERE p.tenant_id=$1 AND p.status='ACTIVE' AND p.profile_type IS NOT NULL
+               AND (p.effective_from IS NULL OR p.effective_from<=$3)
+               AND (p.effective_to IS NULL OR p.effective_to>=$2)
+               AND (
+                 EXISTS(SELECT 1 FROM staff_timesheets t WHERE t.tenant_id=p.tenant_id AND t.staff_id=p.staff_id AND t.period_id=$4 AND t.state='LOCKED')
+                 OR EXISTS(SELECT 1 FROM commission_entries e WHERE e.tenant_id=p.tenant_id AND e.staff_id=p.staff_id AND e.status='LOCKED' AND e.business_date BETWEEN $2 AND $3)
+                 OR EXISTS(SELECT 1 FROM pos_tip_allocations a JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id AND t.status='ACTIVE' JOIN pos_orders o ON o.tenant_id=t.tenant_id AND o.id=t.pos_order_id AND o.status='PAID' WHERE a.tenant_id=p.tenant_id AND a.staff_id=p.staff_id AND o.paid_at::date BETWEEN $2 AND $3)
+                 OR EXISTS(SELECT 1 FROM payroll_correction_sources x WHERE x.tenant_id=p.tenant_id AND x.staff_id=p.staff_id AND x.state='APPROVED' AND x.original_payroll_run_id=$5)
+               ) ORDER BY p.staff_id`,
+            [
+              a.tenantId,
+              run.starts_on,
+              run.ends_on,
+              run.timesheet_period_id,
+              run.correction_of_payroll_run_id,
+            ],
+          )
+        ).rows;
+        let gross = 0n;
+        let blocking = 0;
+        const workerFingerprints: unknown[] = [];
+        for (const profile of profiles) {
+          const sheet = (
+            await c.query<any>(
+              `SELECT * FROM staff_timesheets WHERE tenant_id=$1 AND period_id=$2 AND staff_id=$3 AND state='LOCKED' FOR SHARE`,
+              [a.tenantId, run.timesheet_period_id, profile.staff_id],
+            )
+          ).rows[0];
+          const worker = (
+            await c.query<any>(
+              `INSERT INTO payroll_run_workers(
+                 tenant_id,payroll_run_id,staff_id,pay_profile_version_json,policy_version_json,
+                 pay_profile_id,policy_version_id,source_fingerprint,gross_pay_minor,net_pay_minor,currency
+               ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,0,0,$9) RETURNING *`,
+              [
+                a.tenantId,
+                id,
+                profile.staff_id,
+                JSON.stringify({
+                  profileId: profile.id,
+                  profileType: profile.profile_type,
+                  version: profile.version,
+                }),
+                JSON.stringify({
+                  id: policy.id,
+                  version: policy.version,
+                  fingerprint: policy.fingerprint,
+                }),
+                profile.id,
+                policy.id,
+                deterministicFingerprint({
+                  profile: profile.id,
+                  policy: policy.fingerprint,
+                }),
+                run.currency,
+              ],
+            )
+          ).rows[0];
+          let workerGross = 0n;
+          let workerBlocking = 0;
+          const sourceEvidence: unknown[] = [];
+          const addException = async (type: string, details: any) => {
+            workerBlocking += 1;
+            blocking += 1;
+            await c.query(
+              `INSERT INTO payroll_exceptions(tenant_id,payroll_run_id,payroll_worker_id,exception_type,severity,details_json,generation_key)
+               VALUES($1,$2,$3,$4,'BLOCKING',$5,$6)`,
+              [
+                a.tenantId,
+                id,
+                worker.id,
+                type,
+                JSON.stringify(details),
+                `${id}:${profile.staff_id}:${type}:${workerBlocking}`,
+              ],
+            );
+          };
+          if (profile.currency !== run.currency)
+            await addException("CURRENCY_MISMATCH", {
+              profileCurrency: profile.currency,
+              runCurrency: run.currency,
+            });
+
+          const hourly = ["HOURLY", "HOURLY_PLUS_COMMISSION"].includes(
+            profile.profile_type,
+          );
+          const commissioned = [
+            "COMMISSION_ONLY",
+            "HOURLY_PLUS_COMMISSION",
+            "SALARY_PLUS_COMMISSION",
+          ].includes(profile.profile_type);
+          const salaried = ["SALARY", "SALARY_PLUS_COMMISSION"].includes(
+            profile.profile_type,
+          );
+
+          if (!supplemental && hourly) {
+            if (!sheet) await addException("MISSING_TIMESHEET", {});
+            else {
+              const days = (
+                await c.query<any>(
+                  `SELECT * FROM timesheet_day_entries WHERE tenant_id=$1 AND timesheet_id=$2 ORDER BY local_date,branch_id`,
+                  [a.tenantId, sheet.id],
+                )
+              ).rows;
+              for (const day of days) {
+                const rate = (
+                  await c.query<any>(
+                    `SELECT * FROM staff_pay_rate_versions
+                     WHERE tenant_id=$1 AND pay_profile_id=$2 AND component_type='REGULAR_HOURLY_RATE'
+                       AND status='ACTIVE' AND (branch_id=$3 OR branch_id IS NULL)
+                       AND effective_from<=$4 AND (effective_to IS NULL OR effective_to>=$4)
+                     ORDER BY (branch_id=$3) DESC NULLS LAST,effective_from DESC,version DESC LIMIT 1`,
+                    [a.tenantId, profile.id, day.branch_id, day.local_date],
+                  )
+                ).rows[0];
+                if (!rate) {
+                  await addException("MISSING_PAY_RATE", {
+                    branchId: day.branch_id,
+                    localDate: day.local_date,
+                    componentType: "REGULAR_HOURLY_RATE",
+                  });
+                  continue;
+                }
+                if (rate.currency !== run.currency) {
+                  await addException("CURRENCY_MISMATCH", {
+                    rateId: rate.id,
+                    rateCurrency: rate.currency,
+                  });
+                  continue;
+                }
+                const regularAmount = calculateHourlyMinor(
+                  BigInt(day.regular_seconds),
+                  BigInt(rate.amount_minor),
+                );
+                if (BigInt(day.regular_seconds) > 0n)
+                  await c.query(
+                    `INSERT INTO payroll_earning_lines(
+                       tenant_id,payroll_worker_id,earning_type,quantity_seconds,rate_minor,amount_minor,currency,
+                       source_type,source_id,source_fingerprint,pay_rate_version_id,branch_id,metadata_json
+                     ) VALUES($1,$2,'REGULAR_HOURS',$3,$4,$5,$6,'LOCKED_TIMESHEET',$7,$8,$9,$10,$11)`,
+                    [
+                      a.tenantId,
+                      worker.id,
+                      day.regular_seconds,
+                      rate.amount_minor,
+                      regularAmount.toString(),
+                      run.currency,
+                      sheet.id,
+                      sheet.fingerprint,
+                      rate.id,
+                      day.branch_id,
+                      JSON.stringify({
+                        localDate: day.local_date,
+                        rateId: rate.id,
+                      }),
+                    ],
+                  );
+                workerGross += regularAmount;
+                if (BigInt(day.overtime_seconds) > 0n) {
+                  const multiplier = (
+                    await c.query<any>(
+                      `SELECT * FROM staff_pay_rate_versions
+                       WHERE tenant_id=$1 AND pay_profile_id=$2 AND component_type='OVERTIME_MULTIPLIER'
+                         AND status='ACTIVE' AND (branch_id=$3 OR branch_id IS NULL)
+                         AND effective_from<=$4 AND (effective_to IS NULL OR effective_to>=$4)
+                       ORDER BY (branch_id=$3) DESC NULLS LAST,effective_from DESC,version DESC LIMIT 1`,
+                      [a.tenantId, profile.id, day.branch_id, day.local_date],
+                    )
+                  ).rows[0];
+                  const numerator = BigInt(
+                    multiplier?.multiplier_numerator ??
+                      policy.daily_overtime_rules_json?.multiplierNumerator ??
+                      0,
+                  );
+                  const denominator = BigInt(
+                    multiplier?.multiplier_denominator ??
+                      policy.daily_overtime_rules_json?.multiplierDenominator ??
+                      0,
+                  );
+                  if (numerator <= 0n || denominator <= 0n) {
+                    await addException("MISSING_PAY_RATE", {
+                      branchId: day.branch_id,
+                      localDate: day.local_date,
+                      componentType: "OVERTIME_MULTIPLIER",
+                    });
+                  } else {
+                    const overtimeAmount = calculateHourlyMinor(
+                      BigInt(day.overtime_seconds),
+                      BigInt(rate.amount_minor),
+                      numerator,
+                      denominator,
+                    );
+                    await c.query(
+                      `INSERT INTO payroll_earning_lines(
+                         tenant_id,payroll_worker_id,earning_type,quantity_seconds,rate_minor,multiplier_numerator,multiplier_denominator,
+                         amount_minor,currency,source_type,source_id,source_fingerprint,pay_rate_version_id,branch_id,metadata_json
+                       ) VALUES($1,$2,'OVERTIME',$3,$4,$5,$6,$7,$8,'LOCKED_TIMESHEET',$9,$10,$11,$12,$13)`,
+                      [
+                        a.tenantId,
+                        worker.id,
+                        day.overtime_seconds,
+                        rate.amount_minor,
+                        numerator.toString(),
+                        denominator.toString(),
+                        overtimeAmount.toString(),
+                        run.currency,
+                        sheet.id,
+                        sheet.fingerprint,
+                        multiplier?.id ?? rate.id,
+                        day.branch_id,
+                        JSON.stringify({
+                          localDate: day.local_date,
+                          baseRateId: rate.id,
+                          multiplierRateId: multiplier?.id ?? null,
+                          policyVersionId: policy.id,
+                        }),
+                      ],
+                    );
+                    workerGross += overtimeAmount;
+                  }
+                }
+              }
+              const currentHourly = workerGross;
+              await c.query(
+                `INSERT INTO payroll_source_allocations(
+                   tenant_id,payroll_run_id,payroll_worker_id,source_type,source_id,earning_usage_key,source_fingerprint,allocated_minor,currency
+                 ) VALUES($1,$2,$3,'LOCKED_TIMESHEET',$4,'PAYABLE_TIME',$5,$6,$7)`,
+                [
+                  a.tenantId,
+                  id,
+                  worker.id,
+                  sheet.id,
+                  sheet.fingerprint,
+                  currentHourly.toString(),
+                  run.currency,
+                ],
+              );
+              sourceEvidence.push({
+                type: "TIMESHEET",
+                id: sheet.id,
+                fingerprint: sheet.fingerprint,
+              });
+            }
+          }
+
+          if (!supplemental && salaried) {
+            const salary = (
+              await c.query<any>(
+                `SELECT * FROM staff_pay_rate_versions WHERE tenant_id=$1 AND pay_profile_id=$2
+                   AND component_type='SALARY_PERIOD_AMOUNT' AND status='ACTIVE' AND branch_id IS NULL
+                   AND effective_from<=$3 AND (effective_to IS NULL OR effective_to>=$3)
+                 ORDER BY effective_from DESC,version DESC LIMIT 1`,
+                [a.tenantId, profile.id, run.ends_on],
+              )
+            ).rows[0];
+            if (!salary)
+              await addException("MISSING_PAY_RATE", {
+                componentType: "SALARY_PERIOD_AMOUNT",
+              });
+            else if (salary.currency !== run.currency)
+              await addException("CURRENCY_MISMATCH", { rateId: salary.id });
+            else {
+              const salaryAmount = BigInt(salary.amount_minor);
+              await c.query(
+                `INSERT INTO payroll_earning_lines(tenant_id,payroll_worker_id,earning_type,rate_minor,amount_minor,currency,pay_rate_version_id,metadata_json)
+                 VALUES($1,$2,'SALARY',$3,$3,$4,$5,$6)`,
+                [
+                  a.tenantId,
+                  worker.id,
+                  salaryAmount.toString(),
+                  run.currency,
+                  salary.id,
+                  JSON.stringify({ rateId: salary.id }),
+                ],
+              );
+              workerGross += salaryAmount;
+              sourceEvidence.push({ type: "SALARY", rateId: salary.id });
+            }
+          }
+
+          if (!supplemental && commissioned) {
+            const commissions = (
+              await c.query<any>(
+                `SELECT id,commission_minor,currency,generation_key FROM commission_entries
+                 WHERE tenant_id=$1 AND staff_id=$2 AND status='LOCKED' AND business_date BETWEEN $3 AND $4 ORDER BY id FOR SHARE`,
+                [a.tenantId, profile.staff_id, run.starts_on, run.ends_on],
+              )
+            ).rows;
+            for (const source of commissions) {
+              if (source.currency !== run.currency) {
+                await addException("CURRENCY_MISMATCH", {
+                  sourceId: source.id,
+                });
+                continue;
+              }
+              const amount = BigInt(source.commission_minor);
+              await c.query(
+                `INSERT INTO payroll_earning_lines(tenant_id,payroll_worker_id,earning_type,amount_minor,currency,source_type,source_id,source_fingerprint)
+                 VALUES($1,$2,'SERVICE_COMMISSION',$3,$4,'LOCKED_COMMISSION_ENTRIES',$5,$6)`,
+                [
+                  a.tenantId,
+                  worker.id,
+                  amount.toString(),
+                  run.currency,
+                  source.id,
+                  source.generation_key,
+                ],
+              );
+              await c.query(
+                `INSERT INTO payroll_source_allocations(tenant_id,payroll_run_id,payroll_worker_id,source_type,source_id,earning_usage_key,source_fingerprint,allocated_minor,currency)
+                 VALUES($1,$2,$3,'LOCKED_COMMISSION_ENTRIES',$4,'COMMISSION_NET',$5,$6,$7)`,
+                [
+                  a.tenantId,
+                  id,
+                  worker.id,
+                  source.id,
+                  source.generation_key,
+                  amount.toString(),
+                  run.currency,
+                ],
+              );
+              workerGross += amount;
+              sourceEvidence.push({
+                type: "COMMISSION",
+                id: source.id,
+                fingerprint: source.generation_key,
+              });
+            }
+            const tips = (
+              await c.query<any>(
+                `SELECT a.id,a.amount_minor,t.currency FROM pos_tip_allocations a
+                 JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id AND t.status='ACTIVE'
+                 JOIN pos_orders o ON o.tenant_id=t.tenant_id AND o.id=t.pos_order_id AND o.status='PAID'
+                 WHERE a.tenant_id=$1 AND a.staff_id=$2 AND o.paid_at::date BETWEEN $3 AND $4 ORDER BY a.id FOR SHARE OF a`,
+                [a.tenantId, profile.staff_id, run.starts_on, run.ends_on],
+              )
+            ).rows;
+            for (const source of tips) {
+              if (source.currency !== run.currency) {
+                await addException("CURRENCY_MISMATCH", {
+                  sourceId: source.id,
+                });
+                continue;
+              }
+              const amount = BigInt(source.amount_minor);
+              await c.query(
+                `INSERT INTO payroll_earning_lines(tenant_id,payroll_worker_id,earning_type,amount_minor,currency,source_type,source_id,source_fingerprint)
+                 VALUES($1,$2,'TIP',$3,$4,'LOCKED_TIP_ALLOCATIONS',$5,$6)`,
+                [
+                  a.tenantId,
+                  worker.id,
+                  amount.toString(),
+                  run.currency,
+                  source.id,
+                  `tip:${source.id}`,
+                ],
+              );
+              await c.query(
+                `INSERT INTO payroll_source_allocations(tenant_id,payroll_run_id,payroll_worker_id,source_type,source_id,earning_usage_key,source_fingerprint,allocated_minor,currency)
+                 VALUES($1,$2,$3,'LOCKED_TIP_ALLOCATIONS',$4,'SETTLED_TIP',$5,$6,$7)`,
+                [
+                  a.tenantId,
+                  id,
+                  worker.id,
+                  source.id,
+                  `tip:${source.id}`,
+                  amount.toString(),
+                  run.currency,
+                ],
+              );
+              workerGross += amount;
+              sourceEvidence.push({ type: "TIP", id: source.id });
+            }
+          }
+
+          if (supplemental) {
+            const corrections = (
+              await c.query<any>(
+                `SELECT * FROM payroll_correction_sources WHERE tenant_id=$1 AND staff_id=$2
+                   AND original_payroll_run_id=$3 AND state='APPROVED' ORDER BY id FOR UPDATE`,
+                [
+                  a.tenantId,
+                  profile.staff_id,
+                  run.correction_of_payroll_run_id,
+                ],
+              )
+            ).rows;
+            for (const source of corrections) {
+              if (
+                source.currency !== run.currency ||
+                BigInt(source.delta_minor) < 0n
+              ) {
+                await addException(
+                  source.currency !== run.currency
+                    ? "CURRENCY_MISMATCH"
+                    : "NEGATIVE_NET_PAY",
+                  { correctionSourceId: source.id },
+                );
+                continue;
+              }
+              const amount = BigInt(source.delta_minor);
+              await c.query(
+                `INSERT INTO payroll_earning_lines(tenant_id,payroll_worker_id,earning_type,amount_minor,currency,source_type,source_id,source_fingerprint,metadata_json)
+                 VALUES($1,$2,'CORRECTION',$3,$4,'PRIOR_RUN_CORRECTIONS',$5,$6,$7)`,
+                [
+                  a.tenantId,
+                  worker.id,
+                  amount.toString(),
+                  run.currency,
+                  source.id,
+                  source.fingerprint,
+                  JSON.stringify({
+                    originalStatementId: source.original_statement_id,
+                  }),
+                ],
+              );
+              await c.query(
+                `INSERT INTO payroll_source_allocations(tenant_id,payroll_run_id,payroll_worker_id,source_type,source_id,earning_usage_key,source_fingerprint,allocated_minor,currency)
+                 VALUES($1,$2,$3,'PRIOR_RUN_CORRECTIONS',$4,'CORRECTION_DELTA',$5,$6,$7)`,
+                [
+                  a.tenantId,
+                  id,
+                  worker.id,
+                  source.id,
+                  source.fingerprint,
+                  amount.toString(),
+                  run.currency,
+                ],
+              );
+              await c.query(
+                "UPDATE payroll_correction_sources SET state='CLAIMED',claimed_by_payroll_run_id=$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+                [a.tenantId, source.id, id],
+              );
+              workerGross += amount;
+              sourceEvidence.push({
+                type: "CORRECTION",
+                id: source.id,
+                fingerprint: source.fingerprint,
+              });
+            }
+          }
+
+          const workerFingerprint = deterministicFingerprint({
+            profile: { id: profile.id, version: profile.version },
+            policy: policy.fingerprint,
+            sources: sourceEvidence,
+            gross: workerGross.toString(),
+          });
+          await c.query(
+            `UPDATE payroll_run_workers SET gross_pay_minor=$3,net_pay_minor=$3,source_fingerprint=$4,
+               state=CASE WHEN $5::integer>0 THEN 'EXCEPTION' ELSE 'CALCULATED' END,updated_at=now()
+             WHERE tenant_id=$1 AND id=$2`,
+            [
+              a.tenantId,
+              worker.id,
+              workerGross.toString(),
+              workerFingerprint,
+              workerBlocking,
+            ],
+          );
+          workerFingerprints.push({
+            id: worker.id,
+            fingerprint: workerFingerprint,
+          });
+          gross += workerGross;
+        }
+        const allocations = (
+          await c.query<any>(
+            `SELECT source_type,source_id,earning_usage_key,source_fingerprint,allocated_minor,currency
+             FROM payroll_source_allocations WHERE tenant_id=$1 AND payroll_run_id=$2 ORDER BY source_type,source_id,earning_usage_key`,
+            [a.tenantId, id],
+          )
+        ).rows;
+        const fingerprint = deterministicFingerprint({
+          runId: id,
+          generation: Number(run.calculation_generation) + 1,
+          policy: policy.fingerprint,
+          workers: workerFingerprints,
+          allocations,
+        });
+        const row = (
+          await c.query<any>(
+            `UPDATE payroll_runs SET state='CALCULATED',source_fingerprint=$3,gross_pay_minor=$4,net_pay_minor=$4,
+               worker_count=$5,blocking_exception_count=$6,approved_by_user_id=NULL,
+               calculation_generation=calculation_generation+1,version=version+1,updated_at=now()
+             WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+            [
+              a.tenantId,
+              id,
+              fingerprint,
+              gross.toString(),
+              profiles.length,
+              blocking,
+            ],
+          )
+        ).rows[0];
+        await this.emit(
+          c,
+          a,
+          "payroll.calculated",
+          "payroll_run",
+          id,
+          null,
+          requestId,
+          this.view(run),
+          this.view(row),
+          undefined,
+          key,
+        );
+        return this.view(row);
+      },
+    );
+  }
+
+  async calculateRunLegacy(
     a: AccessClaims,
     id: string,
     body: any,
@@ -1845,7 +3257,10 @@ export class WorkforceService {
             code: "PAYROLL_SELF_FINALIZATION_DENIED",
             message: "Independent finalizer required",
           });
-        if (to === "FINALIZED" && Number(old.blocking_exception_count) > 0)
+        if (
+          (to === "PENDING_APPROVAL" || to === "FINALIZED") &&
+          Number(old.blocking_exception_count) > 0
+        )
           throw new ConflictException({
             code: "PAYROLL_BLOCKING_EXCEPTION",
             message: "Blocking exceptions remain",
@@ -1889,7 +3304,8 @@ export class WorkforceService {
                WHERE s.tenant_id=$1 AND s.payroll_run_id=$2 AND s.state='CLAIMED' AND (
                  (s.source_type='LOCKED_TIMESHEET' AND NOT EXISTS(SELECT 1 FROM staff_timesheets t WHERE t.tenant_id=s.tenant_id AND t.id=s.source_id AND t.state='LOCKED' AND t.fingerprint=s.source_fingerprint)) OR
                  (s.source_type='LOCKED_COMMISSION_ENTRIES' AND NOT EXISTS(SELECT 1 FROM commission_entries e WHERE e.tenant_id=s.tenant_id AND e.id=s.source_id AND e.status='LOCKED' AND e.generation_key=s.source_fingerprint AND e.commission_minor=s.allocated_minor)) OR
-                 (s.source_type='LOCKED_TIP_ALLOCATIONS' AND NOT EXISTS(SELECT 1 FROM pos_tip_allocations a JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id AND t.status='ACTIVE' JOIN pos_orders o ON o.tenant_id=t.tenant_id AND o.id=t.pos_order_id AND o.status='PAID' WHERE a.tenant_id=s.tenant_id AND a.id=s.source_id AND a.amount_minor=s.allocated_minor))
+                 (s.source_type='LOCKED_TIP_ALLOCATIONS' AND NOT EXISTS(SELECT 1 FROM pos_tip_allocations a JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id AND t.status='ACTIVE' JOIN pos_orders o ON o.tenant_id=t.tenant_id AND o.id=t.pos_order_id AND o.status='PAID' WHERE a.tenant_id=s.tenant_id AND a.id=s.source_id AND a.amount_minor=s.allocated_minor)) OR
+                 (s.source_type='PRIOR_RUN_CORRECTIONS' AND NOT EXISTS(SELECT 1 FROM payroll_correction_sources x WHERE x.tenant_id=s.tenant_id AND x.id=s.source_id AND x.state='CLAIMED' AND x.claimed_by_payroll_run_id=s.payroll_run_id AND x.fingerprint=s.source_fingerprint AND x.delta_minor=s.allocated_minor))
                )`,
               [a.tenantId, id],
             )
@@ -1899,6 +3315,17 @@ export class WorkforceService {
               code: "PAYROLL_SOURCE_FINGERPRINT_CHANGED",
               message: "A payroll source changed after calculation",
             });
+          // Consume claims while the run is still APPROVED. Once the run is
+          // FINALIZED, the database immutability trigger correctly rejects any
+          // mutation of its source-allocation evidence.
+          await c.query(
+            "UPDATE payroll_source_allocations SET state='CONSUMED',consumed_at=now() WHERE tenant_id=$1 AND payroll_run_id=$2 AND state='CLAIMED'",
+            [a.tenantId, id],
+          );
+          await c.query(
+            "UPDATE payroll_correction_sources SET state='CONSUMED',consumed_at=now(),updated_at=now() WHERE tenant_id=$1 AND claimed_by_payroll_run_id=$2 AND state='CLAIMED'",
+            [a.tenantId, id],
+          );
         }
         const row = (
           await c.query<any>(
@@ -1940,15 +3367,16 @@ export class WorkforceService {
             ],
           );
           await c.query(
-            "UPDATE payroll_source_allocations SET state='CONSUMED',consumed_at=now() WHERE tenant_id=$1 AND payroll_run_id=$2 AND state='CLAIMED'",
-            [a.tenantId, id],
-          );
-          await c.query(
             "UPDATE payroll_run_workers SET state='FINALIZED',updated_at=now() WHERE tenant_id=$1 AND payroll_run_id=$2",
             [a.tenantId, id],
           );
           await c.query(
-            `INSERT INTO pay_statements(tenant_id,payroll_run_id,payroll_worker_id,staff_id,employer_snapshot_json,statement_json,net_pay_minor,currency) SELECT w.tenant_id,w.payroll_run_id,w.id,w.staff_id,jsonb_build_object('tenantId',w.tenant_id),jsonb_build_object('grossPayMinor',w.gross_pay_minor::text,'deductionMinor',w.deduction_minor::text,'withholdingMinor',w.withholding_minor::text,'netPayMinor',w.net_pay_minor::text,'currency',w.currency),w.net_pay_minor,w.currency FROM payroll_run_workers w WHERE w.tenant_id=$1 AND w.payroll_run_id=$2 ON CONFLICT DO NOTHING`,
+            `INSERT INTO pay_statements(tenant_id,payroll_run_id,payroll_worker_id,staff_id,employer_snapshot_json,statement_json,net_pay_minor,currency,correction_of_statement_id)
+             SELECT w.tenant_id,w.payroll_run_id,w.id,w.staff_id,jsonb_build_object('tenantId',w.tenant_id),
+               jsonb_build_object('grossPayMinor',w.gross_pay_minor::text,'deductionMinor',w.deduction_minor::text,'withholdingMinor',w.withholding_minor::text,'netPayMinor',w.net_pay_minor::text,'currency',w.currency),
+               w.net_pay_minor,w.currency,
+               (SELECT x.original_statement_id FROM payroll_correction_sources x WHERE x.tenant_id=w.tenant_id AND x.claimed_by_payroll_run_id=w.payroll_run_id AND x.staff_id=w.staff_id ORDER BY x.id LIMIT 1)
+             FROM payroll_run_workers w WHERE w.tenant_id=$1 AND w.payroll_run_id=$2 ON CONFLICT DO NOTHING`,
             [a.tenantId, id],
           );
           await c.query(
@@ -2003,10 +3431,20 @@ export class WorkforceService {
           code: "PAYOUT_ITEM_ALREADY_PAID",
           message: "No unpaid statements",
         });
-      const total = statements.reduce(
-        (n: number, s: any) => n + Number(s.net_pay_minor),
-        0,
-      );
+      if (
+        statements.some((statement: any) => statement.currency !== run.currency)
+      )
+        throw new ConflictException({
+          code: "PAYOUT_CURRENCY_MISMATCH",
+          message: "All payout statements must use the run currency",
+        });
+      const total = (
+        await c.query<{ total: string }>(
+          `SELECT COALESCE(sum(net_pay_minor),0)::text total FROM pay_statements
+           WHERE tenant_id=$1 AND payroll_run_id=$2 AND payment_status='UNPAID'`,
+          [a.tenantId, run.id],
+        )
+      ).rows[0]!.total;
       const batch = (
         await c.query<any>(
           `INSERT INTO payout_batches(tenant_id,payroll_run_id,method,provider_code,currency,total_minor,item_count,requested_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
@@ -2016,13 +3454,27 @@ export class WorkforceService {
             this.required(body?.method, "method"),
             body?.providerCode ?? null,
             run.currency,
-            String(total),
+            total,
             statements.length,
             a.userId,
           ],
         )
       ).rows[0];
-      for (const s of statements)
+      for (const s of statements) {
+        const requestedMethod = body?.paymentMethods?.[s.staff_id] ?? null;
+        const paymentMethod = (
+          await c.query<any>(
+            `SELECT * FROM staff_payment_methods WHERE tenant_id=$1 AND staff_id=$2 AND status='ACTIVE'
+               AND method_type=$3 AND ($4::uuid IS NULL OR id=$4)
+             ORDER BY (id=$4::uuid) DESC,is_primary DESC,created_at LIMIT 1`,
+            [a.tenantId, s.staff_id, batch.method, requestedMethod],
+          )
+        ).rows[0];
+        if (!paymentMethod)
+          throw new ConflictException({
+            code: "PAYOUT_METHOD_MISSING",
+            message: `Active ${batch.method} payment method missing for payout staff`,
+          });
         await c.query(
           `INSERT INTO payout_items(tenant_id,batch_id,pay_statement_id,staff_id,payment_method_id,requested_minor,currency) VALUES($1,$2,$3,$4,$5,$6,$7)`,
           [
@@ -2030,11 +3482,12 @@ export class WorkforceService {
             batch.id,
             s.id,
             s.staff_id,
-            body?.paymentMethodId ?? null,
+            paymentMethod.id,
             s.net_pay_minor,
             s.currency,
           ],
         );
+      }
       await this.emit(
         c,
         a,
@@ -2146,7 +3599,11 @@ export class WorkforceService {
       async (c) => {
         const item = (
           await c.query<any>(
-            `SELECT i.*,b.method FROM payout_items i JOIN payout_batches b ON b.tenant_id=i.tenant_id AND b.id=i.batch_id WHERE i.tenant_id=$1 AND i.id=$2 FOR UPDATE OF i`,
+            `SELECT i.*,b.method,b.state batch_state,b.requested_by_user_id,b.approved_by_user_id,
+                    m.method_type,m.staff_id method_staff_id,m.status method_status
+             FROM payout_items i JOIN payout_batches b ON b.tenant_id=i.tenant_id AND b.id=i.batch_id
+             LEFT JOIN staff_payment_methods m ON m.tenant_id=i.tenant_id AND m.id=i.payment_method_id
+             WHERE i.tenant_id=$1 AND i.id=$2 FOR UPDATE OF i,b`,
             [a.tenantId, itemId],
           )
         ).rows[0];
@@ -2160,19 +3617,73 @@ export class WorkforceService {
             code: "PAYOUT_ITEM_ALREADY_PAID",
             message: "Payout already paid",
           });
+        if (
+          !["APPROVED", "PROCESSING", "PARTIALLY_PAID"].includes(
+            item.batch_state,
+          )
+        )
+          throw new ConflictException({
+            code: "PAYOUT_BATCH_NOT_APPROVED",
+            message: "Manual payout requires an approved batch",
+          });
+        if (!["PENDING", "PROCESSING", "FAILED"].includes(item.state))
+          throw new ConflictException({
+            code: "PAYOUT_ITEM_STATUS_INVALID",
+            message: "Payout item cannot be manually recorded",
+          });
+        if (
+          !item.payment_method_id ||
+          item.method_status !== "ACTIVE" ||
+          item.method_staff_id !== item.staff_id ||
+          item.method_type !== item.method ||
+          item.method === "EXTERNAL_PAYROLL_PROVIDER"
+        )
+          throw new ConflictException({
+            code: "PAYOUT_PAYMENT_METHOD_INVALID",
+            message: "Staff-owned manual-compatible payment method required",
+          });
+        if (
+          item.requested_by_user_id === a.userId ||
+          item.approved_by_user_id === a.userId
+        )
+          throw new ForbiddenException({
+            code: "PAYOUT_DUAL_CONTROL_REQUIRED",
+            message: "Requester or approver cannot record manual payout",
+          });
         if (!body?.evidence || !body?.externalReference)
           throw new ConflictException({
             code: "PAYOUT_EVIDENCE_REQUIRED",
             message: "Approved payment evidence required",
           });
+        if (
+          String(body?.confirmedMinor) !== String(item.requested_minor) ||
+          body?.currency !== item.currency
+        )
+          throw new ConflictException({
+            code: "PAYOUT_AMOUNT_MISMATCH",
+            message:
+              "Evidence amount and currency must exactly match payout item",
+          });
+        const evidence = redactWorkforceEvidence(body.evidence);
+        const evidenceHash = deterministicFingerprint({
+          reference: String(body.externalReference),
+          amountMinor: String(body.confirmedMinor),
+          currency: body.currency,
+          evidence,
+        });
         const row = (
           await c.query<any>(
-            `UPDATE payout_items SET state='PAID',confirmed_minor=requested_minor,provider_reference=$3,manual_evidence_json=$4,paid_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+            `UPDATE payout_items SET state='PAID',confirmed_minor=requested_minor,provider_reference=$3,
+               manual_evidence_json=$4,manual_evidence_hash=$5,manual_recorded_by_user_id=$6,
+               paid_at=now(),failure_code=NULL,version=version+1,updated_at=now()
+             WHERE tenant_id=$1 AND id=$2 RETURNING *`,
             [
               a.tenantId,
               itemId,
               String(body.externalReference),
-              JSON.stringify(redactWorkforceEvidence(body.evidence)),
+              JSON.stringify(evidence),
+              evidenceHash,
+              a.userId,
             ],
           )
         ).rows[0];
@@ -2216,6 +3727,121 @@ export class WorkforceService {
         return this.view(row);
       },
     );
+  }
+  async recordPayoutProviderEvent(
+    a: AccessClaims,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    return this.command(a, key, "payout.provider-event", body, async (c) => {
+      const providerCode = this.required(body?.providerCode, "providerCode");
+      const providerEventId = this.required(
+        body?.providerEventId,
+        "providerEventId",
+      );
+      const outcome = this.required(body?.outcome, "outcome");
+      if (!["CONFIRMED", "FAILED", "UNKNOWN"].includes(outcome))
+        throw new ConflictException({
+          code: "PAYOUT_PROVIDER_EVENT_INVALID",
+          message: "Unsupported payout provider outcome",
+        });
+      const providerKey = this.required(
+        body?.providerRequestKey,
+        "providerRequestKey",
+      );
+      const event = (
+        await c.query<any>(
+          `INSERT INTO payout_provider_events(
+             tenant_id,provider_code,provider_event_id,event_type,payload_hash,signature_verified,safe_payload_json
+           ) VALUES($1,$2,$3,$4,$5,true,$6)
+           ON CONFLICT(tenant_id,provider_code,provider_event_id) DO UPDATE SET provider_event_id=EXCLUDED.provider_event_id
+           RETURNING *`,
+          [
+            a.tenantId,
+            providerCode,
+            providerEventId,
+            outcome,
+            deterministicFingerprint(body),
+            JSON.stringify(
+              redactWorkforceEvidence({
+                providerRequestKey: providerKey,
+                outcome,
+                providerReference: body?.providerReference ?? null,
+              }),
+            ),
+          ],
+        )
+      ).rows[0];
+      if (event.processed_at) return { ...this.view(event), duplicate: true };
+      const item = (
+        await c.query<any>(
+          "SELECT * FROM payout_items WHERE tenant_id=$1 AND provider_request_key=$2 FOR UPDATE",
+          [a.tenantId, providerKey],
+        )
+      ).rows[0];
+      if (!item)
+        throw new NotFoundException({
+          code: "PAYOUT_ITEM_NOT_FOUND",
+          message: "Provider event payout item not found",
+        });
+      if (item.state !== "PAID") {
+        if (outcome === "CONFIRMED") {
+          const reference = this.required(
+            body?.providerReference,
+            "providerReference",
+          );
+          await c.query(
+            `UPDATE payout_attempts SET state='CONFIRMED',provider_reference=$3,completed_at=now()
+             WHERE tenant_id=$1 AND payout_item_id=$2 AND state IN('SUBMITTED','UNKNOWN')`,
+            [a.tenantId, item.id, reference],
+          );
+          await c.query(
+            `UPDATE payout_items SET state='PAID',confirmed_minor=requested_minor,provider_reference=$3,
+               paid_at=now(),failure_code=NULL,unknown_since=NULL,version=version+1,updated_at=now()
+             WHERE tenant_id=$1 AND id=$2`,
+            [a.tenantId, item.id, reference],
+          );
+          await c.query(
+            "UPDATE pay_statements SET payment_status='PAID' WHERE tenant_id=$1 AND id=$2",
+            [a.tenantId, item.pay_statement_id],
+          );
+        } else if (outcome === "FAILED") {
+          await c.query(
+            `UPDATE payout_attempts SET state='FAILED',error_code='PROVIDER_CONFIRMED_FAILED',completed_at=now()
+             WHERE tenant_id=$1 AND payout_item_id=$2 AND state IN('SUBMITTED','UNKNOWN')`,
+            [a.tenantId, item.id],
+          );
+          await c.query(
+            "UPDATE payout_items SET state='FAILED',failure_code='PROVIDER_CONFIRMED_FAILED',unknown_since=NULL,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+            [a.tenantId, item.id],
+          );
+        } else {
+          await c.query(
+            "UPDATE payout_items SET state='MANUAL_REVIEW',failure_code='PROVIDER_OUTCOME_REQUIRES_REVIEW',unknown_since=COALESCE(unknown_since,now()),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2",
+            [a.tenantId, item.id],
+          );
+        }
+      }
+      await c.query(
+        "UPDATE payout_provider_events SET processed_at=now() WHERE tenant_id=$1 AND id=$2",
+        [a.tenantId, event.id],
+      );
+      await this.emit(
+        c,
+        a,
+        "payout.provider_event_reconciled",
+        "payout_item",
+        item.id,
+        null,
+        requestId,
+        this.view(item),
+        { outcome },
+        undefined,
+        key,
+      );
+      return { ...this.view(event), payoutItemId: item.id, outcome };
+    });
   }
   async timesheetPeriodTransition(
     a: AccessClaims,

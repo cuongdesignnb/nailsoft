@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.14.0,
+    version: 0.14.1,
     description: Sprint 12 time clock attendance timesheet workforce compliance deterministic payroll pay statements payout and reconciliation plus Sprint 11 closure-hardened email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
     supplier and purchase operations plus Sprint 8 voucher,
     loyalty,
@@ -121,6 +121,21 @@ paths:
         parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
         responses: { "200": { description: Draft adjustment request } },
       }
+  /timesheet-adjustments/{adjustmentId}/apply:
+    post:
+      tags: [timesheet]
+      summary: Apply an independently approved adjustment as an immutable correction overlay
+      parameters:
+        - {
+            name: adjustmentId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200": { description: Applied adjustment and rebuilt projection }
+        "409": { description: Invalid state, stale version, or payroll-locked source }
   /workforce-compliance/policies/{policyId}/versions/{versionId}/activate:
     post:
       parameters:
@@ -161,6 +176,44 @@ paths:
           "200": { description: Deterministic calculation },
           "409": { description: Policy rate source or currency conflict },
         }
+  /payroll/runs/{runId}/recalculate:
+    post:
+      tags: [payroll]
+      summary: Replace draft calculation children in FK-safe order
+      parameters:
+        - {
+            name: runId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200": { description: Recalculated run with incremented generation }
+        "409": { description: Finalized run or changed source rejected }
+  /payroll/corrections:
+    post:
+      tags: [payroll]
+      summary: Create an immutable prior-run correction source
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      responses:
+        "200": { description: Draft correction source }
+        "409": { description: Invalid original statement, amount, or currency }
+  /payroll/corrections/{correctionId}/approve:
+    post:
+      tags: [payroll]
+      summary: Independently approve a supplemental correction source
+      parameters:
+        - {
+            name: correctionId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200": { description: Approved correction source }
+        "403": { description: Self approval denied }
   /payroll/runs/{runId}/workers:
     get:
       parameters:
@@ -247,6 +300,14 @@ paths:
           "200": { description: Paid with approved evidence },
           "409": { description: Evidence required or already paid },
         }
+  /payout-provider-events:
+    post:
+      tags: [payout]
+      summary: Reconcile an authenticated provider result against the stable provider request key
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      responses:
+        "200": { description: Provider event applied once }
+        "409": { description: Amount, currency, provider key, or state mismatch }
   /customer/me/communication-preferences:
     get:
       {
