@@ -21,11 +21,13 @@ UPDATE customer_consent_states s SET state='GRANTED',last_event_id=e.id,version=
 
 INSERT INTO communication_templates(id,tenant_id,code,category,status,created_by_user_id) VALUES
 ('e8000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','APPOINTMENT_REMINDER','TRANSACTIONAL','ACTIVE','30000000-0000-4000-8000-000000000001'),
-('e8000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','MARKETING_WELCOME','MARKETING','ACTIVE','30000000-0000-4000-8000-000000000001')
+('e8000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','MARKETING_WELCOME','MARKETING','ACTIVE','30000000-0000-4000-8000-000000000001'),
+('e8000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001','REVIEW_REQUEST','ENGAGEMENT','ACTIVE','30000000-0000-4000-8000-000000000001')
 ON CONFLICT DO NOTHING;
 INSERT INTO communication_template_versions(id,tenant_id,template_id,version_number,locale,subject,html_body,plain_text_body,allowed_variables_json,required_variables_json,compliance_footer,content_hash,status,effective_from,created_by_user_id) VALUES
 ('e8100000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','e8000000-0000-4000-8000-000000000001',1,'vi-VN','Nhắc lịch {{bookingReference}}','<p>Lịch hẹn {{bookingReference}} lúc {{startAt}}</p>','Lịch hẹn {{bookingReference}} lúc {{startAt}}','["bookingReference","startAt"]','["bookingReference","startAt"]',NULL,'seed-reminder-v1','ACTIVE','2026-01-01','30000000-0000-4000-8000-000000000001'),
-('e8100000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','e8000000-0000-4000-8000-000000000002',1,'vi-VN','Ưu đãi dành cho bạn','<p>Khám phá ưu đãi mới.</p>','Khám phá ưu đãi mới.','[]','[]','Hủy đăng ký: {{unsubscribeUrl}}','seed-marketing-v1','ACTIVE','2026-01-01','30000000-0000-4000-8000-000000000001')
+('e8100000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000001','e8000000-0000-4000-8000-000000000002',1,'vi-VN','Ưu đãi dành cho bạn','<p>Khám phá ưu đãi mới.</p>','Khám phá ưu đãi mới.','[]','[]','Hủy đăng ký: {{unsubscribeUrl}}','seed-marketing-v1','ACTIVE','2026-01-01','30000000-0000-4000-8000-000000000001'),
+('e8100000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000001','e8000000-0000-4000-8000-000000000003',1,'vi-VN','Chia sẻ trải nghiệm của bạn','<p>Đánh giá dịch vụ: {{reviewUrl}}</p>','Đánh giá dịch vụ: {{reviewUrl}}','["customerName","reviewUrl"]','["reviewUrl"]',NULL,'seed-review-request-v1','ACTIVE','2026-01-01','30000000-0000-4000-8000-000000000001')
 ON CONFLICT DO NOTHING;
 INSERT INTO communication_rules(id,tenant_id,branch_id,domain_event,purpose,template_version_id,delay_seconds,status) VALUES
 ('e8200000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','20000000-0000-4000-8000-000000000001','appointment.confirmed','APPOINTMENT_REMINDER','e8100000-0000-4000-8000-000000000001',0,'ACTIVE')

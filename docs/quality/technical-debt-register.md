@@ -55,3 +55,5 @@
 - Customer engagement exports have job metadata only. Private object generation, CSV formula escaping, signed download expiry and deletion policy must be configured before release.
 - Local campaign/recovery capacity evidence is not a production claim. Run the documented 10k-audience, hot-withdrawal and Worker retry soak on production-like staging.
 - SMS, advanced marketing automation, CRM/CDP enrichment, public review syndication and AI are intentionally outside Sprint 11 and require separately authorized scope.
+- A provider call that has already begun before a consent-withdrawal commit cannot be recalled transactionally. The lease/preflight boundary prevents every call not yet started and records truthful provider evidence after the boundary; production adapters must support provider-side suppression/webhook reconciliation where available.
+- The closure intentionally narrows segment filters to `branchVisited`, `locale`, `tagId`, contactable and marketing-consent semantics. Service/category/spend/tier/recovery/recent-campaign filters require separately tested query plans before they may be advertised.

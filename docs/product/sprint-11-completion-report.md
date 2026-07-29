@@ -48,3 +48,21 @@ ADRs 0061-0067 cover durable email delivery, consent/suppression evidence, immut
 - The repository-wide Next.js ESLint-plugin migration warning predates Sprint 11 and remains non-blocking.
 
 The final evidence commit and its exact successful GitHub Actions run are recorded in the immutable BA/PO handoff because a commit cannot contain its own future SHA or workflow run ID. Sprint 11 remains subject to formal BA/Product Owner acceptance and Sprint 12 is not authorized by this report.
+
+## Correctness closure
+
+CLOSURE_START_CHECKPOINT=`d939dac44042fb7adbf0e6fdbb6436f049a9ddb4`
+CLOSURE_IMPLEMENTATION_COMMIT=`SELF_RESOLVED_IN_IMMUTABLE_HANDOFF`
+MIGRATION_0022=`0022_sprint11_engagement_correctness_hardening`
+MIGRATION_FRESH=`PASS`
+MIGRATION_ROLLBACK=`PASS_TO_0021`
+MIGRATION_REUP=`PASS`
+
+- Campaign pause prevents new claims; cancel terminalizes unsent message/audience evidence; resume continues only remaining work; the replay-safe finalizer persists generation and terminal counters.
+- The frequency cap is an atomic PostgreSQL reservation gate with expiring leases. Consent, preference and suppression versions are revalidated immediately before provider invocation.
+- Public marketing unsubscribe derives a deterministic key from the token hash and does not require an `Idempotency-Key` header. Review withdrawal suppresses pending/claimed-before-provider review delivery without changing transactional communication.
+- Tenant-wide marketing objects and tenant-wide template/rule management are Owner-only. Branch actors cannot cross their scope through object IDs or `branchVisited`. Unsupported segment filters fail explicitly and the audience limit never truncates silently.
+- Review requests use the versioned 24-hour delay policy with a migration activation boundary that prevents historical backlog. Visit, settlement, refund and review consent are revalidated before send.
+- Customer-credit and loyalty compensation synchronize from the independently approved owning-domain adjustment to `POSTED` (or failure); durable voucher issuance posts immediately. Recovery resolution remains blocked until compensation is suitably terminal.
+
+Closure QA adds 4 integration suites / 15 tests and 1 authenticated/public Playwright suite covering campaign lifecycle, 20-way frequency contention, consent/provider race, public unsubscribe, branch/segment semantics, review delay/withdrawal, owning-domain rejection and all three compensation paths. The exact final CI run remains the authoritative full-regression evidence.

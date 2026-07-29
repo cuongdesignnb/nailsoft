@@ -57,6 +57,14 @@ export class CommunicationService {
         message: "Branch is outside membership scope",
       });
   }
+  owner(auth: AccessClaims) {
+    this.access(auth);
+    if (!auth.roles.includes("SALON_OWNER"))
+      throw new ForbiddenException({
+        code: "TENANT_WIDE_COMMUNICATION_OWNER_ONLY",
+        message: "Tenant-wide communication management requires Salon Owner",
+      });
+  }
   command<T>(
     auth: AccessClaims,
     name: string,
@@ -302,7 +310,25 @@ export class CommunicationService {
             [auth.tenantId, customerId, b.purpose, id],
           );
           await c.query(
-            `UPDATE communication_messages SET status='SUPPRESSED',suppression_reason='MARKETING_WITHDRAWN',version=version+1,updated_at=now() WHERE tenant_id=$1 AND customer_id=$2 AND category='MARKETING' AND status IN('PENDING','SCHEDULED')`,
+            `UPDATE communication_messages SET status='SUPPRESSED',suppression_reason='MARKETING_WITHDRAWN',claim_token=NULL,claim_expires_at=NULL,version=version+1,updated_at=now() WHERE tenant_id=$1 AND customer_id=$2 AND category='MARKETING' AND status IN('PENDING','SCHEDULED','FAILED','PROCESSING')`,
+            [auth.tenantId, customerId],
+          );
+          await c.query(
+            `UPDATE marketing_frequency_reservations r SET status='RELEASED',released_at=now()
+             FROM communication_messages m WHERE r.tenant_id=$1 AND m.tenant_id=r.tenant_id AND m.id=r.message_id
+             AND m.customer_id=$2 AND r.status='ACTIVE'`,
+            [auth.tenantId, customerId],
+          );
+        }
+        if (action === "WITHDRAW" && b.purpose === "REVIEW_REQUEST") {
+          await c.query(
+            `UPDATE communication_messages SET status='SUPPRESSED',suppression_reason='REVIEW_CONSENT_WITHDRAWN',claim_token=NULL,claim_expires_at=NULL,version=version+1,updated_at=now()
+             WHERE tenant_id=$1 AND customer_id=$2 AND purpose='REVIEW_REQUEST' AND status IN('PENDING','SCHEDULED','FAILED','PROCESSING')`,
+            [auth.tenantId, customerId],
+          );
+          await c.query(
+            `UPDATE review_requests SET status='SUPPRESSED' WHERE tenant_id=$1 AND customer_id=$2 AND status IN('PENDING','SENT')
+             AND NOT EXISTS(SELECT 1 FROM communication_messages m WHERE m.tenant_id=$1 AND m.review_request_id=review_requests.id AND m.status IN('SENT','DELIVERED'))`,
             [auth.tenantId, customerId],
           );
         }
@@ -345,6 +371,7 @@ export class CommunicationService {
     key: string,
     requestId: string,
   ) {
+    this.owner(auth);
     const b = communicationTemplateSchema.parse(input);
     return this.command(
       auth,
@@ -380,6 +407,7 @@ export class CommunicationService {
     key: string,
     requestId: string,
   ) {
+    this.owner(auth);
     const b = communicationTemplateVersionSchema.parse(input);
     return this.command(
       auth,
@@ -444,6 +472,7 @@ export class CommunicationService {
     key: string,
     requestId: string,
   ) {
+    this.owner(auth);
     return this.command(
       auth,
       "communication.template.version.activate",
@@ -485,6 +514,7 @@ export class CommunicationService {
     key: string,
     requestId: string,
   ) {
+    this.owner(auth);
     return this.command(
       auth,
       "communication.template.deactivate",
@@ -515,7 +545,7 @@ export class CommunicationService {
     this.access(auth);
     return this.db
       .query<any>(
-        "SELECT * FROM communication_rules WHERE tenant_id=$1 AND ($2::uuid[] IS NULL OR branch_id IS NULL OR branch_id=ANY($2::uuid[])) ORDER BY created_at DESC",
+        "SELECT * FROM communication_rules WHERE tenant_id=$1 AND ($2::uuid[] IS NULL OR branch_id=ANY($2::uuid[])) ORDER BY created_at DESC",
         [
           auth.tenantId,
           auth.roles.includes("SALON_OWNER") ? null : auth.branchIds,
@@ -525,7 +555,8 @@ export class CommunicationService {
   }
   createRule(auth: AccessClaims, input: any, key: string, requestId: string) {
     const b = input as any;
-    this.branch(auth, b.branchId);
+    if (!b.branchId) this.owner(auth);
+    else this.branch(auth, b.branchId);
     return this.command(
       auth,
       "communication.rule.create",
@@ -582,7 +613,8 @@ export class CommunicationService {
           )
         ).rows[0];
         if (!row) this.notFound("COMMUNICATION_RULE_NOT_FOUND");
-        this.branch(auth, row.branch_id);
+        if (!row.branch_id) this.owner(auth);
+        else this.branch(auth, row.branch_id);
         await this.evidence(
           c,
           auth,

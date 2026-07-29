@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { createHash } from "node:crypto";
 import type { AuthenticatedRequest } from "../identity/auth.types.js";
 import { AuthGuard } from "../identity/auth.guard.js";
 import { PermissionGuard } from "../identity/permission.guard.js";
@@ -872,36 +873,39 @@ export class PublicEngagementController {
     @Inject(ReviewRecoveryService)
     private readonly reviews: ReviewRecoveryService,
   ) {}
-  @Post("communications/unsubscribe") async unsubscribe(
-    @Body() b: any,
-    @Headers("idempotency-key") k: string,
-  ) {
+  @Post("communications/unsubscribe") async unsubscribe(@Body() b: any) {
+    let payload: ReturnType<typeof verifyTokenBody>;
     try {
-      const payload = verifyTokenBody(b.token);
-      const auth = {
-        tenantId: payload.tenantId,
-        userId: payload.customerId,
-        membershipId: "public",
-        authorizationVersion: 1,
-        sessionId: "public",
-        roles: [] as any[],
-        branchIds: [],
-      };
-      await this.communications.consent(
-        auth,
-        payload.customerId,
-        "WITHDRAW",
-        {
-          purpose: payload.purpose,
-          source: "UNSUBSCRIBE_LINK",
-          evidence: { token: "verified" },
-        },
-        key(k),
-        "public-unsubscribe",
-      );
+      payload = verifyTokenBody(b.token);
     } catch {
-      /* generic response intentionally hides customer/token existence */
+      return ok({ accepted: true });
     }
+    const tokenHash = createHash("sha256")
+      .update(String(b.token))
+      .digest("hex");
+    const auth = {
+      tenantId: payload.tenantId,
+      userId: payload.customerId,
+      membershipId: "public",
+      authorizationVersion: 1,
+      sessionId: "public",
+      roles: [] as any[],
+      branchIds: [],
+    };
+    // Persistence errors deliberately escape: a valid token must never receive
+    // a false success without durable consent evidence.
+    await this.communications.consent(
+      auth,
+      payload.customerId,
+      "WITHDRAW",
+      {
+        purpose: payload.purpose,
+        source: "UNSUBSCRIBE_LINK",
+        evidence: { token: "verified" },
+      },
+      `unsubscribe:${tokenHash}`,
+      "public-unsubscribe",
+    );
     return ok({ accepted: true });
   }
   @Get("reviews/request") async request(@Query("token") token: string) {

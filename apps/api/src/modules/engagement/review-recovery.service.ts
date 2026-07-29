@@ -896,53 +896,100 @@ export class ReviewRecoveryService {
     if (decision !== "APPROVED") return decided;
     const proposal = decided.proposal_json as any;
     let reference: any = null;
-    if (decided.compensation_type === "CUSTOMER_CREDIT")
-      reference = await this.storedValue.createAdjustment(
-        auth,
-        {
-          branchId: decided.branch_id,
-          customerId: decided.customer_id,
-          currency: proposal.currency ?? "VND",
-          adjustmentType: "SERVICE_RECOVERY_CREDIT",
-          amountMinor: String(proposal.amountMinor),
-          reasonCode: "SERVICE_RECOVERY",
-          note: decided.reason,
-        },
-        `${key}:customer-credit`,
-        requestId,
+    try {
+      if (decided.compensation_type === "CUSTOMER_CREDIT")
+        reference = await this.storedValue.createAdjustment(
+          auth,
+          {
+            branchId: decided.branch_id,
+            customerId: decided.customer_id,
+            currency: proposal.currency ?? "VND",
+            adjustmentType: "SERVICE_RECOVERY_CREDIT",
+            amountMinor: String(proposal.amountMinor),
+            reasonCode: "SERVICE_RECOVERY",
+            note: decided.reason,
+          },
+          `${key}:customer-credit`,
+          requestId,
+        );
+      else if (decided.compensation_type === "LOYALTY_POINTS")
+        reference = await this.benefits.createAdjustment(
+          auth,
+          {
+            customerId: decided.customer_id,
+            pointsDelta: Number(proposal.pointsDelta),
+            reasonCode: "SERVICE_RECOVERY",
+            note: decided.reason,
+          },
+          `${key}:loyalty-points`,
+          requestId,
+        );
+      else if (decided.compensation_type === "VOUCHER")
+        reference = await this.benefits.issueCode(
+          auth,
+          String(proposal.campaignId),
+          {
+            code: String(proposal.code),
+            customerId: decided.customer_id,
+            useLimit: Number(proposal.useLimit ?? 1),
+            expiresAt: proposal.expiresAt ?? undefined,
+          },
+          `${key}:voucher-code`,
+          requestId,
+        );
+      else reference = { id: randomUUID(), foundationOnly: true };
+    } catch (error: any) {
+      const safeCode = String(error?.response?.code ?? error?.code ?? "OWNING_DOMAIN_FAILED").slice(0, 100);
+      await this.core.db.transaction(async (c) => {
+        await c.query(
+          `UPDATE service_recovery_compensation_requests SET status='FAILED',sync_status='FAILED',sync_error_code=$3,version=version+1,updated_at=now()
+           WHERE tenant_id=$1 AND id=$2 AND status IN('APPROVED','FAILED')`,
+          [auth.tenantId, id, safeCode],
+        );
+        await this.core.evidence(
+          c,
+          auth,
+          "service_recovery.compensation_failed",
+          "service_recovery_compensation",
+          id,
+          requestId,
+          decided.branch_id,
+          { type: decided.compensation_type, errorCode: safeCode },
+        );
+      });
+      throw error;
+    }
+    const postsImmediately = [
+      "VOUCHER",
+      "NO_MONETARY_COMPENSATION",
+      "COMPLIMENTARY_SERVICE_FOUNDATION",
+    ].includes(decided.compensation_type);
+    await this.core.db.transaction(async (c) => {
+      await c.query(
+        `UPDATE service_recovery_compensation_requests
+         SET existing_domain_reference_type=$3,existing_domain_reference_id=$4,
+             status=CASE WHEN $5 THEN 'POSTED' ELSE 'APPROVED' END,
+             sync_status=CASE WHEN $5 THEN 'POSTED' ELSE 'PENDING' END,
+             posted_at=CASE WHEN $5 THEN now() ELSE NULL END,version=version+1,updated_at=now()
+         WHERE tenant_id=$1 AND id=$2`,
+        [auth.tenantId, id, decided.compensation_type, reference.id, postsImmediately],
       );
-    else if (decided.compensation_type === "LOYALTY_POINTS")
-      reference = await this.benefits.createAdjustment(
-        auth,
-        {
-          customerId: decided.customer_id,
-          pointsDelta: Number(proposal.pointsDelta),
-          reasonCode: "SERVICE_RECOVERY",
-          note: decided.reason,
-        },
-        `${key}:loyalty-points`,
-        requestId,
-      );
-    else if (decided.compensation_type === "VOUCHER")
-      reference = await this.benefits.issueCode(
-        auth,
-        String(proposal.campaignId),
-        {
-          code: String(proposal.code),
-          customerId: decided.customer_id,
-          useLimit: Number(proposal.useLimit ?? 1),
-          expiresAt: proposal.expiresAt ?? undefined,
-        },
-        `${key}:voucher-code`,
-        requestId,
-      );
-    else reference = { id: randomUUID(), foundationOnly: true };
-    await this.core.db.query(
-      "UPDATE service_recovery_compensation_requests SET existing_domain_reference_type=$3,existing_domain_reference_id=$4,status=CASE WHEN compensation_type IN('NO_MONETARY_COMPENSATION','COMPLIMENTARY_SERVICE_FOUNDATION') THEN 'POSTED' ELSE status END,updated_at=now() WHERE tenant_id=$1 AND id=$2",
-      [auth.tenantId, id, decided.compensation_type, reference.id],
-    );
+      if (postsImmediately)
+        await this.core.evidence(
+          c,
+          auth,
+          "service_recovery.compensation_posted",
+          "service_recovery_compensation",
+          id,
+          requestId,
+          decided.branch_id,
+          { type: decided.compensation_type, referenceId: reference.id },
+        );
+    });
     return {
       ...decided,
+      status: postsImmediately ? "POSTED" : "APPROVED",
+      sync_status: postsImmediately ? "POSTED" : "PENDING",
       existingDomainReference: {
         type: decided.compensation_type,
         id: reference.id,

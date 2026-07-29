@@ -18,7 +18,7 @@ export class MarketingService {
     this.core.access(auth);
     return this.core.db
       .query<any>(
-        "SELECT * FROM customer_segments WHERE tenant_id=$1 AND ($2::uuid[] IS NULL OR branch_id IS NULL OR branch_id=ANY($2::uuid[])) ORDER BY created_at DESC",
+        "SELECT * FROM customer_segments WHERE tenant_id=$1 AND ($2::uuid[] IS NULL OR branch_id=ANY($2::uuid[])) ORDER BY created_at DESC",
         [
           auth.tenantId,
           auth.roles.includes("SALON_OWNER") ? null : auth.branchIds,
@@ -35,7 +35,7 @@ export class MarketingService {
       .then((r) => {
         const row = r.rows[0];
         if (!row) this.core.notFound("SEGMENT_NOT_FOUND");
-        this.core.branch(auth, row.branch_id);
+        this.assertMarketingScope(auth, row.branch_id);
         return row;
       });
   }
@@ -46,8 +46,9 @@ export class MarketingService {
     requestId: string,
   ) {
     const b = customerSegmentSchema.parse(input);
-    this.core.branch(auth, b.branchId);
+    this.assertMarketingScope(auth, b.branchId ?? null);
     this.assertSafeFilters(b.filters);
+    this.assertFilterScope(auth, b.branchId ?? null, b.filters);
     return this.core.command(
       auth,
       "marketing.segment.create",
@@ -103,7 +104,8 @@ export class MarketingService {
           )
         ).rows[0];
         if (!current) this.core.notFound("SEGMENT_NOT_FOUND");
-        this.core.branch(auth, current.branch_id);
+        this.assertMarketingScope(auth, current.branch_id);
+        this.assertFilterScope(auth, current.branch_id, raw.filters ?? {});
         if (raw.version && current.version !== raw.version)
           this.core.conflict("VERSION_CONFLICT");
         const row = (
@@ -150,7 +152,7 @@ export class MarketingService {
           )
         ).rows[0];
         if (!row) this.core.notFound("SEGMENT_NOT_FOUND");
-        this.core.branch(auth, row.branch_id);
+        this.assertMarketingScope(auth, row.branch_id);
         await this.core.evidence(
           c,
           auth,
@@ -167,6 +169,7 @@ export class MarketingService {
   }
   async previewSegment(auth: AccessClaims, id: string) {
     const segment = await this.segment(auth, id);
+    this.assertFilterScope(auth, segment.branch_id, segment.filter_json);
     const audience = await this.eligibleCustomers(
       auth,
       segment.branch_id,
@@ -196,7 +199,7 @@ export class MarketingService {
     this.core.access(auth);
     return this.core.db
       .query<any>(
-        "SELECT * FROM marketing_campaigns WHERE tenant_id=$1 AND ($2::uuid[] IS NULL OR branch_id IS NULL OR branch_id=ANY($2::uuid[])) ORDER BY created_at DESC",
+        "SELECT * FROM marketing_campaigns WHERE tenant_id=$1 AND ($2::uuid[] IS NULL OR branch_id=ANY($2::uuid[])) ORDER BY created_at DESC",
         [
           auth.tenantId,
           auth.roles.includes("SALON_OWNER") ? null : auth.branchIds,
@@ -213,7 +216,7 @@ export class MarketingService {
       .then((r) => {
         const row = r.rows[0];
         if (!row) this.core.notFound("CAMPAIGN_NOT_FOUND");
-        this.core.branch(auth, row.branch_id);
+        this.assertMarketingScope(auth, row.branch_id);
         return row;
       });
   }
@@ -224,7 +227,7 @@ export class MarketingService {
     requestId: string,
   ) {
     const b = marketingCampaignSchema.parse(input);
-    this.core.branch(auth, b.branchId);
+    this.assertMarketingScope(auth, b.branchId ?? null);
     return this.core.command(
       auth,
       "marketing.campaign.create",
@@ -238,7 +241,11 @@ export class MarketingService {
           )
         ).rows[0];
         if (!segment) this.core.notFound("SEGMENT_NOT_FOUND");
-        this.core.branch(auth, segment.branch_id);
+        this.assertMarketingScope(auth, segment.branch_id);
+        const campaignBranch = b.branchId ?? segment.branch_id ?? null;
+        this.assertMarketingScope(auth, campaignBranch);
+        if (segment.branch_id && campaignBranch !== segment.branch_id)
+          this.core.conflict("CAMPAIGN_SEGMENT_BRANCH_MISMATCH");
         const version = await c.query(
           "SELECT 1 FROM communication_template_versions v JOIN communication_templates t ON t.tenant_id=v.tenant_id AND t.id=v.template_id WHERE v.tenant_id=$1 AND v.id=$2 AND v.status='ACTIVE' AND t.category='MARKETING'",
           [auth.tenantId, b.templateVersionId],
@@ -251,7 +258,7 @@ export class MarketingService {
             [
               id,
               auth.tenantId,
-              b.branchId ?? segment.branch_id,
+              campaignBranch,
               b.segmentId,
               b.templateVersionId,
               b.name,
@@ -294,7 +301,7 @@ export class MarketingService {
           )
         ).rows[0];
         if (!current) this.core.notFound("CAMPAIGN_NOT_FOUND");
-        this.core.branch(auth, current.branch_id);
+        this.assertMarketingScope(auth, current.branch_id);
         if (current.status !== "DRAFT")
           this.core.conflict("CAMPAIGN_STATUS_INVALID");
         if (input.version && input.version !== current.version)
@@ -364,7 +371,7 @@ export class MarketingService {
           )
         ).rows[0];
         if (!row) this.core.notFound("CAMPAIGN_NOT_FOUND");
-        this.core.branch(auth, row.branch_id);
+        this.assertMarketingScope(auth, row.branch_id);
         if (input?.version && input.version !== row.version)
           this.core.conflict("VERSION_CONFLICT");
         assertTransition(
@@ -393,6 +400,24 @@ export class MarketingService {
             [auth.tenantId, id, target, auth.userId, scheduledAt, generation],
           )
         ).rows[0];
+        if (target === "CANCELLED") {
+          await c.query(
+            `UPDATE communication_messages SET status='CANCELLED',suppression_reason='CAMPAIGN_CANCELLED',claim_token=NULL,claim_expires_at=NULL,version=version+1,updated_at=now()
+             WHERE tenant_id=$1 AND marketing_campaign_id=$2 AND status IN('PENDING','SCHEDULED','FAILED','PROCESSING')`,
+            [auth.tenantId, id],
+          );
+          await c.query(
+            `UPDATE marketing_frequency_reservations r SET status='RELEASED',released_at=now()
+             FROM communication_messages m WHERE r.tenant_id=$1 AND m.tenant_id=r.tenant_id AND m.id=r.message_id
+             AND m.marketing_campaign_id=$2 AND r.status='ACTIVE'`,
+            [auth.tenantId, id],
+          );
+          await c.query(
+            `UPDATE marketing_campaign_audience SET status='CANCELLED',skipped_reason='CAMPAIGN_CANCELLED'
+             WHERE tenant_id=$1 AND campaign_id=$2 AND generation=$3 AND status='ELIGIBLE'`,
+            [auth.tenantId, id, generation],
+          );
+        }
         await this.core.evidence(
           c,
           auth,
@@ -444,11 +469,29 @@ export class MarketingService {
         [auth.tenantId, campaign.segment_id],
       )
     ).rows[0];
+    const settings = (
+      await c.query(
+        "SELECT campaign_audience_limit FROM communication_settings WHERE tenant_id=$1",
+        [auth.tenantId],
+      )
+    ).rows[0];
+    this.assertFilterScope(auth, campaign.branch_id, segment.filter_json);
+    const count = Number(
+      (
+        await c.query(
+          this.eligibleCountSql(),
+          this.eligibleParams(auth, campaign.branch_id, segment.filter_json),
+        )
+      ).rows[0].count,
+    );
+    const audienceLimit = Number(settings?.campaign_audience_limit ?? 100000);
+    if (count > audienceLimit)
+      this.core.conflict("CAMPAIGN_AUDIENCE_LIMIT_EXCEEDED");
     const eligible = await this.eligibleCustomers(
       auth,
       campaign.branch_id,
       segment.filter_json,
-      100_000,
+      audienceLimit,
       c,
     );
     for (const customer of eligible)
@@ -501,7 +544,7 @@ export class MarketingService {
   ) {
     return [
       auth.tenantId,
-      branchId,
+      filters?.branchVisited ?? branchId,
       filters?.locale ?? null,
       filters?.tagId ?? null,
     ];
@@ -509,19 +552,9 @@ export class MarketingService {
   private assertSafeFilters(filters: Record<string, unknown>) {
     const allowed = new Set([
       "branchVisited",
-      "serviceId",
-      "categoryId",
-      "visitCountMin",
-      "lastVisitAfter",
-      "settledSpendMin",
-      "membershipTier",
-      "loyaltyBalanceMin",
-      "packageOwnership",
       "locale",
       "contactable",
       "tagId",
-      "excludeActiveRecovery",
-      "excludeRecentCampaignDays",
       "marketingConsent",
     ]);
     const keys = Object.keys(filters);
@@ -529,6 +562,27 @@ export class MarketingService {
       this.core.conflict("SEGMENT_FILTER_NOT_SUPPORTED");
     if (filters.marketingConsent === false)
       this.core.conflict("MARKETING_CONSENT_FILTER_REQUIRED");
+    if (filters.contactable === false)
+      this.core.conflict("SEGMENT_FILTER_NOT_SUPPORTED");
+  }
+  private assertFilterScope(
+    auth: AccessClaims,
+    objectBranchId: string | null,
+    filters: Record<string, unknown>,
+  ) {
+    const branchVisited = filters.branchVisited;
+    if (typeof branchVisited !== "string") return;
+    this.core.branch(auth, branchVisited);
+    if (objectBranchId && branchVisited !== objectBranchId)
+      this.core.conflict("SEGMENT_FILTER_BRANCH_MISMATCH");
+  }
+  private assertMarketingScope(auth: AccessClaims, branchId: string | null) {
+    if (!branchId && !auth.roles.includes("SALON_OWNER"))
+      throw new ForbiddenException({
+        code: "TENANT_WIDE_MARKETING_OWNER_ONLY",
+        message: "Tenant-wide marketing objects require Salon Owner",
+      });
+    this.core.branch(auth, branchId);
   }
   private redact(name: string) {
     return name ? `${name.slice(0, 1)}***` : "***";

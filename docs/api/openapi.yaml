@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.13.0,
-    description: Sprint 11 email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
+    version: 0.13.1,
+    description: Sprint 11 closure-hardened email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
     supplier and purchase operations plus Sprint 8 voucher,
     loyalty,
     membership and service package benefits plus Sprint 7 refund,
@@ -101,8 +101,9 @@ paths:
     post:
       {
         tags: [marketing],
-        summary: Create allowlisted segment,
-        responses: { "200": { description: Created } },
+        summary: Create a scoped segment using only implemented filters,
+        requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/CustomerSegmentInput" } } } },
+        responses: { "200": { description: Created }, "409": { description: Unsupported filter or branch mismatch } },
       }
   /marketing-campaigns:
     get:
@@ -136,6 +137,38 @@ paths:
             "200": { description: Approved },
             "403": { description: Self approval denied },
           },
+      }
+  /marketing-campaigns/{campaignId}/pause:
+    post:
+      {
+        tags: [marketing],
+        summary: Pause new delivery claims while retaining remaining recipients,
+        parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
+        responses: { "200": { description: Paused } },
+      }
+  /marketing-campaigns/{campaignId}/resume:
+    post:
+      {
+        tags: [marketing],
+        summary: Resume delivery for remaining recipients exactly once,
+        parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
+        responses: { "200": { description: Running } },
+      }
+  /marketing-campaigns/{campaignId}/cancel:
+    post:
+      {
+        tags: [marketing],
+        summary: Cancel campaign and terminalize all unsent delivery evidence,
+        parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
+        responses: { "200": { description: Cancelled } },
+      }
+  /marketing-campaigns/{campaignId}/report:
+    get:
+      {
+        tags: [marketing],
+        summary: Read persisted terminal audience counters,
+        parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
+        responses: { "200": { description: Campaign report } },
       }
   /review-requests:
     get:
@@ -180,8 +213,8 @@ paths:
       summary: Immediately withdraw marketing consent
       responses:
         {
-          "200": { description: Suppressed },
-          "404": { description: Invalid token },
+          "200": { description: Generic accepted response; valid tokens are persisted idempotently without a client idempotency header },
+          "503": { description: A valid token could not be persisted; caller may retry safely },
         }
   /service-recovery/cases:
     get:
@@ -3612,6 +3645,22 @@ components:
         description: Requested tenant scope; always verified against the authenticated membership,
       }
   schemas:
+    CustomerSegmentInput:
+      type: object
+      additionalProperties: false
+      required: [name, filters]
+      properties:
+        branchId: { type: string, format: uuid, description: Required for non-Owner actors }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        filters:
+          type: object
+          additionalProperties: false
+          properties:
+            branchVisited: { type: string, format: uuid }
+            locale: { enum: [vi-VN, en-US] }
+            tagId: { type: string, format: uuid }
+            contactable: { const: true }
+            marketingConsent: { const: true }
     CommunicationPreferenceInput:
       type: object
       additionalProperties: false
