@@ -115,6 +115,55 @@ describe.sequential("Sprint 11 campaign pause, cancel and finalization", () => {
     ).toEqual({ status: "COMPLETED", sent_total: 0, suppressed_total: 0, failed_total: 0, cancelled_total: 0 });
   });
 
+  it("snapshots every eligible customer when count equals the configured limit", async () => {
+    const preview = await marketing.previewSegment(
+      owner,
+      "e9000000-0000-4000-8000-000000000001",
+    );
+    expect(preview.count).toBeGreaterThan(0);
+    await pool.query(
+      "UPDATE communication_settings SET campaign_audience_limit=$2 WHERE tenant_id=$1",
+      [tenant, preview.count],
+    );
+    const created = await marketing.createCampaign(
+      manager,
+      {
+        branchId: branch,
+        segmentId: "e9000000-0000-4000-8000-000000000001",
+        templateVersionId: "e8100000-0000-4000-8000-000000000002",
+        name: "Exact audience limit closure",
+        campaignType: "PROMOTION",
+        riskLevel: "STANDARD",
+      },
+      "closure-exact-audience-campaign",
+      "closure",
+    );
+    const pending = await marketing.transition(
+      manager,
+      created.id,
+      "PENDING_APPROVAL",
+      { version: 1 },
+      "closure-exact-audience-pending",
+      "closure",
+    );
+    await marketing.transition(
+      owner,
+      created.id,
+      "APPROVED",
+      { version: pending.version },
+      "closure-exact-audience-approve",
+      "closure",
+    );
+    const snapshotCount = (
+      await pool.query(
+        "SELECT count(*)::int n FROM marketing_campaign_audience WHERE campaign_id=$1",
+        [created.id],
+      )
+    ).rows[0].n;
+
+    expect(snapshotCount).toBe(preview.count);
+  });
+
   it("fails explicitly instead of silently truncating an oversized audience", async () => {
     const secondCustomer = "60000000-0000-4000-8000-000000000015";
     const communications = marketing.core;

@@ -75,6 +75,19 @@ const nav = [
   "/admin/service-recovery",
 ];
 
+export function campaignActions(status: string): string[] {
+  return (
+    {
+      DRAFT: ["submit", "cancel"],
+      PENDING_APPROVAL: ["approve", "cancel"],
+      APPROVED: ["schedule", "cancel"],
+      SCHEDULED: ["cancel"],
+      RUNNING: ["pause", "cancel"],
+      PAUSED: ["resume", "cancel"],
+    } as Record<string, string[]>
+  )[status] ?? [];
+}
+
 async function api(path: string, init?: RequestInit) {
   const response = await authorizedFetch(path, init);
   const body = await response.json().catch(() => ({}));
@@ -370,6 +383,10 @@ function Detail({
   const resource = useData(endpoint),
     [notice, setNotice] = useState("");
   const id = endpoint.split("/").at(-1);
+  const visibleActions =
+    title === "Campaign detail"
+      ? campaignActions(resource.rows[0]?.status)
+      : actions;
   async function run(action: string) {
     try {
       const body: any = {
@@ -398,7 +415,7 @@ function Detail({
       {resource.state === "ready" && (
         <>
           <div className="actions">
-            {actions.map((a) => (
+            {visibleActions.map((a) => (
               <button key={a} onClick={() => void run(a)}>
                 {a}
               </button>

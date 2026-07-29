@@ -524,10 +524,11 @@ export class MarketingService {
     limit: number,
     client = this.core.db,
   ) {
+    const boundedLimit = Math.min(limit, 1_000_000);
     return client
       .query<any>(
-        `${this.eligibleSelectSql()} LIMIT ${Math.min(limit, 100_000)}`,
-        this.eligibleParams(auth, branchId, filters),
+        `${this.eligibleSelectSql()} LIMIT $5`,
+        [...this.eligibleParams(auth, branchId, filters), boundedLimit],
       )
       .then((r: any) => r.rows);
   }

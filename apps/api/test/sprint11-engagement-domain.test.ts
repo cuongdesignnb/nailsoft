@@ -55,6 +55,30 @@ describe("Sprint 11 engagement domain", () => {
         "CAMPAIGN_STATUS_INVALID",
       ),
     ).toThrow("CAMPAIGN_STATUS_INVALID");
+    expect(() =>
+      assertTransition(
+        campaignTransitions,
+        "SCHEDULED",
+        "PAUSED",
+        "CAMPAIGN_STATUS_INVALID",
+      ),
+    ).toThrow("CAMPAIGN_STATUS_INVALID");
+    expect(() =>
+      assertTransition(
+        campaignTransitions,
+        "RUNNING",
+        "PAUSED",
+        "CAMPAIGN_STATUS_INVALID",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertTransition(
+        campaignTransitions,
+        "PAUSED",
+        "RUNNING",
+        "CAMPAIGN_STATUS_INVALID",
+      ),
+    ).not.toThrow();
     expect(frequencyAllowed(1, 2)).toBe(true);
     expect(frequencyAllowed(2, 2)).toBe(false);
     expect(isQuietHour(21, 20, 8)).toBe(true);

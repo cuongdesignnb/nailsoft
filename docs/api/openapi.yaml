@@ -142,23 +142,23 @@ paths:
     post:
       {
         tags: [marketing],
-        summary: Pause new delivery claims while retaining remaining recipients,
+        summary: Pause new delivery claims for a RUNNING campaign while retaining remaining recipients; SCHEDULED campaigns cannot be paused,
         parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
-        responses: { "200": { description: Paused } },
+        responses: { "200": { description: Paused }, "409": { description: Campaign is not RUNNING } },
       }
   /marketing-campaigns/{campaignId}/resume:
     post:
       {
         tags: [marketing],
-        summary: Resume delivery for remaining recipients exactly once,
+        summary: Resume a PAUSED campaign for remaining recipients exactly once,
         parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
-        responses: { "200": { description: Running } },
+        responses: { "200": { description: Running }, "409": { description: Campaign is not PAUSED } },
       }
   /marketing-campaigns/{campaignId}/cancel:
     post:
       {
         tags: [marketing],
-        summary: Cancel campaign and terminalize all unsent delivery evidence,
+        summary: Cancel a non-terminal campaign and terminalize all unsent delivery evidence,
         parameters: [{ in: path, name: campaignId, required: true, schema: { type: string, format: uuid } }],
         responses: { "200": { description: Cancelled } },
       }
