@@ -1,0 +1,52 @@
+BEGIN;
+
+DELETE FROM role_permissions WHERE permission_code LIKE 'communication.%' OR permission_code LIKE 'marketing.%' OR permission_code LIKE 'review.%' OR permission_code LIKE 'service_recovery.%' OR permission_code LIKE 'customer.engagement%';
+DELETE FROM permissions WHERE code LIKE 'communication.%' OR code LIKE 'marketing.%' OR code LIKE 'review.%' OR code LIKE 'service_recovery.%' OR code LIKE 'customer.engagement%';
+DROP TRIGGER IF EXISTS tenants_initialize_communication_settings ON tenants;
+DROP TRIGGER IF EXISTS customers_initialize_communication ON customers;
+DROP TRIGGER IF EXISTS service_recovery_history_append_only ON service_recovery_history;
+DROP TRIGGER IF EXISTS customer_review_revisions_append_only ON customer_review_revisions;
+DROP TRIGGER IF EXISTS marketing_campaign_audience_immutable ON marketing_campaign_audience;
+DROP TRIGGER IF EXISTS communication_template_versions_immutable ON communication_template_versions;
+DROP TRIGGER IF EXISTS customer_consent_events_append_only ON customer_consent_events;
+DROP FUNCTION IF EXISTS sprint11_prevent_mutation();
+DROP FUNCTION IF EXISTS sprint11_protect_template_version();
+DROP FUNCTION IF EXISTS sprint11_protect_audience_snapshot();
+DROP FUNCTION IF EXISTS sprint11_initialize_customer_communication();
+DROP FUNCTION IF EXISTS sprint11_initialize_tenant_communication_settings();
+DROP TABLE IF EXISTS customer_engagement_export_jobs;
+DROP TABLE IF EXISTS service_recovery_compensation_requests;
+DROP TABLE IF EXISTS service_recovery_contacts;
+DROP TABLE IF EXISTS service_recovery_tasks;
+DROP TABLE IF EXISTS service_recovery_history;
+DROP TABLE IF EXISTS service_recovery_cases;
+DROP TABLE IF EXISTS review_responses;
+DROP TABLE IF EXISTS customer_review_revisions;
+DROP TABLE IF EXISTS customer_reviews;
+DROP TABLE IF EXISTS review_requests;
+DROP TABLE IF EXISTS communication_unsubscribe_tokens;
+DROP TABLE IF EXISTS marketing_frequency_counters;
+DROP TABLE IF EXISTS marketing_campaign_audience;
+ALTER TABLE communication_messages DROP CONSTRAINT IF EXISTS communication_messages_campaign_fk;
+DROP TABLE IF EXISTS marketing_campaigns;
+DROP TABLE IF EXISTS customer_segments;
+DROP TABLE IF EXISTS customer_tag_assignments;
+DROP TABLE IF EXISTS customer_tags;
+DROP TABLE IF EXISTS internal_notifications;
+DROP TABLE IF EXISTS communication_provider_events;
+DROP TABLE IF EXISTS communication_delivery_attempts;
+DROP TABLE IF EXISTS communication_messages;
+DROP TABLE IF EXISTS communication_rules;
+DROP TABLE IF EXISTS communication_template_versions;
+DROP TABLE IF EXISTS communication_templates;
+DROP TABLE IF EXISTS communication_suppressions;
+DROP TABLE IF EXISTS customer_communication_preferences;
+DROP TABLE IF EXISTS customer_consent_states;
+DROP TABLE IF EXISTS customer_consent_events;
+DROP TABLE IF EXISTS consent_definitions;
+DROP TABLE IF EXISTS communication_settings;
+
+DELETE FROM schema_migrations
+WHERE version='0021_notifications_marketing_reviews_service_recovery';
+
+COMMIT;

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { backendModuleBoundaries } from "../src/modules/module-boundaries";
 describe("module boundaries", () => {
-  it("matches the SRS through Sprint 10", () => {
-    expect(backendModuleBoundaries).toHaveLength(28);
+  it("matches the SRS through Sprint 11", () => {
+    expect(backendModuleBoundaries).toHaveLength(31);
     expect(backendModuleBoundaries).toEqual(
       expect.arrayContaining([
         "voucher",
@@ -13,6 +13,9 @@ describe("module boundaries", () => {
         "gift-card",
         "customer-credit",
         "stored-value",
+        "customer-engagement",
+        "review",
+        "service-recovery",
       ]),
     );
   });

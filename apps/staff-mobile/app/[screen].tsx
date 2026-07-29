@@ -36,6 +36,8 @@ const titles: Record<string, string> = {
   myMaterials: "My material requirements",
   materialUsage: "My actual material usage",
   storedValueAccess: "Stored-value access",
+  recoveryTasks: "My recovery tasks",
+  recoveryContact: "Recovery contact log",
 };
 function pathFor(screen: string, id?: string) {
   if (screen === "staffToday") return "/v1/staff/me/today";
@@ -50,6 +52,8 @@ function pathFor(screen: string, id?: string) {
   if (screen === "myMaterials" || screen === "materialUsage")
     return "/v1/staff/me/materials";
   if (screen === "storedValueAccess") return "/v1/gift-cards";
+  if (screen === "recoveryTasks") return "/v1/service-recovery/tasks/me";
+  if (screen === "recoveryContact") return "/v1/service-recovery/cases";
   if (["profile", "branches", "skills", "createLeave"].includes(screen))
     return "/v1/staff/me";
   if (screen === "shifts") return "/v1/shifts";
@@ -168,6 +172,35 @@ export default function StaffScreen() {
         ? "Leave request created."
         : "Internet connection required. The request was not queued.",
     );
+  }
+  async function logRecoveryContact() {
+    const current = data[0];
+    if (!current) return;
+    if (!navigator.onLine) {
+      setMessage("Internet connection required. Contact was not queued.");
+      return;
+    }
+    const response = await apiFetch(
+      `/v1/service-recovery/cases/${current.id}/contact`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          contactType: "INTERNAL_NOTE",
+          summary: reason || "Follow-up recorded by assigned staff",
+        }),
+      },
+    );
+    const body = await response.json().catch(() => ({}));
+    setMessage(
+      response.ok
+        ? "Recovery contact logged."
+        : (body.error?.message ?? "Command failed safely."),
+    );
+    await load();
   }
   async function sessionCommand(
     action: "start" | "pause" | "resume" | "complete",
@@ -451,6 +484,24 @@ export default function StaffScreen() {
               title="Create leave request"
               onPress={() => void createLeave()}
             />
+          </View>
+        )}
+        {screen === "recoveryContact" && data[0] && (
+          <View style={{ gap: 10 }}>
+            <TextInput
+              placeholder="Privacy-safe contact summary"
+              value={reason}
+              onChangeText={setReason}
+              style={{ borderWidth: 1, padding: 12 }}
+            />
+            <Button
+              title="Log customer contact"
+              onPress={() => void logRecoveryContact()}
+            />
+            <Text>
+              Contact commands require internet and are never marked synced
+              before server confirmation.
+            </Text>
           </View>
         )}
         <Link href="/">Back to home</Link>

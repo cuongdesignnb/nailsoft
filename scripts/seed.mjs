@@ -42,6 +42,11 @@ try {
   );
   if (sprint10.rowCount)
     await c.query(await readFile("infra/seeds/sprint10.sql", "utf8"));
+  const sprint11 = await c.query(
+    "SELECT 1 FROM schema_migrations WHERE version='0021_notifications_marketing_reviews_service_recovery'",
+  );
+  if (sprint11.rowCount)
+    await c.query(await readFile("infra/seeds/sprint11.sql", "utf8"));
 } finally {
   await c.end();
 }

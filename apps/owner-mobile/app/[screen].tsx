@@ -60,6 +60,10 @@ const titles: Record<string, string> = {
   customerCreditOutstanding: "Customer credit outstanding",
   storedValueApprovals: "Pending credit adjustments",
   storedValueExceptions: "Stored-value reconciliation exceptions",
+  campaignApprovals: "Campaign approvals",
+  lowRatingAlerts: "Low-rating alerts",
+  recoverySla: "Recovery and SLA",
+  compensationApprovals: "Compensation approvals",
 };
 function endpoint(screen: string, id?: string) {
   if (screen === "operationalSummary")
@@ -98,6 +102,11 @@ function endpoint(screen: string, id?: string) {
   if (screen === "storedValueApprovals") return "/v1/stored-value-adjustments";
   if (screen === "storedValueExceptions")
     return "/v1/stored-value/reports/exceptions";
+  if (screen === "campaignApprovals") return "/v1/marketing-campaigns";
+  if (screen === "compensationApprovals")
+    return "/v1/service-recovery/compensations";
+  if (["lowRatingAlerts", "recoverySla"].includes(screen))
+    return "/v1/service-recovery/cases";
   if (screen === "appointmentsToday")
     return `/v1/appointments?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-11T00:00:00%2B07:00`;
   if (screen === "appointments")
@@ -238,6 +247,61 @@ export default function OwnerScreen() {
     );
     setMessage(
       response.ok ? `Leave ${action}d.` : "The request could not be completed.",
+    );
+    await load();
+  }
+  async function engagementAction(action: "approve" | "triage", item: any) {
+    if (!navigator.onLine) {
+      setMessage("Internet connection required. Approval was not queued.");
+      return;
+    }
+    const path =
+      action === "approve"
+        ? `/v1/marketing-campaigns/${item.id}/approve`
+        : `/v1/service-recovery/cases/${item.id}/triage`;
+    const response = await apiFetch(path, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        version: item.version,
+        reason: "Reviewed in Owner Mobile",
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setMessage(
+      response.ok
+        ? `${action} completed.`
+        : (body.error?.message ?? "Command failed safely."),
+    );
+    await load();
+  }
+  async function compensationDecision(action: "approve" | "reject", item: any) {
+    if (!navigator.onLine) {
+      setMessage("Internet connection required. Decision was not queued.");
+      return;
+    }
+    const response = await apiFetch(
+      `/v1/service-recovery/compensations/${item.id}/${action}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          version: item.version,
+          reason: `${action === "approve" ? "Approved" : "Rejected"} in Owner Mobile`,
+        }),
+      },
+    );
+    const body = await response.json().catch(() => ({}));
+    setMessage(
+      response.ok
+        ? `Compensation ${action}d.`
+        : (body.error?.message ?? "Decision failed safely."),
     );
     await load();
   }
@@ -425,6 +489,40 @@ export default function OwnerScreen() {
                       title="Approve purchase order"
                       onPress={() => void approvePurchaseOrder(item)}
                     />
+                  )}
+                {screen === "campaignApprovals" &&
+                  item.status === "PENDING_APPROVAL" && (
+                    <Button
+                      title="Approve campaign"
+                      onPress={() => void engagementAction("approve", item)}
+                    />
+                  )}
+                {["lowRatingAlerts", "recoverySla"].includes(screen) &&
+                  item.status === "OPEN" && (
+                    <Button
+                      title="Triage recovery case"
+                      onPress={() => void engagementAction("triage", item)}
+                    />
+                  )}
+                {screen === "compensationApprovals" &&
+                  item.status === "PENDING_APPROVAL" && (
+                    <View style={{ gap: 8 }}>
+                      <Text>
+                        {item.compensationType} · {item.reason}
+                      </Text>
+                      <Button
+                        title="Approve compensation"
+                        onPress={() =>
+                          void compensationDecision("approve", item)
+                        }
+                      />
+                      <Button
+                        title="Reject compensation"
+                        onPress={() =>
+                          void compensationDecision("reject", item)
+                        }
+                      />
+                    </View>
                   )}
               </View>
             ))}

@@ -1,6 +1,6 @@
 # Sprint 10 Closure Report
 
-Status: `READY FOR BA/PO ACCEPTANCE` — closure implementation, contract hotfix and exact-hotfix-commit CI are complete. Formal BA/PO acceptance has not yet been recorded.
+Status: `DONE` — formally accepted before Sprint 11 authorization.
 
 ## Git
 
@@ -9,8 +9,9 @@ Status: `READY FOR BA/PO ACCEPTANCE` — closure implementation, contract hotfix
 - Foundation CI: run `30369302098`, `SUCCESS`.
 - Closure implementation commit: `28e4a51343a8617472fbc7be1b96c07a9a8168cc`.
 - Loyalty contract hotfix commit: `8b316fb95ed07d0b2ddf9fd472340d10f570279e`.
-- Final evidence commit: this report commit; its immutable SHA and exact CI run are recorded in the final handoff because a commit cannot embed its own hash.
-- `origin/main`, clean working tree and Docker-off evidence are recorded at final handoff.
+- Final evidence commit: `8df5f1203cdeaf3e209c7339d98dbcd88fa03c5e`.
+- Final CI: run `30385648010`, `SUCCESS`.
+- Final handoff verified `HEAD = origin/main`, a clean working tree and `DOCKER_SERVICES_RUNNING=0`.
 
 ## Migration
 

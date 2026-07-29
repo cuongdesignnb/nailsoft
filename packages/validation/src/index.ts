@@ -1139,3 +1139,131 @@ export const customerCreditAdjustmentSchema = z
     note: z.string().trim().min(3).max(2000),
   })
   .strict();
+
+export const communicationPreferenceUpdateSchema = z
+  .object({
+    preferredLocale: z.enum(["vi-VN", "en-US"]),
+    preferredTimezone: z.string().trim().min(1).max(100),
+    emailAddress: z.string().trim().email().max(320).optional().nullable(),
+    quietHoursStart: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+      .optional()
+      .nullable(),
+    quietHoursEnd: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+      .optional()
+      .nullable(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+export const consentCommandSchema = z
+  .object({
+    purpose: z.enum([
+      "MARKETING_EMAIL",
+      "REVIEW_REQUEST",
+      "CUSTOMER_RESEARCH",
+      "SERVICE_RECOVERY_CONTACT",
+    ]),
+    definitionId: uuidSchema.optional().nullable(),
+    source: z.enum([
+      "BOOKING_WEB",
+      "CUSTOMER_PORTAL",
+      "ADMIN_WEB",
+      "IMPORT",
+      "UNSUBSCRIBE_LINK",
+      "API",
+    ]),
+    evidence: z.record(z.string(), z.unknown()).default({}),
+  })
+  .strict();
+export const communicationTemplateSchema = z
+  .object({
+    code: z.string().trim().min(2).max(100),
+    category: z.enum(["TRANSACTIONAL", "ENGAGEMENT", "MARKETING", "INTERNAL"]),
+  })
+  .strict();
+export const communicationTemplateVersionSchema = z
+  .object({
+    locale: z.enum(["vi-VN", "en-US"]),
+    subject: z.string().trim().min(1).max(200),
+    htmlBody: z.string().min(1).max(100_000),
+    plainTextBody: z.string().min(1).max(100_000),
+    allowedVariables: z
+      .array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.]*$/))
+      .max(100),
+    requiredVariables: z
+      .array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_.]*$/))
+      .max(100),
+    complianceFooter: z.string().max(5000).optional().nullable(),
+  })
+  .strict();
+export const customerSegmentSchema = z
+  .object({
+    branchId: uuidSchema.optional().nullable(),
+    name: z.string().trim().min(2).max(120),
+    filters: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+export const marketingCampaignSchema = z
+  .object({
+    branchId: uuidSchema.optional().nullable(),
+    segmentId: uuidSchema,
+    templateVersionId: uuidSchema,
+    name: z.string().trim().min(2).max(160),
+    campaignType: z.enum([
+      "PROMOTION",
+      "NEWSLETTER",
+      "NEW_SERVICE",
+      "SEASONAL_CAMPAIGN",
+      "MEMBERSHIP_OFFER",
+      "LOYALTY_OFFER",
+    ]),
+    riskLevel: z.enum(["STANDARD", "ELEVATED", "HIGH"]).default("STANDARD"),
+  })
+  .strict();
+export const reviewSubmitSchema = z
+  .object({
+    token: z.string().min(32).max(4096),
+    overallRating: z.number().int().min(1).max(5),
+    serviceRating: z.number().int().min(1).max(5).optional(),
+    cleanlinessRating: z.number().int().min(1).max(5).optional(),
+    staffRating: z.number().int().min(1).max(5).optional(),
+    comment: z.string().trim().max(5000).optional(),
+  })
+  .strict();
+export const recoveryCaseSchema = z
+  .object({
+    branchId: uuidSchema,
+    customerId: uuidSchema,
+    appointmentId: uuidSchema.optional().nullable(),
+    invoiceId: uuidSchema.optional().nullable(),
+    reviewId: uuidSchema.optional().nullable(),
+    source: z.enum([
+      "LOW_REVIEW",
+      "CUSTOMER_COMPLAINT",
+      "STAFF_REPORT",
+      "REFUND_ESCALATION",
+      "SERVICE_FAILURE",
+      "MANUAL",
+    ]),
+    severity: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
+    category: z.string().trim().min(2).max(100),
+    summary: z.string().trim().min(3).max(2000),
+    customerStatement: z.string().trim().max(5000).optional().nullable(),
+  })
+  .strict();
+export const recoveryCompensationSchema = z
+  .object({
+    compensationType: z.enum([
+      "CUSTOMER_CREDIT",
+      "LOYALTY_POINTS",
+      "VOUCHER",
+      "COMPLIMENTARY_SERVICE_FOUNDATION",
+      "NO_MONETARY_COMPENSATION",
+    ]),
+    proposal: z.record(z.string(), z.unknown()),
+    reason: z.string().trim().min(3).max(2000),
+  })
+  .strict();

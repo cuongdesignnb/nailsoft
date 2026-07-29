@@ -144,6 +144,8 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint9-inventory-worker.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 10 stored-value PostgreSQL invariants and concurrency
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint10-stored-value-invariants.test.ts tests/integration/sprint10-stored-value-worker.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 11 consent message campaign review and recovery invariants
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint11-engagement-invariants.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 10 stored-value correctness integration
         shell: bash
         run: |
@@ -329,12 +331,16 @@ jobs:
             pnpm db:seed
             pnpm exec playwright test "$spec" --config=playwright.api.config.ts
           done
+      - name: Sprint 11 authenticated engagement E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint11-engagement-deep.spec.ts --config=playwright.api.config.ts
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint9-mobile-smoke.test.ts
       - name: Sprint 10 Owner and Staff Mobile permission smoke
         run: pnpm exec vitest run tests/mobile/sprint10-mobile-smoke.test.ts tests/contract/sprint10-stored-value-contract.test.ts
+      - name: Sprint 11 Owner Staff and Customer functional smoke
+        run: pnpm exec vitest run tests/mobile/sprint11-engagement-mobile-smoke.test.ts apps/worker/test/sprint11-email-provider.test.ts
       - name: Scheduling and booking load smoke
         env:
           LOAD_DURATION_SECONDS: 2
@@ -383,6 +389,13 @@ jobs:
           LOAD_WARMUP_SECONDS: 1
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: gift-card-list,stored-value-liability,stored-value-reconciliation,customer-credit-list
+        run: pnpm load:smoke
+      - name: Sprint 11 customer engagement load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: communication-messages,marketing-campaigns,verified-reviews,recovery-cases
         run: pnpm load:smoke
       - name: Build API
         run: pnpm --filter @nailsoft/api build

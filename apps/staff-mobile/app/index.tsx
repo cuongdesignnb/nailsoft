@@ -109,6 +109,8 @@ export default function Home() {
             "myMaterials",
             "materialUsage",
             "storedValueAccess",
+            "recoveryTasks",
+            "recoveryContact",
             "upcomingAppointments",
             "myCalendar",
             "myBusy",

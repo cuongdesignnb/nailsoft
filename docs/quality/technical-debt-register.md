@@ -47,3 +47,11 @@
 - Local Docker/CI smoke is not a production-scale claim. Run the specified million-ledger/hot-card benchmark and Worker soak on production-like staging before go-live.
 - Customer Credit refund destination selection is available only through audited refund allocation workflow; broader self-service conversion or transferable credit requires a Change Request.
 - Repository-wide format check includes pre-existing files outside Sprint 10; changed-file whitespace validation passes. Resolve this in a separately scoped formatting-only change to avoid mixing mechanical churn with domain implementation.
+
+# Sprint 11 carry-forward
+
+- Production email provider selection, credentials, webhook signature verification, bounce/complaint ingestion and deliverability monitoring are release configuration. Local/CI `FAKE` mode records `SENT` only and never fabricates `DELIVERED`.
+- Production secret-manager provisioning and rotation rehearsal are required for `PUBLIC_ENGAGEMENT_TOKEN_SECRET`; the development fallback is forbidden in production.
+- Customer engagement exports have job metadata only. Private object generation, CSV formula escaping, signed download expiry and deletion policy must be configured before release.
+- Local campaign/recovery capacity evidence is not a production claim. Run the documented 10k-audience, hot-withdrawal and Worker retry soak on production-like staging.
+- SMS, advanced marketing automation, CRM/CDP enrichment, public review syndication and AI are intentionally outside Sprint 11 and require separately authorized scope.

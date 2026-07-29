@@ -15,6 +15,7 @@ import { FinanceModule } from "./modules/finance/finance.module.js";
 import { BenefitsModule } from "./modules/benefits/benefits.module.js";
 import { InventoryModule } from "./modules/inventory/inventory.module.js";
 import { StoredValueModule } from "./modules/stored-value/stored-value.module.js";
+import { EngagementModule } from "./modules/engagement/engagement.module.js";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { StoredValueModule } from "./modules/stored-value/stored-value.module.js
     BenefitsModule,
     InventoryModule,
     StoredValueModule,
+    EngagementModule,
   ],
 })
 export class AppModule implements NestModule {

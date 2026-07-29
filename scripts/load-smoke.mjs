@@ -512,6 +512,50 @@ const scenarios = [
       }),
   },
   {
+    name: "communication-messages",
+    setup: async (worker) => auth(`load-communication-${worker}`),
+    run: (state) =>
+      request("/v1/communications/messages", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "marketing-campaigns",
+    setup: async (worker) => auth(`load-marketing-${worker}`),
+    run: (state) =>
+      request("/v1/marketing-campaigns", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "verified-reviews",
+    setup: async (worker) => auth(`load-reviews-${worker}`),
+    run: (state) =>
+      request("/v1/reviews", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
+    name: "recovery-cases",
+    setup: async (worker) => auth(`load-recovery-${worker}`),
+    run: (state) =>
+      request("/v1/service-recovery/cases", {
+        headers: {
+          authorization: `Bearer ${state.accessToken}`,
+          "x-tenant-id": state.tenantId,
+        },
+      }),
+  },
+  {
     name: "availability-explain",
     setup: async (worker) => auth(`load-explain-${worker}`),
     run: (state) =>

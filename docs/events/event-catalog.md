@@ -125,3 +125,13 @@ Settlement: `stored_value.reserved`, `stored_value.redeemed`, `stored_value.rele
 Customer credit: `customer_credit.adjustment_requested`, `customer_credit.adjustment_approved`, `customer_credit.adjustment_rejected`, `customer_credit.adjustment_cancelled`, `customer_credit.issued_from_refund`.
 
 All events are committed with audit and the financial transaction. Payloads contain only tenant/branch/aggregate IDs, currency, minor-unit summaries and `refetch: true`; they never contain card number/hash, PIN/hash, customer contact or legal notes. Worker fan-out emits `gift_card.updated`, `customer_credit.updated`, `stored_value.wallet_invalidated`, `stored_value.liability_invalidated` or `stored_value.reconciliation_invalidated`. PostgreSQL remains authoritative.
+
+# Sprint 11 customer-engagement events
+
+Consent and communication: `customer.communication_preferences_updated`, `customer.consent_granted`, `customer.consent_withdrawn`, `communication.template_created`, `communication.template_version_created`, `communication.template_version_activated`, `communication.rule_created`, `communication.message_generated`, `communication.message_sent`, `communication.message_failed`, `communication.message_dead_lettered`, `communication.message_suppressed`.
+
+Marketing: `marketing.segment_created`, `marketing.segment_updated`, `marketing.campaign_created`, `marketing.campaign_submitted`, `marketing.campaign_approved`, `marketing.campaign_scheduled`, `marketing.campaign_started`, `marketing.campaign_paused`, `marketing.campaign_resumed`, `marketing.campaign_completed`, `marketing.campaign_cancelled`.
+
+Reviews and recovery: `review.request_created`, `review.submitted`, `review.published`, `review.hidden`, `review.flagged`, `review.response_published`, `service_recovery.created`, `service_recovery.triaged`, `service_recovery.assigned`, `service_recovery.started`, `service_recovery.waiting_customer`, `service_recovery.resolved`, `service_recovery.closed`, `service_recovery.task_created`, `service_recovery.task_completed`, `service_recovery.contact_logged`, `service_recovery.compensation_requested`, `service_recovery.compensation_approved`, `service_recovery.compensation_rejected`.
+
+Payloads carry tenant/branch/aggregate identifiers, status/version and `refetch: true`. They exclude email addresses/bodies, token values, review customer contact, recovery statements and provider secrets. Worker invalidations (`communication.updated`, `marketing.updated`, `review.updated`, `service_recovery.updated`) are refetch signals only.

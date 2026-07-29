@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.12.0,
-    description: Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
+    version: 0.13.0,
+    description: Sprint 11 email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
     supplier and purchase operations plus Sprint 8 voucher,
     loyalty,
     membership and service package benefits plus Sprint 7 refund,
@@ -18,6 +18,238 @@ info:
 servers: [{ url: http://localhost:3001/v1 }]
 security: [{ bearerAuth: [], tenantContext: [] }]
 paths:
+  /customer/me/communication-preferences:
+    get:
+      {
+        tags: [communication],
+        summary: Read own communication preferences,
+        responses: { "200": { description: Preferences } },
+      }
+  /customer/me/communication-preferences/update:
+    post:
+      {
+        tags: [communication],
+        summary: Update own email preferences,
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        $ref: "#/components/schemas/CommunicationPreferenceInput",
+                      },
+                  },
+              },
+          },
+        responses: { "200": { description: Updated } },
+      }
+  /customer/me/consents:
+    get:
+      {
+        tags: [communication],
+        summary: Read own versioned consent states,
+        responses: { "200": { description: Consent states } },
+      }
+  /customer/me/consents/grant:
+    post:
+      {
+        tags: [communication],
+        summary: Append consent grant evidence,
+        responses:
+          {
+            "200": { description: Granted },
+            "409": { description: Definition inactive or version conflict },
+          },
+      }
+  /customer/me/consents/withdraw:
+    post:
+      {
+        tags: [communication],
+        summary: Withdraw and immediately suppress marketing,
+        responses: { "200": { description: Withdrawn } },
+      }
+  /communications/templates:
+    get:
+      {
+        tags: [communication],
+        summary: List templates,
+        responses: { "200": { description: Templates } },
+      }
+    post:
+      {
+        tags: [communication],
+        summary: Create email template,
+        responses: { "200": { description: Created } },
+      }
+  /communications/messages:
+    get:
+      {
+        tags: [communication],
+        summary: List privacy-safe delivery records,
+        responses: { "200": { description: Messages } },
+      }
+  /customer-segments:
+    get:
+      {
+        tags: [marketing],
+        summary: List scoped segments,
+        responses: { "200": { description: Segments } },
+      }
+    post:
+      {
+        tags: [marketing],
+        summary: Create allowlisted segment,
+        responses: { "200": { description: Created } },
+      }
+  /marketing-campaigns:
+    get:
+      {
+        tags: [marketing],
+        summary: List scoped email campaigns,
+        responses: { "200": { description: Campaigns } },
+      }
+    post:
+      {
+        tags: [marketing],
+        summary: Create email campaign,
+        responses: { "200": { description: Created } },
+      }
+  /marketing-campaigns/{campaignId}/approve:
+    post:
+      {
+        tags: [marketing],
+        summary: Dual-control campaign approval,
+        parameters:
+          [
+            {
+              in: path,
+              name: campaignId,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses:
+          {
+            "200": { description: Approved },
+            "403": { description: Self approval denied },
+          },
+      }
+  /review-requests:
+    get:
+      {
+        tags: [reviews],
+        summary: List verified-transaction review requests,
+        responses: { "200": { description: Requests } },
+      }
+  /reviews:
+    get:
+      {
+        tags: [reviews],
+        summary: List scoped verified reviews,
+        responses: { "200": { description: Reviews } },
+      }
+  /public/reviews/request:
+    get:
+      security: []
+      tags: [reviews]
+      summary: Read a signed review request
+      parameters:
+        [{ in: query, name: token, required: true, schema: { type: string } }]
+      responses:
+        {
+          "200": { description: Public review context },
+          "404": { description: Invalid token },
+        }
+  /public/reviews/submit:
+    post:
+      security: []
+      tags: [reviews]
+      summary: Submit one paid-visit review
+      responses:
+        {
+          "200": { description: Submitted },
+          "409": { description: Unverified or already submitted },
+        }
+  /public/communications/unsubscribe:
+    post:
+      security: []
+      tags: [communication]
+      summary: Immediately withdraw marketing consent
+      responses:
+        {
+          "200": { description: Suppressed },
+          "404": { description: Invalid token },
+        }
+  /service-recovery/cases:
+    get:
+      {
+        tags: [service-recovery],
+        summary: List branch-scoped recovery cases,
+        responses: { "200": { description: Cases } },
+      }
+    post:
+      {
+        tags: [service-recovery],
+        summary: Create a recovery case,
+        responses: { "200": { description: Created } },
+      }
+  /service-recovery/cases/{caseId}/triage:
+    post:
+      {
+        tags: [service-recovery],
+        summary: Triage a recovery case,
+        parameters:
+          [
+            {
+              in: path,
+              name: caseId,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses:
+          {
+            "200": { description: Triaged },
+            "409": { description: Version or state conflict },
+          },
+      }
+  /service-recovery/tasks/me:
+    get:
+      {
+        tags: [service-recovery],
+        summary: List recovery tasks assigned to the current user,
+        responses: { "200": { description: Assigned tasks } },
+      }
+  /service-recovery/compensations:
+    get:
+      {
+        tags: [service-recovery],
+        summary: List branch-scoped compensation requests pending approval,
+        responses: { "200": { description: Pending compensation requests } },
+      }
+  /service-recovery/compensations/{compensationId}/approve:
+    post:
+      {
+        tags: [service-recovery],
+        summary: Dual-control compensation approval through owning domain,
+        parameters:
+          [
+            {
+              in: path,
+              name: compensationId,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ],
+        responses:
+          {
+            "200": { description: Approved },
+            "403": { description: Self approval denied },
+          },
+      }
   /gift-card-products:
     get:
       {
@@ -3380,6 +3612,19 @@ components:
         description: Requested tenant scope; always verified against the authenticated membership,
       }
   schemas:
+    CommunicationPreferenceInput:
+      type: object
+      additionalProperties: false
+      properties:
+        preferredLocale: { enum: [vi-VN, en-US] }
+        preferredTimezone: { type: string }
+        emailAddress: { type: string, format: email }
+        marketingEmailAllowed: { type: boolean }
+        reviewRequestAllowed: { type: boolean }
+        serviceRecoveryContactAllowed: { type: boolean }
+        quietHoursStart: { type: string }
+        quietHoursEnd: { type: string }
+        version: { type: integer, minimum: 1 }
     VoucherCampaignInput:
       type: object
       additionalProperties: false
