@@ -117,6 +117,32 @@ export class OrganizationService {
   async createBranch(auth: AccessClaims, input: unknown, requestId: string) {
     const body = branchInput.parse(input);
     return this.db.transaction(async (c) => {
+      const tenant = (
+        await c.query<{ access_mode: string }>(
+          "SELECT access_mode FROM tenants WHERE id=$1 FOR UPDATE",
+          [auth.tenantId],
+        )
+      ).rows[0];
+      if (["READ_ONLY", "BILLING_ONLY", "SUSPENDED", "TERMINATED"].includes(tenant?.access_mode ?? "TERMINATED"))
+        throw new ForbiddenException({
+          code: tenant?.access_mode === "TERMINATED" ? "TENANT_TERMINATED" : tenant?.access_mode === "SUSPENDED" ? "TENANT_SUSPENDED" : "TENANT_READ_ONLY",
+          message: "Tenant access mode blocks branch creation",
+        });
+      const quota = (
+        await c.query<{ quota_limit: string | null; unlimited: boolean }>(
+          "SELECT quota_limit,unlimited FROM platform_entitlement_projections WHERE tenant_id=$1 AND entitlement_code='branches.max' FOR UPDATE",
+          [auth.tenantId],
+        )
+      ).rows[0];
+      const multiBranch = (
+        await c.query<{ enabled: boolean | null }>(
+          "SELECT enabled FROM platform_entitlement_projections WHERE tenant_id=$1 AND entitlement_code='multi_branch.enabled'",
+          [auth.tenantId],
+        )
+      ).rows[0];
+      const active = Number((await c.query<{ count: string }>("SELECT count(*) count FROM branches WHERE tenant_id=$1 AND status='ACTIVE'",[auth.tenantId])).rows[0]?.count ?? 0);
+      if ((!multiBranch?.enabled && active >= 1) || (!quota?.unlimited && active >= Number(quota?.quota_limit ?? 0)))
+        throw new ForbiddenException({ code: "ENTITLEMENT_QUOTA_EXCEEDED", message: "Branch quota exceeded" });
       const id = randomUUID();
       const result = await c.query(
         'INSERT INTO branches(id,tenant_id,name,code,address_json,phone,timezone) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,name,code,address_json "address",phone,timezone,status,created_at "createdAt",updated_at "updatedAt"',

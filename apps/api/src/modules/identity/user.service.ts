@@ -64,6 +64,12 @@ export class UserService {
         message: "A branch is required for this role",
       });
     return this.db.transaction(async (client) => {
+      const tenant = (await client.query<{ access_mode: string }>("SELECT access_mode FROM tenants WHERE id=$1 FOR UPDATE",[auth.tenantId])).rows[0];
+      if (["READ_ONLY","BILLING_ONLY","SUSPENDED","TERMINATED"].includes(tenant?.access_mode ?? "TERMINATED"))
+        throw new ForbiddenException({ code: tenant?.access_mode === "SUSPENDED" ? "TENANT_SUSPENDED" : tenant?.access_mode === "TERMINATED" ? "TENANT_TERMINATED" : "TENANT_READ_ONLY", message: "Tenant access mode blocks user activation" });
+      const quota=(await client.query<{quota_limit:string|null;unlimited:boolean}>("SELECT quota_limit,unlimited FROM platform_entitlement_projections WHERE tenant_id=$1 AND entitlement_code='active_users.max' FOR UPDATE",[auth.tenantId])).rows[0];
+      const active=BigInt((await client.query<{count:string}>("SELECT count(*) count FROM tenant_memberships WHERE tenant_id=$1 AND status='ACTIVE'",[auth.tenantId])).rows[0]?.count??0);
+      if(!quota?.unlimited&&active>=BigInt(quota?.quota_limit??0))throw new ConflictException({code:"ENTITLEMENT_QUOTA_EXCEEDED",message:"Active user quota exceeded"});
       if (body.branchId) {
         const branch = await client.query(
           "SELECT 1 FROM branches WHERE tenant_id=$1 AND id=$2",

@@ -70,8 +70,18 @@ const titles: Record<string, string> = {
   payrollApprovals: "Payroll approvals and finalization",
   payoutApprovals: "Payout approvals",
   payrollFailures: "Payroll and payout exceptions",
+  billingPlan: "Nailsoft plan and status",
+  billingQuotas: "Plan usage and quotas",
+  billingInvoices: "Platform invoices",
+  billingWarnings: "Billing and payment warning",
+  supportAccess: "Support access grants",
 };
 function endpoint(screen: string, id?: string) {
+  if (screen === "billingPlan" || screen === "billingWarnings")
+    return "/v1/tenant/billing/subscription";
+  if (screen === "billingQuotas") return "/v1/tenant/billing/entitlements";
+  if (screen === "billingInvoices") return "/v1/tenant/billing/invoices";
+  if (screen === "supportAccess") return "/v1/tenant/support-access-grants";
   if (screen === "attendanceSummary") return "/v1/workforce/reports/attendance";
   if (screen === "missingPunchAlerts") return "/v1/time-clock/exceptions";
   if (screen === "timesheetApprovals") return "/v1/timesheets";
@@ -208,6 +218,11 @@ export default function OwnerScreen() {
         "customerCreditOutstanding",
         "storedValueApprovals",
         "storedValueExceptions",
+        "billingPlan",
+        "billingQuotas",
+        "billingInvoices",
+        "billingWarnings",
+        "supportAccess",
       ].includes(screen)
     )
       return;
@@ -339,6 +354,20 @@ export default function OwnerScreen() {
         ? "Workforce approval completed."
         : (body.error?.message ?? "Decision failed safely."),
     );
+    await load();
+  }
+  async function supportDecision(action: "approve" | "revoke", item: any) {
+    if (!navigator.onLine) {
+      setMessage("Internet connection required. Support decisions are not queued.");
+      return;
+    }
+    const response = await apiFetch(`/v1/tenant/support-access-grants/${item.id}/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({ reason: `${action} by tenant Owner in Owner Mobile` }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setMessage(response.ok ? `Support grant ${action}d.` : (body.error?.message ?? "Decision failed safely."));
     await load();
   }
   async function bookingCommand(
@@ -607,6 +636,12 @@ export default function OwnerScreen() {
                       }
                     />
                   )}
+                {screen === "supportAccess" && item.state === "REQUESTED" && (
+                  <Button title="Approve scoped support access" onPress={() => void supportDecision("approve", item)} />
+                )}
+                {screen === "supportAccess" && ["APPROVED", "ACTIVE"].includes(item.state) && (
+                  <Button title="Revoke support access" onPress={() => void supportDecision("revoke", item)} />
+                )}
               </View>
             ))}
           </View>

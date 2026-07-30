@@ -1,0 +1,28 @@
+BEGIN;
+DROP TRIGGER IF EXISTS platform_invoice_immutable ON platform_invoices;
+DROP TRIGGER IF EXISTS platform_invoice_lines_immutable ON platform_invoice_lines;
+DROP TRIGGER IF EXISTS platform_plan_version_immutable ON platform_plan_versions;
+DROP TRIGGER IF EXISTS platform_price_immutable ON platform_prices;
+DROP TRIGGER IF EXISTS platform_support_history_append_only ON platform_support_access_history;
+DROP TRIGGER IF EXISTS platform_subscription_history_append_only ON platform_subscription_history;
+DROP TRIGGER IF EXISTS platform_usage_corrections_append_only ON platform_usage_corrections;
+DROP TRIGGER IF EXISTS platform_credit_ledger_append_only ON platform_billing_credit_ledger;
+DROP FUNCTION IF EXISTS sprint13_invoice_guard();
+DROP FUNCTION IF EXISTS sprint13_final_invoice_immutable();
+DROP FUNCTION IF EXISTS sprint13_used_catalog_immutable();
+DROP FUNCTION IF EXISTS sprint13_used_price_immutable();
+DROP FUNCTION IF EXISTS sprint13_append_only_guard();
+DROP TABLE IF EXISTS platform_billing_export_jobs,platform_break_glass_requests,platform_support_sessions,platform_support_access_history,platform_support_access_grants CASCADE;
+DROP TABLE IF EXISTS tenant_onboarding_checklists,tenant_termination_requests,tenant_access_mode_history,platform_dunning_history,platform_dunning_cases,platform_dunning_policies CASCADE;
+DROP TABLE IF EXISTS platform_payment_reconciliations,platform_refunds,platform_payment_provider_events,platform_payment_attempts,platform_payment_intents CASCADE;
+DROP TABLE IF EXISTS platform_billing_credit_ledger,platform_credit_note_lines,platform_credit_notes,platform_invoice_lines,platform_invoices,platform_invoice_number_sequences CASCADE;
+DROP TABLE IF EXISTS platform_usage_corrections,platform_usage_aggregates,platform_usage_events,platform_usage_meter_definitions CASCADE;
+DROP TABLE IF EXISTS platform_quota_reservations,platform_entitlement_projections,platform_entitlement_overrides,platform_subscription_history,platform_subscription_changes,platform_subscription_items,platform_subscription_periods,platform_subscriptions CASCADE;
+DROP TABLE IF EXISTS platform_payment_methods,platform_billing_contacts,platform_billing_accounts CASCADE;
+DROP TABLE IF EXISTS platform_discount_redemptions,platform_discount_definitions,platform_plan_entitlements,platform_entitlement_definitions,platform_price_tiers,platform_prices,platform_plan_versions,platform_plans,platform_products CASCADE;
+DELETE FROM role_permissions WHERE permission_code LIKE 'platform.%' OR permission_code LIKE 'tenant.billing.%' OR permission_code LIKE 'tenant.support_grant.%';
+DELETE FROM permissions WHERE code LIKE 'platform.%' OR code LIKE 'tenant.billing.%' OR code LIKE 'tenant.support_grant.%';
+ALTER TABLE tenants DROP CONSTRAINT IF EXISTS tenants_access_mode_check, DROP CONSTRAINT IF EXISTS tenants_lifecycle_status_check,
+  DROP COLUMN IF EXISTS lifecycle_version, DROP COLUMN IF EXISTS access_mode, DROP COLUMN IF EXISTS lifecycle_status;
+DELETE FROM schema_migrations WHERE version='0026_saas_subscription_platform_billing_entitlements';
+COMMIT;

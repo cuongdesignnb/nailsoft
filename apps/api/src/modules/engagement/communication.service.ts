@@ -82,7 +82,23 @@ export class CommunicationService {
             command: name,
             key,
             request,
-            work: () => work(c),
+            work: async () => {
+              const tenant = (await c.query<{ access_mode: string }>("SELECT access_mode FROM tenants WHERE id=$1 FOR SHARE",[auth.tenantId])).rows[0];
+              if (["READ_ONLY","BILLING_ONLY","SUSPENDED","TERMINATED"].includes(tenant?.access_mode ?? "TERMINATED"))
+                throw new ForbiddenException({ code: tenant?.access_mode === "SUSPENDED" ? "TENANT_SUSPENDED" : tenant?.access_mode === "TERMINATED" ? "TENANT_TERMINATED" : "TENANT_READ_ONLY", message: "Tenant access mode blocks engagement writes" });
+              if (name.startsWith("marketing.")) {
+                const entitlement = (await c.query<{ enabled: boolean | null }>("SELECT enabled FROM platform_entitlement_projections WHERE tenant_id=$1 AND entitlement_code='marketing.enabled'",[auth.tenantId])).rows[0];
+                if (!entitlement?.enabled) throw new ForbiddenException({ code: "ENTITLEMENT_DENIED", message: "Marketing entitlement is disabled" });
+                if (name.includes("schedule") || name.includes("resume")) {
+                  const quota = (await c.query<{ quota_limit: string | null; unlimited: boolean }>("SELECT quota_limit,unlimited FROM platform_entitlement_projections WHERE tenant_id=$1 AND entitlement_code='marketing_email_monthly.max'",[auth.tenantId])).rows[0];
+                  if (!quota?.unlimited) {
+                    const used = BigInt((await c.query<{ quantity: string }>(`SELECT COALESCE(sum(u.quantity),0) quantity FROM platform_usage_aggregates u JOIN platform_usage_meter_definitions m ON m.id=u.meter_id WHERE u.tenant_id=$1 AND m.code='MARKETING_EMAIL_SENT' AND u.period_start=date_trunc('month',now())`,[auth.tenantId])).rows[0]?.quantity ?? 0);
+                    if (used >= BigInt(quota?.quota_limit ?? 0)) throw new ForbiddenException({ code: "ENTITLEMENT_QUOTA_EXCEEDED", message: "Marketing email monthly quota exceeded" });
+                  }
+                }
+              }
+              return work(c);
+            },
           })
         ).data,
     );

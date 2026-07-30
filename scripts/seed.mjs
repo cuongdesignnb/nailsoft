@@ -52,6 +52,11 @@ try {
   );
   if (sprint12.rowCount)
     await c.query(await readFile("infra/seeds/sprint12.sql", "utf8"));
+  const sprint13 = await c.query(
+    "SELECT 1 FROM schema_migrations WHERE version='0026_saas_subscription_platform_billing_entitlements'",
+  );
+  if (sprint13.rowCount)
+    await c.query(await readFile("infra/seeds/sprint13.sql", "utf8"));
 } finally {
   await c.end();
 }

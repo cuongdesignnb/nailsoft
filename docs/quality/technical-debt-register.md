@@ -69,3 +69,11 @@
 - Commission and tip source types are uniquely reserved in the payroll allocation ledger; end-to-end production settlement import needs final finance reconciliation against provider/commission period calendars.
 - Historical tip allocations are intentionally backfilled `UNKNOWN` and excluded from payroll. Finance must attach payout evidence and explicitly classify them before any recovery/import; the migration does not infer whether cash was already handed directly to staff.
 - Overtime thresholds remain jurisdiction data. Production enablement requires Legal-approved daily, weekly and consecutive-day rule JSON plus boundary fixtures for every activated jurisdiction; the deterministic engine supplies no statutory default.
+
+# Sprint 13 carry-forward
+
+- Production payment provider credentials, customer/payment-method adapters and signed webhook verification are absent; production fails closed until certification.
+- Production tax calculation/filing and revenue recognition/general ledger remain outside scope.
+- Platform invoice/export rendering, private signed URLs and retention deletion require the selected object-storage adapter.
+- Break-glass remains disabled pending two platform approvers, tenant notification, incident integration and post-incident review automation.
+- Local Docker/CI load smoke is not a production claim; run provider-loss, million-event usage and renewal/dunning soak on production-like staging.

@@ -41,6 +41,15 @@ async function auth(deviceId) {
   const body = await response.json();
   return body.data ?? {};
 }
+async function authAs(deviceId, actorEmail) {
+  const response = await fetch(`${baseUrl}/v1/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...loginBody(deviceId), email: actorEmail }),
+  });
+  const body = await response.json();
+  return body.data ?? {};
+}
 const scenarios = [
   { name: "health", run: () => request("/v1/health") },
   { name: "ready", run: () => request("/v1/ready") },
@@ -598,6 +607,26 @@ const scenarios = [
           "x-tenant-id": state.tenantId,
         },
       }),
+  },
+  {
+    name: "tenant-entitlements",
+    setup: async (worker) => auth(`load-entitlements-${worker}`),
+    run: (state) => request("/v1/tenant/billing/entitlements", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "platform-tenants",
+    setup: async (worker) => authAs(`load-platform-tenant-${worker}`, "platform-e2e@example.test"),
+    run: (state) => request("/v1/platform/tenants", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "platform-invoices",
+    setup: async (worker) => authAs(`load-platform-invoice-${worker}`, "platform-e2e@example.test"),
+    run: (state) => request("/v1/platform/invoices", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "platform-payments",
+    setup: async (worker) => authAs(`load-platform-payment-${worker}`, "platform-e2e@example.test"),
+    run: (state) => request("/v1/platform/payment-intents", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
   },
   {
     name: "availability-explain",

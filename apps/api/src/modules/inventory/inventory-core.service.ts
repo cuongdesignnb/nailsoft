@@ -84,7 +84,14 @@ export class InventoryCoreService {
             command: name,
             key,
             request,
-            work: () => work(c),
+            work: async () => {
+              const tenant = (await c.query<{ access_mode: string }>("SELECT access_mode FROM tenants WHERE id=$1 FOR SHARE",[auth.tenantId])).rows[0];
+              if (["READ_ONLY","BILLING_ONLY","SUSPENDED","TERMINATED"].includes(tenant?.access_mode ?? "TERMINATED"))
+                throw new ForbiddenException({ code: tenant?.access_mode === "SUSPENDED" ? "TENANT_SUSPENDED" : tenant?.access_mode === "TERMINATED" ? "TENANT_TERMINATED" : "TENANT_READ_ONLY", message: "Tenant access mode blocks inventory writes" });
+              const entitlement = (await c.query<{ enabled: boolean | null }>("SELECT enabled FROM platform_entitlement_projections WHERE tenant_id=$1 AND entitlement_code='inventory.enabled'",[auth.tenantId])).rows[0];
+              if (!entitlement?.enabled) throw new ForbiddenException({ code: "ENTITLEMENT_DENIED", message: "Inventory entitlement is disabled" });
+              return work(c);
+            },
           })
         ).data,
     );

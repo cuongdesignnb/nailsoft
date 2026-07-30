@@ -1954,7 +1954,7 @@ export class BookingService {
     };
   }
   private denyPlatform(auth: AccessClaims) {
-    if (auth.roles.includes("PLATFORM_SUPER_ADMIN"))
+    if (auth.roles.includes("PLATFORM_SUPER_ADMIN") && !auth.supportAccess)
       throw new ForbiddenException({
         code: "TENANT_ACCESS_DENIED",
         message: "Platform support grant is required",

@@ -142,6 +142,14 @@ Sprint 11 closure makes `marketing.campaign_completed` a Worker-derived, replay-
 
 Time clock: `time_clock.clocked_in`, `time_clock.clocked_out`, `time_clock.break_started`, `time_clock.break_ended`, `time_clock.exception_created`, `time_clock.exception_resolved`.
 
+# Sprint 13 platform commerce events
+
+Catalog/subscription: `platform.plan_published`, `platform.price_activated`, `platform.subscription_created`, `platform.subscription_changed`, `platform.subscription_renewed`, `platform.subscription_cancelled`, `platform.subscription_reactivated`, `platform.entitlement_override_created`, `platform.quota_denied`, `platform.usage_recorded`.
+
+Billing/payment: `platform.invoice_finalized`, `platform.credit_note_finalized`, `platform.payment_succeeded`, `platform.payment_failed`, `platform.payment_unknown`, `platform.payment_reconciled`, `platform.refund_completed`, `platform.dunning_stage_changed`, `tenant.access_mode_changed`.
+
+Support: `support.grant_approved`, `support.grant_revoked`, `support.grant_expired`, `support.session_started`, `support.session_ended`. Payloads contain aggregate IDs and `refetch: true`; billing contact, provider evidence, support tokens and salon data are forbidden.
+
 Timesheet/compliance: `timesheet.submitted`, `timesheet.approved`, `timesheet.rejected`, `timesheet.reopened`, `timesheet.locked`, `timesheet.adjustment_requested`, `timesheet.adjustment_approved`, `timesheet.adjustment_applied`, `workforce.policy_created`, `workforce.policy_activated`, `workforce.violation_created`, `workforce.violation_resolved`.
 
 Payroll/payout: `pay_profile.updated`, `pay_rate.created`, `pay_rate.deactivated`, `payroll.run_created`, `payroll.calculated`, `payroll.tip_disposition_changed`, `payroll.correction_created`, `payroll.correction_pending_approval`, `payroll.correction_approved`, `payroll.correction_rejected`, `payroll.submitted`, `payroll.approved`, `payroll.finalized`, `payroll.void_requested`, `payroll.voided`, `payroll.exception_created`, `payroll.source_allocated`, `payout.batch_created`, `payout.batch_approved`, `payout.processing_started`, `payout.item_paid`, `payout.item_failed`, `payout.item_unknown`, `payout.provider_event_reconciled`, `payout.reversal_requested`, `payout.reversed`, `payout.reconciliation_resolved`.

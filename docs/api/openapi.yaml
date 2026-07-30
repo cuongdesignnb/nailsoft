@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.14.1,
-    description: Sprint 12 time clock attendance timesheet workforce compliance deterministic payroll pay statements payout and reconciliation plus Sprint 11 closure-hardened email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
+    version: 0.15.0,
+    description: Sprint 13 SaaS subscription platform billing entitlements usage invoicing payment tenant lifecycle and scoped support access plus Sprint 12 time clock attendance timesheet workforce compliance deterministic payroll pay statements payout and reconciliation plus Sprint 11 closure-hardened email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
     supplier and purchase operations plus Sprint 8 voucher,
     loyalty,
     membership and service package benefits plus Sprint 7 refund,
@@ -3942,6 +3942,76 @@ paths:
           "201": { description: Reservation },
           "409": { description: Conflict },
         }
+  /tenant/billing/account:
+    get: { tags: [platform-billing], summary: Read tenant billing account, responses: { "200": { description: Billing account }, "403": { description: Owner permission required } } }
+    post:
+      tags: [platform-billing]
+      summary: Update tenant billing account
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
+      responses: { "200": { description: Updated }, "409": { description: Version or validation conflict } }
+  /tenant/billing/plans:
+    get: { tags: [platform-billing], summary: List published non-legacy plans, responses: { "200": { description: Plans } } }
+  /tenant/billing/subscription:
+    get: { tags: [platform-billing], summary: Read own subscription, responses: { "200": { description: Subscription } } }
+  /tenant/billing/subscription/start-trial:
+    post: { tags: [platform-billing], summary: Start one tenant trial, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }, responses: { "200": { description: Trial subscription }, "409": { description: TRIAL_ALREADY_USED } } }
+  /tenant/billing/subscription/change-plan:
+    post: { tags: [platform-billing], summary: Change plan using exact bigint proration, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlanChangeCommand" } } } }, responses: { "200": { description: Plan change }, "409": { description: Version or currency conflict } } }
+  /tenant/billing/entitlements:
+    get: { tags: [platform-billing], summary: Read authoritative capabilities, responses: { "200": { description: Entitlements } } }
+  /tenant/billing/usage:
+    get: { tags: [platform-billing], summary: Read metered usage, responses: { "200": { description: Usage aggregates } } }
+  /tenant/billing/invoices:
+    get: { tags: [platform-billing], summary: List own platform invoices, responses: { "200": { description: Invoices } } }
+  /tenant/support-access-grants:
+    get: { tags: [platform-support], summary: List tenant-visible support grants, responses: { "200": { description: Grants } } }
+  /tenant/support-access-grants/{id}/approve:
+    post:
+      tags: [platform-support]
+      summary: Tenant Owner approves scoped support grant
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
+      responses: { "200": { description: Approved }, "403": { description: Self approval or permission denied } }
+  /platform/plans:
+    get: { tags: [platform-catalog], summary: List platform plans and versions, responses: { "200": { description: Plans } } }
+    post: { tags: [platform-catalog], summary: Create draft plan, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }, responses: { "200": { description: Draft plan } } }
+  /platform/plans/{id}/versions/{versionId}/publish:
+    post:
+      tags: [platform-catalog]
+      summary: Publish immutable plan version
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      responses: { "200": { description: Active version }, "409": { description: Invalid lifecycle } }
+  /platform/tenants:
+    get: { tags: [platform-tenants], summary: List SaaS tenant state without salon operational data, responses: { "200": { description: Tenants } } }
+  /platform/invoices/{id}/finalize:
+    post:
+      tags: [platform-billing]
+      summary: Finalize immutable platform invoice
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
+      responses: { "200": { description: Finalized invoice }, "409": { description: Total mismatch or immutable } }
+  /platform/payment-intents/{id}/confirm:
+    post:
+      tags: [platform-payments]
+      summary: Confirm using stable provider key
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
+      responses: { "200": { description: Payment outcome }, "409": { description: UNKNOWN requires reconciliation } }
+  /platform/payment-intents/{id}/reconcile:
+    post:
+      tags: [platform-payments]
+      summary: Reconcile an UNKNOWN provider outcome
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
+      responses: { "200": { description: Reconciled outcome } }
+  /internal/platform-usage/events:
+    post:
+      tags: [platform-usage]
+      summary: Record deduplicated internal usage event
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/UsageEventCommand" } } } }
+      responses: { "200": { description: Recorded or replayed event } }
 components:
   parameters:
     IdempotencyKey:
@@ -4025,6 +4095,29 @@ components:
         description: Requested tenant scope; always verified against the authenticated membership,
       }
   schemas:
+    PlatformCommand:
+      type: object
+      additionalProperties: true
+      description: Command-specific object; every write requires Idempotency-Key and granular authorization.
+    PlanChangeCommand:
+      type: object
+      required: [planId, version]
+      properties:
+        planId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        effectiveMode: { enum: [IMMEDIATE, NEXT_PERIOD] }
+        changeType: { enum: [UPGRADE, DOWNGRADE, INTERVAL_CHANGE, QUANTITY_CHANGE, ADD_ON_CHANGE] }
+        quantity: { type: integer, minimum: 0 }
+    UsageEventCommand:
+      type: object
+      required: [tenantId, meterCode, sourceType, sourceId, quantity]
+      properties:
+        tenantId: { type: string, format: uuid }
+        meterCode: { enum: [ACTIVE_BRANCH_DAY, ACTIVE_USER_DAY, BOOKING_CREATED, MARKETING_EMAIL_SENT, STORAGE_BYTE_HOUR, API_REQUEST] }
+        sourceType: { type: string }
+        sourceId: { type: string }
+        quantity: { type: integer, minimum: 0 }
+        occurredAt: { type: string, format: date-time }
     CustomerSegmentInput:
       type: object
       additionalProperties: false

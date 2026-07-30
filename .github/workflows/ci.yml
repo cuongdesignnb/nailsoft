@@ -73,7 +73,7 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 12 source coverage migration rollback to 0024 and re-migrate
+      - name: Sprint 13 migration rollback to 0025 and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
@@ -477,6 +477,28 @@ jobs:
             pnpm db:seed
             pnpm exec playwright test "$spec" --config=playwright.api.config.ts
           done
+      - name: Sprint 13 plan subscription unit tests
+        run: pnpm exec vitest run apps/api/test/platform-billing-domain.test.ts
+      - name: Sprint 13 legacy tenant entitlement quota usage and ledger integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-platform-billing-invariants.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 13 authenticated tenant billing and platform admin E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-authenticated-platform-billing-e2e.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 13 subscription renewal and scheduled downgrade concurrency
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-subscription-renewal-worker.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 13 final authenticated Playwright API E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint13-platform-billing-deep.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 13 payment reconciliation dunning lifecycle and support authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm db:reset
+          pnpm db:seed
+          pnpm exec vitest run tests/integration/sprint13-platform-billing-invariants.test.ts --maxWorkers=1 --minWorkers=1
+          pnpm db:reset
+          pnpm db:seed
+          pnpm exec vitest run tests/integration/sprint13-authenticated-platform-billing-e2e.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 13 Owner Mobile smoke
+        run: pnpm exec vitest run tests/mobile/sprint13-platform-billing-mobile-smoke.test.ts
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke
@@ -549,6 +571,13 @@ jobs:
           LOAD_WARMUP_SECONDS: 1
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: attendance-sessions,timesheet-list,payroll-run-list,payout-batch-list
+        run: pnpm load:smoke
+      - name: Sprint 13 platform billing load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: platform-tenants,platform-invoices,platform-payments,tenant-entitlements
         run: pnpm load:smoke
       - name: Build API
         run: pnpm --filter @nailsoft/api build

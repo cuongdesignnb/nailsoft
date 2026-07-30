@@ -23,6 +23,13 @@ export class PermissionGuard implements CanActivate {
     if (!permission) return true;
     const req = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const required = Array.isArray(permission) ? permission : [permission];
+    if (req.auth.supportAccess) {
+      if (required.some((item) => req.auth.supportAccess?.permissions.includes(item))) return true;
+      throw new ForbiddenException({
+        code: "SUPPORT_SCOPE_DENIED",
+        message: `Support grant does not include: ${required.join(" or ")}`,
+      });
+    }
     const result = await this.db.query(
       "SELECT 1 FROM membership_roles mr JOIN role_permissions rp ON rp.role=mr.role WHERE mr.membership_id=$1 AND rp.permission_code=ANY($2::text[]) LIMIT 1",
       [req.auth.membershipId, required],

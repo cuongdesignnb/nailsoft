@@ -9,6 +9,13 @@ export interface AccessClaims {
   branchIds: string[];
   ownStaffId?: string;
   accessTokenExpiresAt?: string;
+  supportAccess?: {
+    grantId: string;
+    sessionId: string;
+    permissions: string[];
+    branchIds: string[];
+    dataClassifications: string[];
+  };
 }
 export interface AuthenticatedRequest {
   headers: Record<string, string | string[] | undefined>;
