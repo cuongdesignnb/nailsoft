@@ -73,7 +73,7 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 13 migration rollback to 0025 and re-migrate
+      - name: Sprint 13 migration 0027 rollback to 0026 and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
@@ -497,6 +497,24 @@ jobs:
           pnpm db:reset
           pnpm db:seed
           pnpm exec vitest run tests/integration/sprint13-authenticated-platform-billing-e2e.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 13 manual payment approval correctness
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-manual-payment-approval-workflow.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 13 refund and credit-note correctness
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm db:reset
+          pnpm db:seed
+          pnpm exec vitest run tests/integration/sprint13-refund-credit-note-correctness.test.ts --maxWorkers=1 --minWorkers=1
+          pnpm db:reset
+          pnpm db:seed
+          pnpm exec vitest run tests/integration/sprint13-credit-ledger-issue-and-application.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 13 payment external-call boundary
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-payment-provider-lease-boundary.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 13 usage semantic deduplication
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-usage-replay-semantic-dedupe.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 13 closure authenticated E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-authenticated-platform-billing-e2e.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 13 Owner Mobile smoke
         run: pnpm exec vitest run tests/mobile/sprint13-platform-billing-mobile-smoke.test.ts
       - name: Sprint 8 Owner and Staff Mobile contract smoke

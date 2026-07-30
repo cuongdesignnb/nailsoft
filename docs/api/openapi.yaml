@@ -2,8 +2,12 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.15.0,
-    description: Sprint 13 SaaS subscription platform billing entitlements usage invoicing payment tenant lifecycle and scoped support access plus Sprint 12 time clock attendance timesheet workforce compliance deterministic payroll pay statements payout and reconciliation plus Sprint 11 closure-hardened email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
+    version: 0.15.1,
+    description: Sprint 13 closure-hardened SaaS billing approval workflows,
+    provider leases,
+    exact payment allocation,
+    refund and credit-note accounting,
+    and semantic usage deduplication plus Sprint 13 SaaS subscription platform billing entitlements usage invoicing payment tenant lifecycle and scoped support access plus Sprint 12 time clock attendance timesheet workforce compliance deterministic payroll pay statements payout and reconciliation plus Sprint 11 closure-hardened email communication consent marketing reviews and service recovery plus Sprint 10 gift card and customer credit stored-value operations plus Sprint 9 inventory,
     supplier and purchase operations plus Sprint 8 voucher,
     loyalty,
     membership and service package benefits plus Sprint 7 refund,
@@ -3943,74 +3947,591 @@ paths:
           "409": { description: Conflict },
         }
   /tenant/billing/account:
-    get: { tags: [platform-billing], summary: Read tenant billing account, responses: { "200": { description: Billing account }, "403": { description: Owner permission required } } }
+    get:
+      {
+        tags: [platform-billing],
+        summary: Read tenant billing account,
+        responses:
+          {
+            "200": { description: Billing account },
+            "403": { description: Owner permission required },
+          },
+      }
     post:
       tags: [platform-billing]
       summary: Update tenant billing account
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
-      responses: { "200": { description: Updated }, "409": { description: Version or validation conflict } }
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/PlatformCommand" } },
+            },
+        }
+      responses:
+        {
+          "200": { description: Updated },
+          "409": { description: Version or validation conflict },
+        }
   /tenant/billing/plans:
-    get: { tags: [platform-billing], summary: List published non-legacy plans, responses: { "200": { description: Plans } } }
+    get:
+      {
+        tags: [platform-billing],
+        summary: List published non-legacy plans,
+        responses: { "200": { description: Plans } },
+      }
   /tenant/billing/subscription:
-    get: { tags: [platform-billing], summary: Read own subscription, responses: { "200": { description: Subscription } } }
+    get:
+      {
+        tags: [platform-billing],
+        summary: Read own subscription,
+        responses: { "200": { description: Subscription } },
+      }
   /tenant/billing/subscription/start-trial:
-    post: { tags: [platform-billing], summary: Start one tenant trial, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }, responses: { "200": { description: Trial subscription }, "409": { description: TRIAL_ALREADY_USED } } }
+    post:
+      {
+        tags: [platform-billing],
+        summary: Start one tenant trial,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/PlatformCommand" } },
+              },
+          },
+        responses:
+          {
+            "200": { description: Trial subscription },
+            "409": { description: TRIAL_ALREADY_USED },
+          },
+      }
   /tenant/billing/subscription/change-plan:
-    post: { tags: [platform-billing], summary: Change plan using exact bigint proration, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlanChangeCommand" } } } }, responses: { "200": { description: Plan change }, "409": { description: Version or currency conflict } } }
+    post:
+      {
+        tags: [platform-billing],
+        summary: Change plan using exact bigint proration,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  {
+                    schema: { $ref: "#/components/schemas/PlanChangeCommand" },
+                  },
+              },
+          },
+        responses:
+          {
+            "200": { description: Plan change },
+            "409": { description: Version or currency conflict },
+          },
+      }
   /tenant/billing/entitlements:
-    get: { tags: [platform-billing], summary: Read authoritative capabilities, responses: { "200": { description: Entitlements } } }
+    get:
+      {
+        tags: [platform-billing],
+        summary: Read authoritative capabilities,
+        responses: { "200": { description: Entitlements } },
+      }
   /tenant/billing/usage:
-    get: { tags: [platform-billing], summary: Read metered usage, responses: { "200": { description: Usage aggregates } } }
+    get:
+      {
+        tags: [platform-billing],
+        summary: Read metered usage,
+        responses: { "200": { description: Usage aggregates } },
+      }
   /tenant/billing/invoices:
-    get: { tags: [platform-billing], summary: List own platform invoices, responses: { "200": { description: Invoices } } }
+    get:
+      {
+        tags: [platform-billing],
+        summary: List own platform invoices,
+        responses: { "200": { description: Invoices } },
+      }
   /tenant/support-access-grants:
-    get: { tags: [platform-support], summary: List tenant-visible support grants, responses: { "200": { description: Grants } } }
+    get:
+      {
+        tags: [platform-support],
+        summary: List tenant-visible support grants,
+        responses: { "200": { description: Grants } },
+      }
   /tenant/support-access-grants/{id}/approve:
     post:
       tags: [platform-support]
       summary: Tenant Owner approves scoped support grant
-      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
-      responses: { "200": { description: Approved }, "403": { description: Self approval or permission denied } }
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/PlatformCommand" } },
+            },
+        }
+      responses:
+        {
+          "200": { description: Approved },
+          "403": { description: Self approval or permission denied },
+        }
   /platform/plans:
-    get: { tags: [platform-catalog], summary: List platform plans and versions, responses: { "200": { description: Plans } } }
-    post: { tags: [platform-catalog], summary: Create draft plan, parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }], requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }, responses: { "200": { description: Draft plan } } }
+    get:
+      {
+        tags: [platform-catalog],
+        summary: List platform plans and versions,
+        responses: { "200": { description: Plans } },
+      }
+    post:
+      {
+        tags: [platform-catalog],
+        summary: Create draft plan,
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/PlatformCommand" } },
+              },
+          },
+        responses: { "200": { description: Draft plan } },
+      }
   /platform/plans/{id}/versions/{versionId}/publish:
     post:
       tags: [platform-catalog]
       summary: Publish immutable plan version
-      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
-      responses: { "200": { description: Active version }, "409": { description: Invalid lifecycle } }
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          {
+            name: versionId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      responses:
+        {
+          "200": { description: Active version },
+          "409": { description: Invalid lifecycle },
+        }
   /platform/tenants:
-    get: { tags: [platform-tenants], summary: List SaaS tenant state without salon operational data, responses: { "200": { description: Tenants } } }
+    get:
+      {
+        tags: [platform-tenants],
+        summary: List SaaS tenant state without salon operational data,
+        responses: { "200": { description: Tenants } },
+      }
   /platform/invoices/{id}/finalize:
     post:
       tags: [platform-billing]
       summary: Finalize immutable platform invoice
-      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
-      responses: { "200": { description: Finalized invoice }, "409": { description: Total mismatch or immutable } }
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/PlatformCommand" } },
+            },
+        }
+      responses:
+        {
+          "200": { description: Finalized invoice },
+          "409": { description: Total mismatch or immutable },
+        }
   /platform/payment-intents/{id}/confirm:
     post:
       tags: [platform-payments]
       summary: Confirm using stable provider key
-      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
-      responses: { "200": { description: Payment outcome }, "409": { description: UNKNOWN requires reconciliation } }
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/PlatformCommand" } },
+            },
+        }
+      responses:
+        {
+          "200": { description: Payment outcome },
+          "409": { description: UNKNOWN requires reconciliation },
+        }
   /platform/payment-intents/{id}/reconcile:
     post:
       tags: [platform-payments]
       summary: Reconcile an UNKNOWN provider outcome
-      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }, { $ref: "#/components/parameters/IdempotencyKey" }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/PlatformCommand" } } } }
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/PlatformCommand" } },
+            },
+        }
       responses: { "200": { description: Reconciled outcome } }
+  /platform/invoices/{id}/manual-payment-requests:
+    post:
+      tags: [platform-payments]
+      summary: Create a draft manual-payment request; payload approvers are forbidden
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      $ref: "#/components/schemas/ManualPaymentRequestCommand",
+                    },
+                },
+            },
+        }
+      responses:
+        {
+          "201": { description: Draft request },
+          "409":
+            {
+              description: Invalid invoice,
+              currency,
+              amount,
+              evidence,
+              or forged approver,
+            },
+        }
+  /platform/manual-payment-requests/{id}/submit:
+    post:
+      {
+        tags: [platform-payments],
+        summary: Submit a manual-payment request,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses: { "201": { description: Pending approval } },
+      }
+  /platform/manual-payment-requests/{id}/approve:
+    post:
+      {
+        tags: [platform-payments],
+        summary: Approve as the independent authenticated actor,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses:
+          {
+            "201": { description: Approved },
+            "403": { description: Self approval denied },
+          },
+      }
+  /platform/manual-payment-requests/{id}/process:
+    post:
+      {
+        tags: [platform-payments],
+        summary: Record approved evidence and atomically allocate payment and overpayment,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses:
+          {
+            "201": { description: Succeeded with exact allocation },
+            "409": { description: Approval snapshot stale },
+          },
+      }
+  /platform/payments/{id}/refunds:
+    post:
+      tags: [platform-refunds]
+      summary: Create a draft refund request
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      responses:
+        {
+          "201": { description: Draft refund },
+          "409": { description: Refund cap or unknown outcome conflict },
+        }
+  /platform/refunds/{id}/submit:
+    post:
+      {
+        tags: [platform-refunds],
+        summary: Submit a refund request,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses: { "201": { description: Pending approval } },
+      }
+  /platform/refunds/{id}/approve:
+    post:
+      {
+        tags: [platform-refunds],
+        summary: Independently approve a refund,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses:
+          {
+            "201": { description: Approved },
+            "403": { description: Self approval denied },
+          },
+      }
+  /platform/refunds/{id}/process:
+    post:
+      {
+        tags: [platform-refunds],
+        summary: Schedule provider processing using a stable leased operation,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses:
+          {
+            "201": { description: Processing scheduled },
+            "409": { description: Approval snapshot stale },
+          },
+      }
+  /platform/refunds/{id}/reconcile:
+    post:
+      {
+        tags: [platform-refunds],
+        summary: Schedule a leased provider status query for an UNKNOWN refund,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses:
+          {
+            "201": { description: Reconciliation scheduled },
+            "409": { description: Refund is not UNKNOWN or outcome invalid },
+          },
+      }
+  /platform/invoices/{id}/credit-notes:
+    post:
+      tags: [platform-credit-notes]
+      summary: Create a credit-note draft with exact invoice-line allocations
+      parameters:
+        [
+          {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          },
+          { $ref: "#/components/parameters/IdempotencyKey" },
+        ]
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                {
+                  schema:
+                    {
+                      $ref: "#/components/schemas/PlatformCreditNoteDraftCommand",
+                    },
+                },
+            },
+        }
+      responses:
+        {
+          "201": { description: Draft credit note },
+          "409": { description: Line eligibility or cumulative cap conflict },
+        }
+  /platform/credit-notes/{id}/approve:
+    post:
+      {
+        tags: [platform-credit-notes],
+        summary: Independently approve a submitted credit note,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses:
+          {
+            "201": { description: Approved },
+            "403": { description: Self approval denied },
+          },
+      }
+  /platform/credit-notes/{id}/finalize:
+    post:
+      {
+        tags: [platform-credit-notes],
+        summary: Finalize issuance and create positive account-credit ledger evidence,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses:
+          {
+            "201": { description: Finalized issuance },
+            "409": { description: Snapshot or cumulative cap conflict },
+          },
+      }
+  /platform/credit-notes/{id}/apply:
+    post:
+      {
+        tags: [platform-credit-notes],
+        summary: Apply issued account credit using a separate negative ledger entry,
+        parameters:
+          [
+            {
+              name: id,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ],
+        responses:
+          {
+            "201": { description: Credit application },
+            "409": { description: Available balance or invoice due conflict },
+          },
+      }
   /internal/platform-usage/events:
     post:
       tags: [platform-usage]
       summary: Record deduplicated internal usage event
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
-      requestBody: { required: true, content: { application/json: { schema: { $ref: "#/components/schemas/UsageEventCommand" } } } }
+      requestBody:
+        {
+          required: true,
+          content:
+            {
+              application/json:
+                { schema: { $ref: "#/components/schemas/UsageEventCommand" } },
+            },
+        }
       responses: { "200": { description: Recorded or replayed event } }
 components:
   parameters:
@@ -4099,6 +4620,33 @@ components:
       type: object
       additionalProperties: true
       description: Command-specific object; every write requires Idempotency-Key and granular authorization.
+    ManualPaymentRequestCommand:
+      type: object
+      required: [tenantId, amountMinor, currency, evidenceReference, reason]
+      properties:
+        tenantId: { type: string, format: uuid }
+        amountMinor: { type: string, pattern: "^[1-9][0-9]*$" }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        evidenceReference: { type: string, minLength: 1 }
+        reason: { type: string, minLength: 1 }
+      additionalProperties: false
+    PlatformCreditNoteDraftCommand:
+      type: object
+      required: [tenantId, reason, lineAllocations]
+      properties:
+        tenantId: { type: string, format: uuid }
+        reason: { type: string, minLength: 1 }
+        lineAllocations:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [invoiceLineId, amountMinor]
+            properties:
+              invoiceLineId: { type: string, format: uuid }
+              amountMinor: { type: string, pattern: "^[1-9][0-9]*$" }
+            additionalProperties: false
+      additionalProperties: false
     PlanChangeCommand:
       type: object
       required: [planId, version]
@@ -4106,14 +4654,35 @@ components:
         planId: { type: string, format: uuid }
         version: { type: integer, minimum: 1 }
         effectiveMode: { enum: [IMMEDIATE, NEXT_PERIOD] }
-        changeType: { enum: [UPGRADE, DOWNGRADE, INTERVAL_CHANGE, QUANTITY_CHANGE, ADD_ON_CHANGE] }
+        changeType:
+          {
+            enum:
+              [
+                UPGRADE,
+                DOWNGRADE,
+                INTERVAL_CHANGE,
+                QUANTITY_CHANGE,
+                ADD_ON_CHANGE,
+              ],
+          }
         quantity: { type: integer, minimum: 0 }
     UsageEventCommand:
       type: object
       required: [tenantId, meterCode, sourceType, sourceId, quantity]
       properties:
         tenantId: { type: string, format: uuid }
-        meterCode: { enum: [ACTIVE_BRANCH_DAY, ACTIVE_USER_DAY, BOOKING_CREATED, MARKETING_EMAIL_SENT, STORAGE_BYTE_HOUR, API_REQUEST] }
+        meterCode:
+          {
+            enum:
+              [
+                ACTIVE_BRANCH_DAY,
+                ACTIVE_USER_DAY,
+                BOOKING_CREATED,
+                MARKETING_EMAIL_SENT,
+                STORAGE_BYTE_HOUR,
+                API_REQUEST,
+              ],
+          }
         sourceType: { type: string }
         sourceId: { type: string }
         quantity: { type: integer, minimum: 0 }

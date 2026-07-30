@@ -94,10 +94,12 @@ export class PlatformBillingService {
     after: any,
     reason?: string,
     key?: string,
+    semanticGenerationKey?: string,
   ) {
     await c.query(
-      `INSERT INTO audit_logs(tenant_id,actor_user_id,action,entity_type,entity_id,before_json,after_json,reason,request_id)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      `INSERT INTO audit_logs(tenant_id,actor_user_id,action,entity_type,entity_id,before_json,after_json,reason,request_id,semantic_generation_key)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+      ON CONFLICT(tenant_id,semantic_generation_key) WHERE semantic_generation_key IS NOT NULL DO NOTHING`,
       [
         tenantId,
         a.userId,
@@ -108,11 +110,13 @@ export class PlatformBillingService {
         after ? JSON.stringify(after) : null,
         reason ?? null,
         requestId,
+        semanticGenerationKey ?? null,
       ],
     );
     await c.query(
-      `INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,metadata_json)
-      VALUES($1,$2,$3,$4,$5,$6,$7)`,
+      `INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,metadata_json,semantic_generation_key)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+      ON CONFLICT(tenant_id,semantic_generation_key) WHERE semantic_generation_key IS NOT NULL DO NOTHING`,
       [
         tenantId,
         event,
@@ -124,6 +128,7 @@ export class PlatformBillingService {
           schemaVersion: 1,
           idempotencyKeyHash: key ? this.idem.subject(key) : null,
         }),
+        semanticGenerationKey ?? null,
       ],
     );
   }
@@ -145,6 +150,75 @@ export class PlatformBillingService {
     if (!row)
       throw new NotFoundException({ code, message: code.replaceAll("_", " ") });
     return row;
+  }
+
+  private rejectPayloadApprover(body: any) {
+    if (body?.approvedByUserId)
+      throw new ConflictException({
+        code: "PLATFORM_APPROVER_PAYLOAD_FORBIDDEN",
+        message:
+          "Approval must be performed by an authenticated approver command",
+      });
+  }
+  private invoiceApprovalSnapshot(invoice: any) {
+    return {
+      id: invoice.id,
+      status: invoice.status,
+      currency: invoice.currency,
+      totalMinor: String(invoice.total_minor),
+      paidMinor: String(invoice.paid_minor),
+      creditedMinor: String(invoice.credited_minor ?? 0),
+      creditAppliedMinor: String(invoice.credit_applied_minor ?? 0),
+      fingerprint: invoice.fingerprint,
+      version: Number(invoice.version),
+    };
+  }
+  private paymentApprovalSnapshot(payment: any) {
+    return {
+      id: payment.id,
+      invoiceId: payment.invoice_id,
+      status: payment.status,
+      amountMinor: String(payment.amount_minor),
+      currency: payment.currency,
+      providerKey: payment.provider_key,
+      version: Number(payment.version),
+    };
+  }
+  private async workflowHistory(
+    c: PoolClient,
+    table: "manual" | "refund" | "credit",
+    tenantId: string,
+    aggregateId: string,
+    fromStatus: string | null,
+    toStatus: string,
+    actorUserId: string,
+    reason: string | undefined,
+    snapshot: any,
+    requestId: string,
+  ) {
+    const config = {
+      manual: [
+        "platform_manual_payment_request_history",
+        "request_id",
+        "command_request_id",
+      ],
+      refund: ["platform_refund_history", "refund_id", "request_id"],
+      credit: ["platform_credit_note_history", "credit_note_id", "request_id"],
+    }[table];
+    await c.query(
+      `INSERT INTO ${config[0]}(tenant_id,${config[1]},from_status,to_status,actor_user_id,reason,snapshot_json,${config[2]})
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        tenantId,
+        aggregateId,
+        fromStatus,
+        toStatus,
+        actorUserId,
+        reason ?? null,
+        JSON.stringify(snapshot),
+        requestId,
+      ],
+    );
   }
 
   async tenantAccount(a: AccessClaims) {
@@ -1297,6 +1371,7 @@ export class PlatformBillingService {
     requestId: string,
   ) {
     this.platform(a);
+    this.rejectPayloadApprover(body);
     const tenant = this.required(body.tenantId, "tenantId");
     return this.command(
       a,
@@ -1311,55 +1386,139 @@ export class PlatformBillingService {
           [tenant, invoiceId],
           "PLATFORM_INVOICE_NOT_FOUND",
         );
-        if (!["OPEN", "PARTIALLY_PAID", "PAST_DUE"].includes(invoice.status))
+        if (
+          !["OPEN", "PARTIALLY_PAID", "PAST_DUE", "PAID"].includes(
+            invoice.status,
+          )
+        )
           throw new ConflictException({
             code: "PLATFORM_INVOICE_STATUS_INVALID",
-            message: "Manual payment requires an open invoice",
+            message: "Invoice is not eligible for a credit note",
           });
-        const amount = BigInt(this.required(body.amountMinor, "amountMinor"));
-        if (amount <= 0n || amount > BigInt(invoice.total_minor))
+        const allocations = body.lineAllocations;
+        if (!Array.isArray(allocations) || allocations.length === 0)
           throw new ConflictException({
-            code: "PLATFORM_PAYMENT_AMOUNT_MISMATCH",
-            message: "Credit amount invalid",
+            code: "PLATFORM_CREDIT_NOTE_LINE_REQUIRED",
+            message: "Exact invoice-line allocations are required",
           });
+        const ids = allocations.map((x: any) =>
+          this.required(x.invoiceLineId, "invoiceLineId"),
+        );
+        if (new Set(ids).size !== ids.length)
+          throw new ConflictException({
+            code: "PLATFORM_CREDIT_NOTE_LINE_DUPLICATE",
+            message: "Invoice line may only be allocated once per credit note",
+          });
+        const lines = (
+          await c.query<any>(
+            `SELECT * FROM platform_invoice_lines
+             WHERE tenant_id=$1 AND invoice_id=$2 AND id=ANY($3::uuid[])
+             ORDER BY id FOR UPDATE`,
+            [tenant, invoiceId, ids],
+          )
+        ).rows;
+        if (lines.length !== ids.length)
+          throw new ConflictException({
+            code: "PLATFORM_CREDIT_NOTE_LINE_INELIGIBLE",
+            message:
+              "Every allocation must reference an exact line on the invoice",
+          });
+        let total = 0n;
+        for (const allocation of allocations) {
+          const line = lines.find(
+            (x: any) => x.id === allocation.invoiceLineId,
+          );
+          const amount = BigInt(
+            this.required(allocation.amountMinor, "amountMinor"),
+          );
+          if (!line || amount <= 0n)
+            throw new ConflictException({
+              code: "PLATFORM_CREDIT_NOTE_LINE_INELIGIBLE",
+              message: "Credit allocation must be positive and line eligible",
+            });
+          const committed = BigInt(
+            (
+              await c.query<any>(
+                `SELECT COALESCE(sum(l.amount_minor),0)::text amount
+                 FROM platform_credit_note_lines l
+                 JOIN platform_credit_notes n ON n.id=l.credit_note_id AND n.tenant_id=l.tenant_id
+                 WHERE l.tenant_id=$1 AND l.source_invoice_line_id=$2 AND n.status<>'VOID'`,
+                [tenant, line.id],
+              )
+            ).rows[0].amount,
+          );
+          if (committed + amount > BigInt(line.total_minor))
+            throw new ConflictException({
+              code: "PLATFORM_CREDIT_NOTE_CUMULATIVE_CAP",
+              message: "Credit allocations exceed eligible invoice-line amount",
+            });
+          total += amount;
+        }
+        if (
+          body.amountMinor !== undefined &&
+          total !== BigInt(body.amountMinor)
+        )
+          throw new ConflictException({
+            code: "PLATFORM_CREDIT_NOTE_TOTAL_MISMATCH",
+            message: "Credit-note total must equal exact line allocations",
+          });
+        const snapshot = this.invoiceApprovalSnapshot(invoice),
+          invoiceFingerprint = fingerprint(snapshot);
         const row = (
           await c.query<any>(
-            `INSERT INTO platform_credit_notes(tenant_id,invoice_id,number,status,currency,total_minor,reason,evidence_json,finalized_at,fingerprint,created_by_user_id,approved_by_user_id) VALUES($1,$2,$3,'FINALIZED',$4,$5,$6,$7,now(),$8,$9,$10) RETURNING *`,
+            `INSERT INTO platform_credit_notes(tenant_id,invoice_id,status,currency,total_minor,reason,evidence_json,fingerprint,created_by_user_id,invoice_snapshot_json,invoice_fingerprint)
+             VALUES($1,$2,'DRAFT',$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
             [
               tenant,
               invoiceId,
-              `CN-${Date.now()}`,
               invoice.currency,
-              amount.toString(),
+              total.toString(),
               this.required(body.reason, "reason"),
               JSON.stringify(body.evidence ?? {}),
               fingerprint(body),
               a.userId,
-              body.approvedByUserId,
+              JSON.stringify(snapshot),
+              invoiceFingerprint,
             ],
           )
         ).rows[0];
-        await c.query(
-          "INSERT INTO platform_credit_note_lines(tenant_id,credit_note_id,description,amount_minor) VALUES($1,$2,$3,$4)",
-          [tenant, row.id, body.reason, amount.toString()],
-        );
-        await c.query(
-          `INSERT INTO platform_billing_credit_ledger(tenant_id,billing_account_id,entry_type,amount_minor,currency,source_type,source_id,evidence_json,created_by_user_id) VALUES($1,$2,'CREDIT_NOTE',$3,$4,'CREDIT_NOTE',$5,$6,$7)`,
-          [
-            tenant,
-            invoice.billing_account_id,
-            amount.toString(),
-            invoice.currency,
-            row.id,
-            JSON.stringify(body.evidence ?? {}),
-            a.userId,
-          ],
+        for (const allocation of allocations) {
+          const line = lines.find(
+            (x: any) => x.id === allocation.invoiceLineId,
+          );
+          await c.query(
+            `INSERT INTO platform_credit_note_lines(tenant_id,credit_note_id,description,amount_minor,source_invoice_line_id,eligibility_snapshot_json)
+             VALUES($1,$2,$3,$4,$5,$6)`,
+            [
+              tenant,
+              row.id,
+              allocation.description ?? line.description,
+              String(allocation.amountMinor),
+              line.id,
+              JSON.stringify({
+                invoiceLineId: line.id,
+                eligibleMinor: String(line.total_minor),
+              }),
+            ],
+          );
+        }
+        await this.workflowHistory(
+          c,
+          "credit",
+          tenant,
+          row.id,
+          null,
+          "DRAFT",
+          a.userId,
+          body.reason,
+          row,
+          requestId,
         );
         await this.emit(
           c,
           a,
           tenant,
-          "platform.credit_note_finalized",
+          "platform.credit_note_created",
           "platform_credit_note",
           row.id,
           requestId,
@@ -1369,6 +1528,442 @@ export class PlatformBillingService {
           key,
         );
         return this.view(row);
+      },
+    );
+  }
+
+  async submitCreditNote(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      "platform.credit_note.submit",
+      body,
+      async (c) => {
+        const before = await this.one(
+          c,
+          "SELECT * FROM platform_credit_notes WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_CREDIT_NOTE_NOT_FOUND",
+        );
+        if (before.status !== "DRAFT")
+          throw new ConflictException({
+            code: "PLATFORM_CREDIT_NOTE_STATUS_INVALID",
+            message: "Only draft credit notes can be submitted",
+          });
+        const after = (
+          await c.query<any>(
+            "UPDATE platform_credit_notes SET status='PENDING_APPROVAL',submitted_at=now(),version=version+1 WHERE id=$1 RETURNING *",
+            [id],
+          )
+        ).rows[0];
+        await this.workflowHistory(
+          c,
+          "credit",
+          tenant,
+          id,
+          "DRAFT",
+          "PENDING_APPROVAL",
+          a.userId,
+          body.reason,
+          after,
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          tenant,
+          "platform.credit_note_submitted",
+          "platform_credit_note",
+          id,
+          requestId,
+          before,
+          after,
+          body.reason,
+          key,
+        );
+        return this.view(after);
+      },
+    );
+  }
+
+  async approveCreditNote(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    this.rejectPayloadApprover(body);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      "platform.credit_note.approve",
+      body,
+      async (c) => {
+        const before = await this.one(
+          c,
+          "SELECT * FROM platform_credit_notes WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_CREDIT_NOTE_NOT_FOUND",
+        );
+        if (before.status !== "PENDING_APPROVAL")
+          throw new ConflictException({
+            code: "PLATFORM_CREDIT_NOTE_STATUS_INVALID",
+            message: "Credit note is not pending approval",
+          });
+        if (before.created_by_user_id === a.userId)
+          throw new ForbiddenException({
+            code: "PLATFORM_SELF_APPROVAL_DENIED",
+            message: "Credit-note creator cannot approve their own request",
+          });
+        const invoice = await this.one(
+          c,
+          "SELECT * FROM platform_invoices WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, before.invoice_id],
+          "PLATFORM_INVOICE_NOT_FOUND",
+        );
+        const invoiceFingerprint = fingerprint(
+          this.invoiceApprovalSnapshot(invoice),
+        );
+        const approvalFingerprint = fingerprint({
+          creditNoteId: id,
+          version: before.version,
+          invoiceFingerprint,
+          approverUserId: a.userId,
+        });
+        const after = (
+          await c.query<any>(
+            `UPDATE platform_credit_notes SET status='APPROVED',approved_by_user_id=$2,approved_at=now(),invoice_snapshot_json=$3,invoice_fingerprint=$4,approval_fingerprint=$5,version=version+1 WHERE id=$1 RETURNING *`,
+            [
+              id,
+              a.userId,
+              JSON.stringify(this.invoiceApprovalSnapshot(invoice)),
+              invoiceFingerprint,
+              approvalFingerprint,
+            ],
+          )
+        ).rows[0];
+        await this.workflowHistory(
+          c,
+          "credit",
+          tenant,
+          id,
+          "PENDING_APPROVAL",
+          "APPROVED",
+          a.userId,
+          body.reason,
+          after,
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          tenant,
+          "platform.credit_note_approved",
+          "platform_credit_note",
+          id,
+          requestId,
+          before,
+          after,
+          body.reason,
+          key,
+        );
+        return this.view(after);
+      },
+    );
+  }
+
+  async finalizeCreditNote(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      "platform.credit_note.finalize",
+      body,
+      async (c) => {
+        const before = await this.one(
+          c,
+          "SELECT * FROM platform_credit_notes WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_CREDIT_NOTE_NOT_FOUND",
+        );
+        if (before.status !== "APPROVED" || !before.approval_fingerprint)
+          throw new ConflictException({
+            code: "PLATFORM_CREDIT_NOTE_STATUS_INVALID",
+            message: "Approved credit-note evidence is required",
+          });
+        const invoice = await this.one(
+          c,
+          "SELECT * FROM platform_invoices WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, before.invoice_id],
+          "PLATFORM_INVOICE_NOT_FOUND",
+        );
+        if (
+          fingerprint(this.invoiceApprovalSnapshot(invoice)) !==
+          before.invoice_fingerprint
+        )
+          throw new ConflictException({
+            code: "PLATFORM_APPROVAL_SNAPSHOT_STALE",
+            message: "Invoice changed after credit-note approval",
+          });
+        const lines = (
+          await c.query<any>(
+            `SELECT l.*,i.total_minor eligible_minor FROM platform_credit_note_lines l JOIN platform_invoice_lines i ON i.id=l.source_invoice_line_id AND i.invoice_id=$2 WHERE l.tenant_id=$1 AND l.credit_note_id=$3 ORDER BY l.id FOR UPDATE OF l,i`,
+            [tenant, invoice.id, id],
+          )
+        ).rows;
+        if (!lines.length || lines.some((x: any) => !x.source_invoice_line_id))
+          throw new ConflictException({
+            code: "PLATFORM_CREDIT_NOTE_LINE_REQUIRED",
+            message: "Finalization requires exact eligible invoice lines",
+          });
+        for (const line of lines) {
+          const allocated = BigInt(
+            (
+              await c.query<any>(
+                `SELECT COALESCE(sum(l.amount_minor),0)::text amount FROM platform_credit_note_lines l JOIN platform_credit_notes n ON n.id=l.credit_note_id WHERE l.tenant_id=$1 AND l.source_invoice_line_id=$2 AND n.status<>'VOID'`,
+                [tenant, line.source_invoice_line_id],
+              )
+            ).rows[0].amount,
+          );
+          if (allocated > BigInt(line.eligible_minor))
+            throw new ConflictException({
+              code: "PLATFORM_CREDIT_NOTE_CUMULATIVE_CAP",
+              message: "Cumulative credit exceeds invoice-line eligibility",
+            });
+        }
+        const number =
+          before.number ?? `CN-${String(id).slice(0, 8).toUpperCase()}`;
+        const after = (
+          await c.query<any>(
+            `UPDATE platform_credit_notes SET number=$2,status='FINALIZED',finalized_at=now(),version=version+1 WHERE id=$1 RETURNING *`,
+            [id, number],
+          )
+        ).rows[0];
+        await c.query(
+          `INSERT INTO platform_billing_credit_ledger(tenant_id,billing_account_id,entry_type,amount_minor,currency,source_type,source_id,evidence_json,created_by_user_id) VALUES($1,$2,'CREDIT_NOTE',$3,$4,'CREDIT_NOTE',$5,$6,$7)`,
+          [
+            tenant,
+            invoice.billing_account_id,
+            before.total_minor,
+            before.currency,
+            id,
+            JSON.stringify({
+              approvalFingerprint: before.approval_fingerprint,
+            }),
+            a.userId,
+          ],
+        );
+        await c.query(
+          `UPDATE platform_invoices SET credited_minor=credited_minor+$2,status=CASE WHEN paid_minor+credit_applied_minor+credited_minor+$2>=total_minor THEN 'CREDITED' ELSE status END,version=version+1,updated_at=now() WHERE id=$1`,
+          [invoice.id, before.total_minor],
+        );
+        await this.workflowHistory(
+          c,
+          "credit",
+          tenant,
+          id,
+          "APPROVED",
+          "FINALIZED",
+          a.userId,
+          body.reason,
+          after,
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          tenant,
+          "platform.credit_note_finalized",
+          "platform_credit_note",
+          id,
+          requestId,
+          before,
+          after,
+          body.reason,
+          key,
+        );
+        return this.view(after);
+      },
+    );
+  }
+
+  async applyCreditNote(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      "platform.credit_note.apply",
+      body,
+      async (c) => {
+        const note = await this.one(
+          c,
+          "SELECT * FROM platform_credit_notes WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_CREDIT_NOTE_NOT_FOUND",
+        );
+        if (!["FINALIZED", "APPLIED"].includes(note.status))
+          throw new ConflictException({
+            code: "PLATFORM_CREDIT_NOTE_STATUS_INVALID",
+            message: "Credit note must be finalized before application",
+          });
+        const invoice = await this.one(
+          c,
+          "SELECT * FROM platform_invoices WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, body.invoiceId],
+          "PLATFORM_INVOICE_NOT_FOUND",
+        );
+        if (!["OPEN", "PARTIALLY_PAID", "PAST_DUE"].includes(invoice.status))
+          throw new ConflictException({
+            code: "PLATFORM_INVOICE_STATUS_INVALID",
+            message: "Target invoice cannot receive account credit",
+          });
+        if (invoice.currency !== note.currency)
+          throw new ConflictException({
+            code: "PLATFORM_CURRENCY_MISMATCH",
+            message: "Credit application currency mismatch",
+          });
+        const sourceInvoice = await this.one(
+          c,
+          "SELECT billing_account_id FROM platform_invoices WHERE id=$1",
+          [note.invoice_id],
+          "PLATFORM_INVOICE_NOT_FOUND",
+        );
+        if (sourceInvoice.billing_account_id !== invoice.billing_account_id)
+          throw new ForbiddenException({
+            code: "PLATFORM_CREDIT_ACCOUNT_MISMATCH",
+            message: "Credit belongs to another billing account",
+          });
+        const amount = BigInt(this.required(body.amountMinor, "amountMinor"));
+        const appliedForNote = BigInt(
+          (
+            await c.query<any>(
+              "SELECT COALESCE(sum(amount_minor),0)::text n FROM platform_credit_applications WHERE tenant_id=$1 AND credit_note_id=$2 AND status='APPLIED'",
+              [tenant, id],
+            )
+          ).rows[0].n,
+        );
+        const ledgerBalance = BigInt(
+          (
+            await c.query<any>(
+              "SELECT COALESCE(sum(amount_minor),0)::text n FROM platform_billing_credit_ledger WHERE tenant_id=$1 AND billing_account_id=$2 AND currency=$3",
+              [tenant, invoice.billing_account_id, invoice.currency],
+            )
+          ).rows[0].n,
+        );
+        const due =
+          BigInt(invoice.total_minor) -
+          BigInt(invoice.paid_minor) -
+          BigInt(invoice.credit_applied_minor);
+        if (
+          amount <= 0n ||
+          amount > due ||
+          amount > ledgerBalance ||
+          appliedForNote + amount > BigInt(note.total_minor)
+        )
+          throw new ConflictException({
+            code: "PLATFORM_CREDIT_APPLICATION_EXCEEDS_AVAILABLE",
+            message:
+              "Credit application exceeds available credit or invoice due",
+          });
+        const applicationId = (
+          await c.query<any>("SELECT gen_random_uuid() id")
+        ).rows[0].id;
+        const ledger = (
+          await c.query<any>(
+            `INSERT INTO platform_billing_credit_ledger(tenant_id,billing_account_id,entry_type,amount_minor,currency,source_type,source_id,evidence_json,created_by_user_id) VALUES($1,$2,'CREDIT_APPLICATION',$3,$4,'CREDIT_APPLICATION',$5,$6,$7) RETURNING *`,
+            [
+              tenant,
+              invoice.billing_account_id,
+              (-amount).toString(),
+              invoice.currency,
+              applicationId,
+              JSON.stringify({ creditNoteId: id, invoiceId: invoice.id }),
+              a.userId,
+            ],
+          )
+        ).rows[0];
+        const application = (
+          await c.query<any>(
+            `INSERT INTO platform_credit_applications(id,tenant_id,billing_account_id,invoice_id,credit_note_id,amount_minor,currency,ledger_entry_id,evidence_json,applied_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+            [
+              applicationId,
+              tenant,
+              invoice.billing_account_id,
+              invoice.id,
+              id,
+              amount.toString(),
+              invoice.currency,
+              ledger.id,
+              JSON.stringify(body.evidence ?? {}),
+              a.userId,
+            ],
+          )
+        ).rows[0];
+        await c.query(
+          `UPDATE platform_invoices SET credit_applied_minor=credit_applied_minor+$2,status=CASE WHEN paid_minor+credit_applied_minor+$2>=total_minor THEN 'CREDITED' ELSE 'PARTIALLY_PAID' END,version=version+1,updated_at=now() WHERE id=$1`,
+          [invoice.id, amount.toString()],
+        );
+        if (appliedForNote + amount === BigInt(note.total_minor)) {
+          await c.query(
+            "UPDATE platform_credit_notes SET status='APPLIED',applied_at=now(),version=version+1 WHERE id=$1",
+            [id],
+          );
+          await this.workflowHistory(
+            c,
+            "credit",
+            tenant,
+            id,
+            note.status,
+            "APPLIED",
+            a.userId,
+            body.reason,
+            { applicationId, amountMinor: amount.toString() },
+            requestId,
+          );
+        }
+        await this.emit(
+          c,
+          a,
+          tenant,
+          "platform.credit_applied",
+          "platform_credit_application",
+          application.id,
+          requestId,
+          null,
+          application,
+          body.reason,
+          key,
+        );
+        return this.view(application);
       },
     );
   }
@@ -1486,40 +2081,38 @@ export class PlatformBillingService {
             code: "PLATFORM_BILLING_PROVIDER_NOT_CONFIGURED",
             message: "Production platform billing provider is not configured",
           });
-        const status = body.simulateOutcome ?? "SUCCEEDED";
-        const attempt = (
+        const after = (
           await c.query<any>(
-            "SELECT COALESCE(max(attempt_no),0)+1 n FROM platform_payment_attempts WHERE payment_intent_id=$1",
+            "UPDATE platform_payment_intents SET status='PROCESSING',version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
             [id],
           )
-        ).rows[0].n;
+        ).rows[0];
         await c.query(
-          `INSERT INTO platform_payment_attempts(tenant_id,payment_intent_id,attempt_no,request_json,response_redacted_json,outcome,finished_at) VALUES($1,$2,$3,$4,$5,$6,now())`,
+          `INSERT INTO platform_provider_operations(
+             tenant_id,operation_type,aggregate_type,aggregate_id,provider,stable_key,request_json
+           ) VALUES($1,'PAYMENT','PAYMENT_INTENT',$2,$3,$4,$5)
+           ON CONFLICT(stable_key) DO UPDATE
+             SET state=CASE WHEN platform_provider_operations.state='FAILED' THEN 'PENDING' ELSE platform_provider_operations.state END,
+                 request_json=excluded.request_json,updated_at=now()`,
           [
             tenant,
             id,
-            attempt,
-            JSON.stringify({ providerKey: intent.provider_key }),
-            JSON.stringify({ simulated: intent.provider === "FAKE" }),
-            status,
+            intent.provider,
+            intent.provider_key,
+            JSON.stringify({
+              paymentIntentId: id,
+              amountMinor: String(intent.amount_minor),
+              currency: intent.currency,
+              simulateOutcome: body.simulateOutcome,
+              providerReference: body.providerReference,
+            }),
           ],
         );
-        const after = (
-          await c.query<any>(
-            "UPDATE platform_payment_intents SET status=$2,provider_reference=COALESCE(provider_reference,$3),version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
-            [id, status, body.providerReference ?? `fake_${id}`],
-          )
-        ).rows[0];
-        if (status === "SUCCEEDED") await this.applyPayment(c, intent);
         await this.emit(
           c,
           a,
           tenant,
-          status === "SUCCEEDED"
-            ? "platform.payment_succeeded"
-            : status === "UNKNOWN"
-              ? "platform.payment_unknown"
-              : "platform.payment_failed",
+          "platform.payment_processing_scheduled",
           "platform_payment_intent",
           id,
           requestId,
@@ -1532,19 +2125,80 @@ export class PlatformBillingService {
       },
     );
   }
-  private async applyPayment(c: PoolClient, intent: any) {
+  private async applyPaymentAllocation(
+    c: PoolClient,
+    intent: any,
+    actorUserId?: string,
+  ) {
+    const currentIntent = await this.one(
+      c,
+      "SELECT * FROM platform_payment_intents WHERE id=$1 FOR UPDATE",
+      [intent.id],
+      "PLATFORM_PAYMENT_NOT_FOUND",
+    );
+    if (currentIntent.applied_at) return currentIntent;
     const invoice = await this.one(
       c,
       "SELECT * FROM platform_invoices WHERE id=$1 FOR UPDATE",
-      [intent.invoice_id],
+      [currentIntent.invoice_id],
       "PLATFORM_INVOICE_NOT_FOUND",
     );
-    const paid = BigInt(invoice.paid_minor) + BigInt(intent.amount_minor),
-      status = paid >= BigInt(invoice.total_minor) ? "PAID" : "PARTIALLY_PAID";
+    if (!["OPEN", "PARTIALLY_PAID", "PAST_DUE"].includes(invoice.status))
+      throw new ConflictException({
+        code: "PLATFORM_INVOICE_STATUS_INVALID",
+        message: "Invoice cannot receive this payment",
+      });
+    const remainingDue = [
+      BigInt(invoice.total_minor) -
+        BigInt(invoice.paid_minor) -
+        BigInt(invoice.credited_minor ?? 0) -
+        BigInt(invoice.credit_applied_minor ?? 0),
+      0n,
+    ].reduce((maximum, value) => (value > maximum ? value : maximum));
+    const payment = BigInt(currentIntent.amount_minor);
+    const appliedToInvoice = payment < remainingDue ? payment : remainingDue;
+    const overpayment = payment - appliedToInvoice;
+    const paid = BigInt(invoice.paid_minor) + appliedToInvoice;
+    const settled =
+      paid +
+        BigInt(invoice.credited_minor ?? 0) +
+        BigInt(invoice.credit_applied_minor ?? 0) >=
+      BigInt(invoice.total_minor);
+    const status = settled ? "PAID" : "PARTIALLY_PAID";
     await c.query(
       "UPDATE platform_invoices SET paid_minor=$2,status=$3,version=version+1,updated_at=now() WHERE id=$1",
       [invoice.id, paid.toString(), status],
     );
+    if (overpayment > 0n)
+      await c.query(
+        `INSERT INTO platform_billing_credit_ledger(
+           tenant_id,billing_account_id,entry_type,amount_minor,currency,
+           source_type,source_id,evidence_json,created_by_user_id
+         ) VALUES($1,$2,'OVERPAYMENT',$3,$4,'PAYMENT_INTENT',$5,$6,$7)
+         ON CONFLICT(tenant_id,source_type,source_id,entry_type) DO NOTHING`,
+        [
+          invoice.tenant_id,
+          invoice.billing_account_id,
+          overpayment.toString(),
+          invoice.currency,
+          currentIntent.id,
+          JSON.stringify({
+            paymentIntentId: currentIntent.id,
+            appliedToInvoiceMinor: appliedToInvoice.toString(),
+            overpaymentMinor: overpayment.toString(),
+          }),
+          actorUserId ?? null,
+        ],
+      );
+    const allocated = (
+      await c.query<any>(
+        `UPDATE platform_payment_intents
+         SET applied_to_invoice_minor=$2,overpayment_minor=$3,applied_at=now(),
+             version=version+1,updated_at=now()
+         WHERE id=$1 AND applied_at IS NULL RETURNING *`,
+        [currentIntent.id, appliedToInvoice.toString(), overpayment.toString()],
+      )
+    ).rows[0];
     if (status === "PAID") {
       await c.query(
         "UPDATE tenants SET access_mode='FULL',lifecycle_status='ACTIVE',lifecycle_version=lifecycle_version+1,updated_at=now() WHERE id=$1 AND access_mode IN('GRACE','READ_ONLY','BILLING_ONLY','SUSPENDED')",
@@ -1555,6 +2209,7 @@ export class PlatformBillingService {
         [invoice.tenant_id],
       );
     }
+    return allocated ?? currentIntent;
   }
   async reconcilePayment(
     a: AccessClaims,
@@ -1606,7 +2261,8 @@ export class PlatformBillingService {
             [id, observed],
           )
         ).rows[0];
-        if (observed === "SUCCEEDED") await this.applyPayment(c, intent);
+        if (observed === "SUCCEEDED")
+          await this.applyPaymentAllocation(c, intent, a.userId);
         await this.emit(
           c,
           a,
@@ -1632,53 +2288,44 @@ export class PlatformBillingService {
     requestId: string,
   ) {
     this.platform(a);
-    const tenant = this.required(body.tenantId, "tenantId"),
-      evidence = this.required(body.evidenceReference, "evidenceReference"),
-      approver = this.required(body.approvedByUserId, "approvedByUserId");
-    if (approver === a.userId)
-      throw new ForbiddenException({
-        code: "SUPPORT_SELF_APPROVAL_DENIED",
-        message: "Manual payment requires independent approver",
-      });
+    this.rejectPayloadApprover(body);
+    const tenant = this.required(body.tenantId, "tenantId");
+    const evidence = this.required(body.evidenceReference, "evidenceReference");
     return this.command(
       a,
       tenant,
       key,
-      "platform.payment.manual_record",
+      "platform.manual_payment_request.create",
       body,
       async (c) => {
-        const approval = await c.query(
-          `SELECT 1 FROM users u
-           JOIN tenant_memberships m ON m.user_id=u.id AND m.status='ACTIVE'
-           JOIN membership_roles mr ON mr.membership_id=m.id
-           JOIN role_permissions rp ON rp.role=mr.role
-           WHERE u.id=$1 AND u.status='ACTIVE' AND rp.permission_code='platform.payment.manual_record'
-           LIMIT 1`,
-          [approver],
-        );
-        if (!approval.rowCount)
-          throw new ForbiddenException({
-            code: "PLATFORM_PAYMENT_EVIDENCE_REQUIRED",
-            message: "Independent active billing approver is required",
-          });
         const invoice = await this.one(
           c,
           "SELECT * FROM platform_invoices WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
           [tenant, invoiceId],
           "PLATFORM_INVOICE_NOT_FOUND",
         );
+        if (!["OPEN", "PARTIALLY_PAID", "PAST_DUE"].includes(invoice.status))
+          throw new ConflictException({
+            code: "PLATFORM_INVOICE_STATUS_INVALID",
+            message: "Invoice cannot receive a manual payment",
+          });
         const amount = BigInt(this.required(body.amountMinor, "amountMinor"));
+        if (amount <= 0n)
+          throw new ConflictException({
+            code: "PLATFORM_PAYMENT_AMOUNT_MISMATCH",
+            message: "Manual payment amount must be positive",
+          });
         if (body.currency !== invoice.currency)
           throw new ConflictException({
             code: "PLATFORM_CURRENCY_MISMATCH",
             message: "Payment currency mismatch",
           });
-        const evidenceHash = fingerprint(evidence),
-          id = (await c.query<any>("SELECT gen_random_uuid() id")).rows[0].id;
+        const evidenceHash = fingerprint(evidence);
         if (
           (
             await c.query(
-              "SELECT 1 FROM platform_payment_intents WHERE evidence_hash=$1",
+              `SELECT 1 FROM platform_manual_payment_requests WHERE evidence_hash=$1
+           UNION ALL SELECT 1 FROM platform_payment_intents WHERE evidence_hash=$1 LIMIT 1`,
               [evidenceHash],
             )
           ).rowCount
@@ -1687,48 +2334,47 @@ export class PlatformBillingService {
             code: "PLATFORM_PAYMENT_EVIDENCE_REQUIRED",
             message: "Manual payment evidence was already consumed",
           });
+        const snapshot = this.invoiceApprovalSnapshot(invoice);
         const row = (
           await c.query<any>(
-            `INSERT INTO platform_payment_intents(id,tenant_id,invoice_id,amount_minor,currency,status,provider,provider_key,evidence_hash,provider_reference) VALUES($1,$2,$3,$4,$5,'SUCCEEDED','MANUAL',$6,$7,$8) RETURNING *`,
+            `INSERT INTO platform_manual_payment_requests(
+               tenant_id,invoice_id,status,amount_minor,currency,evidence_reference,
+               evidence_hash,reason,invoice_snapshot_json,invoice_fingerprint,
+               requested_by_user_id
+             ) VALUES($1,$2,'DRAFT',$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
             [
-              id,
               tenant,
               invoiceId,
               amount.toString(),
               invoice.currency,
-              stablePlatformPaymentKey(tenant, invoiceId, id),
-              evidenceHash,
               evidence,
+              evidenceHash,
+              this.required(body.reason, "reason"),
+              JSON.stringify(snapshot),
+              fingerprint(snapshot),
+              a.userId,
             ],
           )
         ).rows[0];
-        await this.applyPayment(c, row);
-        if (amount > BigInt(invoice.total_minor) - BigInt(invoice.paid_minor))
-          await c.query(
-            `INSERT INTO platform_billing_credit_ledger(tenant_id,billing_account_id,entry_type,amount_minor,currency,source_type,source_id,evidence_json,created_by_user_id) VALUES($1,$2,'OVERPAYMENT',$3,$4,'MANUAL_PAYMENT',$5,$6,$7)`,
-            [
-              tenant,
-              invoice.billing_account_id,
-              (
-                amount -
-                (BigInt(invoice.total_minor) - BigInt(invoice.paid_minor))
-              ).toString(),
-              invoice.currency,
-              row.id,
-              JSON.stringify({
-                evidenceReference: evidence,
-                approvedByUserId: approver,
-              }),
-              a.userId,
-            ],
-          );
+        await this.workflowHistory(
+          c,
+          "manual",
+          tenant,
+          row.id,
+          null,
+          "DRAFT",
+          a.userId,
+          body.reason,
+          row,
+          requestId,
+        );
         await this.emit(
           c,
           a,
           tenant,
-          "platform.payment_succeeded",
-          "platform_payment_intent",
-          id,
+          "platform.manual_payment_request_created",
+          "platform_manual_payment_request",
+          row.id,
           requestId,
           null,
           row,
@@ -1736,6 +2382,342 @@ export class PlatformBillingService {
           key,
         );
         return this.view(row);
+      },
+    );
+  }
+
+  async submitManualPayment(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      "platform.manual_payment_request.submit",
+      body,
+      async (c) => {
+        const before = await this.one(
+          c,
+          "SELECT * FROM platform_manual_payment_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_MANUAL_PAYMENT_REQUEST_NOT_FOUND",
+        );
+        if (before.status !== "DRAFT")
+          throw new ConflictException({
+            code: "PLATFORM_MANUAL_PAYMENT_STATUS_INVALID",
+            message: "Only draft manual payments can be submitted",
+          });
+        if (before.requested_by_user_id !== a.userId)
+          throw new ForbiddenException({
+            code: "PLATFORM_MANUAL_PAYMENT_REQUESTER_REQUIRED",
+            message: "Only the requester can submit this request",
+          });
+        const after = (
+          await c.query<any>(
+            "UPDATE platform_manual_payment_requests SET status='PENDING_APPROVAL',submitted_at=now(),version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+            [id],
+          )
+        ).rows[0];
+        await this.workflowHistory(
+          c,
+          "manual",
+          tenant,
+          id,
+          "DRAFT",
+          "PENDING_APPROVAL",
+          a.userId,
+          body.reason,
+          after,
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          tenant,
+          "platform.manual_payment_submitted",
+          "platform_manual_payment_request",
+          id,
+          requestId,
+          before,
+          after,
+          body.reason,
+          key,
+        );
+        return this.view(after);
+      },
+    );
+  }
+
+  async approveManualPayment(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    this.rejectPayloadApprover(body);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      "platform.manual_payment_request.approve",
+      body,
+      async (c) => {
+        const before = await this.one(
+          c,
+          "SELECT * FROM platform_manual_payment_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_MANUAL_PAYMENT_REQUEST_NOT_FOUND",
+        );
+        if (before.status !== "PENDING_APPROVAL")
+          throw new ConflictException({
+            code: "PLATFORM_MANUAL_PAYMENT_STATUS_INVALID",
+            message: "Manual payment is not pending approval",
+          });
+        if (before.requested_by_user_id === a.userId)
+          throw new ForbiddenException({
+            code: "PLATFORM_SELF_APPROVAL_DENIED",
+            message: "Requester cannot approve their own manual payment",
+          });
+        const invoice = await this.one(
+          c,
+          "SELECT * FROM platform_invoices WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, before.invoice_id],
+          "PLATFORM_INVOICE_NOT_FOUND",
+        );
+        if (!["OPEN", "PARTIALLY_PAID", "PAST_DUE"].includes(invoice.status))
+          throw new ConflictException({
+            code: "PLATFORM_INVOICE_STATUS_INVALID",
+            message: "Invoice cannot receive a manual payment",
+          });
+        const snapshot = this.invoiceApprovalSnapshot(invoice);
+        const invoiceFingerprint = fingerprint(snapshot);
+        const approvalFingerprint = fingerprint({
+          requestId: id,
+          requestVersion: before.version,
+          invoiceFingerprint,
+          approverUserId: a.userId,
+        });
+        const after = (
+          await c.query<any>(
+            `UPDATE platform_manual_payment_requests SET status='APPROVED',approved_by_user_id=$2,approved_at=now(),invoice_snapshot_json=$3,invoice_fingerprint=$4,approval_fingerprint=$5,version=version+1,updated_at=now() WHERE id=$1 RETURNING *`,
+            [
+              id,
+              a.userId,
+              JSON.stringify(snapshot),
+              invoiceFingerprint,
+              approvalFingerprint,
+            ],
+          )
+        ).rows[0];
+        await this.workflowHistory(
+          c,
+          "manual",
+          tenant,
+          id,
+          "PENDING_APPROVAL",
+          "APPROVED",
+          a.userId,
+          body.reason,
+          after,
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          tenant,
+          "platform.manual_payment_approved",
+          "platform_manual_payment_request",
+          id,
+          requestId,
+          before,
+          after,
+          body.reason,
+          key,
+        );
+        return this.view(after);
+      },
+    );
+  }
+
+  async rejectManualPayment(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      "platform.manual_payment_request.reject",
+      body,
+      async (c) => {
+        const before = await this.one(
+          c,
+          "SELECT * FROM platform_manual_payment_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_MANUAL_PAYMENT_REQUEST_NOT_FOUND",
+        );
+        if (before.status !== "PENDING_APPROVAL")
+          throw new ConflictException({
+            code: "PLATFORM_MANUAL_PAYMENT_STATUS_INVALID",
+            message: "Manual payment is not pending approval",
+          });
+        if (before.requested_by_user_id === a.userId)
+          throw new ForbiddenException({
+            code: "PLATFORM_SELF_APPROVAL_DENIED",
+            message: "Requester cannot decide their own request",
+          });
+        const reason = this.required(body.reason, "reason");
+        const after = (
+          await c.query<any>(
+            "UPDATE platform_manual_payment_requests SET status='REJECTED',rejected_by_user_id=$2,rejected_at=now(),version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+            [id, a.userId],
+          )
+        ).rows[0];
+        await this.workflowHistory(
+          c,
+          "manual",
+          tenant,
+          id,
+          "PENDING_APPROVAL",
+          "REJECTED",
+          a.userId,
+          reason,
+          after,
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          tenant,
+          "platform.manual_payment_rejected",
+          "platform_manual_payment_request",
+          id,
+          requestId,
+          before,
+          after,
+          reason,
+          key,
+        );
+        return this.view(after);
+      },
+    );
+  }
+
+  async processManualPayment(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      "platform.manual_payment_request.process",
+      body,
+      async (c) => {
+        const before = await this.one(
+          c,
+          "SELECT * FROM platform_manual_payment_requests WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_MANUAL_PAYMENT_REQUEST_NOT_FOUND",
+        );
+        if (before.status === "SUCCEEDED" && before.payment_intent_id)
+          return this.view(before);
+        if (
+          before.status !== "APPROVED" ||
+          !before.approval_fingerprint ||
+          !before.approved_by_user_id
+        )
+          throw new ConflictException({
+            code: "PLATFORM_MANUAL_PAYMENT_STATUS_INVALID",
+            message: "Authenticated approval evidence is required",
+          });
+        const invoice = await this.one(
+          c,
+          "SELECT * FROM platform_invoices WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, before.invoice_id],
+          "PLATFORM_INVOICE_NOT_FOUND",
+        );
+        if (
+          fingerprint(this.invoiceApprovalSnapshot(invoice)) !==
+          before.invoice_fingerprint
+        )
+          throw new ConflictException({
+            code: "PLATFORM_APPROVAL_SNAPSHOT_STALE",
+            message: "Invoice changed after approval",
+          });
+        const paymentId = (await c.query<any>("SELECT gen_random_uuid() id"))
+          .rows[0].id;
+        const payment = (
+          await c.query<any>(
+            `INSERT INTO platform_payment_intents(id,tenant_id,invoice_id,amount_minor,currency,status,provider,provider_key,evidence_hash,provider_reference) VALUES($1,$2,$3,$4,$5,'SUCCEEDED','MANUAL',$6,$7,$8) RETURNING *`,
+            [
+              paymentId,
+              tenant,
+              invoice.id,
+              before.amount_minor,
+              invoice.currency,
+              stablePlatformPaymentKey(tenant, invoice.id, paymentId),
+              before.evidence_hash,
+              before.evidence_reference,
+            ],
+          )
+        ).rows[0];
+        const allocated = await this.applyPaymentAllocation(
+          c,
+          payment,
+          a.userId,
+        );
+        const after = (
+          await c.query<any>(
+            "UPDATE platform_manual_payment_requests SET status='SUCCEEDED',payment_intent_id=$2,processed_by_user_id=$3,processed_at=now(),version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+            [id, paymentId, a.userId],
+          )
+        ).rows[0];
+        await this.workflowHistory(
+          c,
+          "manual",
+          tenant,
+          id,
+          "APPROVED",
+          "SUCCEEDED",
+          a.userId,
+          body.reason,
+          { ...after, allocation: allocated },
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          tenant,
+          "platform.manual_payment_succeeded",
+          "platform_manual_payment_request",
+          id,
+          requestId,
+          before,
+          after,
+          body.reason,
+          key,
+        );
+        return this.view(after);
       },
     );
   }
@@ -1747,12 +2729,13 @@ export class PlatformBillingService {
     requestId: string,
   ) {
     this.platform(a);
+    this.rejectPayloadApprover(body);
     const tenant = this.required(body.tenantId, "tenantId");
     return this.command(
       a,
       tenant,
       key,
-      "platform.payment.refund",
+      "platform.refund.create",
       body,
       async (c) => {
         const payment = await this.one(
@@ -1768,7 +2751,7 @@ export class PlatformBillingService {
           });
         const previous = (
             await c.query<any>(
-              "SELECT COALESCE(sum(amount_minor),0) n FROM platform_refunds WHERE payment_intent_id=$1 AND status IN('APPROVED','PROCESSING','SUCCEEDED','UNKNOWN')",
+              "SELECT COALESCE(sum(amount_minor),0) n FROM platform_refunds WHERE payment_intent_id=$1 AND status IN('DRAFT','PENDING_APPROVAL','APPROVED','PROCESSING','SUCCEEDED','UNKNOWN','MANUAL_REVIEW')",
               [paymentId],
             )
           ).rows[0].n,
@@ -1782,30 +2765,51 @@ export class PlatformBillingService {
             code: "PLATFORM_REFUND_EXCEEDS_PAID_AMOUNT",
             message: "Refund exceeds refundable amount",
           });
-        if (body.approvedByUserId === a.userId)
-          throw new ForbiddenException({
-            code: "SUPPORT_SELF_APPROVAL_DENIED",
-            message: "Refund requires independent approval",
+        if (
+          (
+            await c.query(
+              "SELECT 1 FROM platform_refunds WHERE payment_intent_id=$1 AND status IN('UNKNOWN','MANUAL_REVIEW')",
+              [paymentId],
+            )
+          ).rowCount
+        )
+          throw new ConflictException({
+            code: "PLATFORM_REFUND_OUTCOME_UNKNOWN",
+            message: "Reconcile unknown refund before creating another request",
           });
         const id = (await c.query<any>("SELECT gen_random_uuid() id")).rows[0]
-            .id,
-          row = (
-            await c.query<any>(
-              `INSERT INTO platform_refunds(id,tenant_id,payment_intent_id,amount_minor,currency,status,reason,evidence_json,provider_key,requested_by_user_id,approved_by_user_id) VALUES($1,$2,$3,$4,$5,'APPROVED',$6,$7,$8,$9,$10) RETURNING *`,
-              [
-                id,
-                tenant,
-                paymentId,
-                amount.toString(),
-                payment.currency,
-                this.required(body.reason, "reason"),
-                JSON.stringify(body.evidence ?? {}),
-                `platform-refund:${tenant}:${paymentId}:${id}`,
-                a.userId,
-                this.required(body.approvedByUserId, "approvedByUserId"),
-              ],
-            )
-          ).rows[0];
+          .id;
+        const snapshot = this.paymentApprovalSnapshot(payment);
+        const row = (
+          await c.query<any>(
+            `INSERT INTO platform_refunds(id,tenant_id,payment_intent_id,amount_minor,currency,status,reason,evidence_json,provider_key,requested_by_user_id,payment_snapshot_json,payment_fingerprint) VALUES($1,$2,$3,$4,$5,'DRAFT',$6,$7,$8,$9,$10,$11) RETURNING *`,
+            [
+              id,
+              tenant,
+              paymentId,
+              amount.toString(),
+              payment.currency,
+              this.required(body.reason, "reason"),
+              JSON.stringify(body.evidence ?? {}),
+              `platform-refund:${tenant}:${paymentId}:${id}`,
+              a.userId,
+              JSON.stringify(snapshot),
+              fingerprint(snapshot),
+            ],
+          )
+        ).rows[0];
+        await this.workflowHistory(
+          c,
+          "refund",
+          tenant,
+          id,
+          null,
+          "DRAFT",
+          a.userId,
+          body.reason,
+          row,
+          requestId,
+        );
         await this.emit(
           c,
           a,
@@ -1820,6 +2824,282 @@ export class PlatformBillingService {
           key,
         );
         return this.view(row);
+      },
+    );
+  }
+
+  async transitionRefund(
+    a: AccessClaims,
+    id: string,
+    action: "submit" | "approve" | "reject" | "cancel" | "process",
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    this.rejectPayloadApprover(body);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      `platform.refund.${action}`,
+      body,
+      async (c) => {
+        const before = await this.one(
+          c,
+          "SELECT * FROM platform_refunds WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_REFUND_NOT_FOUND",
+        );
+        const expected: Record<typeof action, string[]> = {
+          submit: ["DRAFT"],
+          approve: ["PENDING_APPROVAL"],
+          reject: ["PENDING_APPROVAL"],
+          cancel: ["DRAFT", "PENDING_APPROVAL", "APPROVED"],
+          process: ["APPROVED"],
+        };
+        if (!expected[action].includes(before.status))
+          throw new ConflictException({
+            code: "PLATFORM_REFUND_STATUS_INVALID",
+            message: `Refund cannot ${action} from ${before.status}`,
+          });
+        if (action === "submit" && before.requested_by_user_id !== a.userId)
+          throw new ForbiddenException({
+            code: "PLATFORM_REFUND_REQUESTER_REQUIRED",
+            message: "Only requester can submit refund",
+          });
+        if (
+          ["approve", "reject"].includes(action) &&
+          before.requested_by_user_id === a.userId
+        )
+          throw new ForbiddenException({
+            code: "PLATFORM_SELF_APPROVAL_DENIED",
+            message:
+              "Refund requester cannot approve or reject their own request",
+          });
+        let toStatus: string;
+        let after: any;
+        if (action === "approve") {
+          const payment = await this.one(
+            c,
+            "SELECT * FROM platform_payment_intents WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+            [tenant, before.payment_intent_id],
+            "PLATFORM_PAYMENT_NOT_FOUND",
+          );
+          const snapshot = this.paymentApprovalSnapshot(payment);
+          const paymentFingerprint = fingerprint(snapshot);
+          const approvalFingerprint = fingerprint({
+            refundId: id,
+            version: before.version,
+            paymentFingerprint,
+            approverUserId: a.userId,
+          });
+          toStatus = "APPROVED";
+          after = (
+            await c.query<any>(
+              `UPDATE platform_refunds SET status='APPROVED',approved_by_user_id=$2,approved_at=now(),payment_snapshot_json=$3,payment_fingerprint=$4,approval_fingerprint=$5,version=version+1,updated_at=now() WHERE id=$1 RETURNING *`,
+              [
+                id,
+                a.userId,
+                JSON.stringify(snapshot),
+                paymentFingerprint,
+                approvalFingerprint,
+              ],
+            )
+          ).rows[0];
+        } else if (action === "process") {
+          if (!before.approval_fingerprint || !before.approved_by_user_id)
+            throw new ConflictException({
+              code: "PLATFORM_REFUND_APPROVAL_REQUIRED",
+              message: "Authenticated approval is required",
+            });
+          const payment = await this.one(
+            c,
+            "SELECT * FROM platform_payment_intents WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+            [tenant, before.payment_intent_id],
+            "PLATFORM_PAYMENT_NOT_FOUND",
+          );
+          if (
+            fingerprint(this.paymentApprovalSnapshot(payment)) !==
+            before.payment_fingerprint
+          )
+            throw new ConflictException({
+              code: "PLATFORM_APPROVAL_SNAPSHOT_STALE",
+              message: "Payment changed after refund approval",
+            });
+          toStatus = "PROCESSING";
+          after = (
+            await c.query<any>(
+              "UPDATE platform_refunds SET status='PROCESSING',version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+              [id],
+            )
+          ).rows[0];
+          await c.query(
+            `INSERT INTO platform_provider_operations(tenant_id,operation_type,aggregate_type,aggregate_id,provider,stable_key,request_json) VALUES($1,'REFUND','REFUND',$2,$3,$4,$5) ON CONFLICT(stable_key) DO NOTHING`,
+            [
+              tenant,
+              id,
+              payment.provider,
+              before.provider_key,
+              JSON.stringify({
+                refundId: id,
+                paymentIntentId: payment.id,
+                amountMinor: String(before.amount_minor),
+                currency: before.currency,
+                simulateOutcome: body.simulateOutcome,
+              }),
+            ],
+          );
+        } else {
+          toStatus =
+            action === "submit"
+              ? "PENDING_APPROVAL"
+              : action === "reject"
+                ? "REJECTED"
+                : "CANCELLED";
+          const reason =
+            action === "submit"
+              ? body.reason
+              : this.required(body.reason, "reason");
+          const actorColumn =
+            action === "reject"
+              ? ",rejected_by_user_id=$3,rejected_at=now()"
+              : "";
+          const values =
+            action === "reject" ? [id, toStatus, a.userId] : [id, toStatus];
+          after = (
+            await c.query<any>(
+              `UPDATE platform_refunds SET status=$2${actorColumn},${action === "submit" ? "submitted_at=now()," : ""}version=version+1,updated_at=now() WHERE id=$1 RETURNING *`,
+              values,
+            )
+          ).rows[0];
+          body.reason = reason;
+        }
+        await this.workflowHistory(
+          c,
+          "refund",
+          tenant,
+          id,
+          before.status,
+          toStatus,
+          a.userId,
+          body.reason,
+          after,
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          tenant,
+          `platform.refund_${action === "process" ? "processing" : toStatus.toLowerCase()}`,
+          "platform_refund",
+          id,
+          requestId,
+          before,
+          after,
+          body.reason,
+          key,
+        );
+        return this.view(after);
+      },
+    );
+  }
+
+  async reconcileRefund(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    this.platform(a);
+    const tenant = this.required(body.tenantId, "tenantId");
+    return this.command(
+      a,
+      tenant,
+      key,
+      "platform.refund.reconcile",
+      body,
+      async (c) => {
+        const before = await this.one(
+          c,
+          "SELECT * FROM platform_refunds WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, id],
+          "PLATFORM_REFUND_NOT_FOUND",
+        );
+        if (!["UNKNOWN", "MANUAL_REVIEW"].includes(before.status))
+          throw new ConflictException({
+            code: "PLATFORM_REFUND_STATUS_INVALID",
+            message: "Only an unknown refund outcome can be reconciled",
+          });
+        const payment = await this.one(
+          c,
+          "SELECT * FROM platform_payment_intents WHERE tenant_id=$1 AND id=$2 FOR UPDATE",
+          [tenant, before.payment_intent_id],
+          "PLATFORM_PAYMENT_NOT_FOUND",
+        );
+        const observedStatus = body.observedStatus;
+        if (
+          observedStatus !== undefined &&
+          !["SUCCEEDED", "FAILED", "UNKNOWN"].includes(observedStatus)
+        )
+          throw new ConflictException({
+            code: "PLATFORM_REFUND_STATUS_INVALID",
+            message: "Invalid observed refund status",
+          });
+        const after = (
+          await c.query<any>(
+            "UPDATE platform_refunds SET status='PROCESSING',version=version+1,updated_at=now() WHERE id=$1 RETURNING *",
+            [id],
+          )
+        ).rows[0];
+        await c.query(
+          `INSERT INTO platform_provider_operations(
+             tenant_id,operation_type,aggregate_type,aggregate_id,provider,stable_key,request_json
+           ) VALUES($1,'REFUND_STATUS','REFUND',$2,$3,$4,$5)
+           ON CONFLICT(stable_key) DO UPDATE SET
+             state=CASE WHEN platform_provider_operations.state IN('FAILED','UNKNOWN','MANUAL_REVIEW') THEN 'PENDING' ELSE platform_provider_operations.state END,
+             request_json=excluded.request_json,updated_at=now()`,
+          [
+            tenant,
+            id,
+            payment.provider,
+            `${before.provider_key}:status`,
+            JSON.stringify({
+              refundId: id,
+              paymentIntentId: payment.id,
+              simulateOutcome: observedStatus,
+              providerEvidence: body.providerEvidence ?? {},
+            }),
+          ],
+        );
+        await this.workflowHistory(
+          c,
+          "refund",
+          tenant,
+          id,
+          before.status,
+          "PROCESSING",
+          a.userId,
+          body.reason,
+          after,
+          requestId,
+        );
+        await this.emit(
+          c,
+          a,
+          tenant,
+          "platform.refund_reconciliation_scheduled",
+          "platform_refund",
+          id,
+          requestId,
+          before,
+          after,
+          body.reason,
+          key,
+        );
+        return this.view(after);
       },
     );
   }
@@ -1850,9 +3130,12 @@ export class PlatformBillingService {
           sourceId: body.sourceId,
           meterCode: body.meterCode,
         });
-        const row = (
+        const inserted = (
           await c.query<any>(
-            `INSERT INTO platform_usage_events(tenant_id,meter_id,source_type,source_id,source_fingerprint,quantity,occurred_at,metadata_json) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(tenant_id,meter_id,source_fingerprint) DO UPDATE SET source_fingerprint=excluded.source_fingerprint RETURNING *`,
+            `INSERT INTO platform_usage_events(tenant_id,meter_id,source_type,source_id,source_fingerprint,quantity,occurred_at,metadata_json)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+             ON CONFLICT(tenant_id,meter_id,source_fingerprint) DO NOTHING
+             RETURNING *`,
             [
               tenant,
               meter.id,
@@ -1865,6 +3148,22 @@ export class PlatformBillingService {
             ],
           )
         ).rows[0];
+        const row =
+          inserted ??
+          (await this.one(
+            c,
+            "SELECT * FROM platform_usage_events WHERE tenant_id=$1 AND meter_id=$2 AND source_fingerprint=$3",
+            [tenant, meter.id, sourceFingerprint],
+            "USAGE_EVENT_NOT_FOUND",
+          ));
+        if (!inserted && BigInt(row.quantity) !== BigInt(body.quantity))
+          throw new ConflictException({
+            code: "USAGE_EVENT_DUPLICATE",
+            message:
+              "Usage source already exists with a different quantity; submit a correction",
+          });
+        if (!inserted) return { ...this.view(row), deduplicated: true };
+        const semanticGenerationKey = `platform.usage_recorded:${tenant}:${meter.id}:${sourceFingerprint}`;
         await this.emit(
           c,
           a,
@@ -1877,8 +3176,9 @@ export class PlatformBillingService {
           { id: row.id, meterCode: body.meterCode, quantity: row.quantity },
           undefined,
           key,
+          semanticGenerationKey,
         );
-        return this.view(row);
+        return { ...this.view(row), deduplicated: false };
       },
     );
   }

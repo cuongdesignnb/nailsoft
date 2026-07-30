@@ -8,6 +8,9 @@ ON CONFLICT(id) DO NOTHING;
 INSERT INTO users(id,origin_tenant_id,email,display_name,status)
 VALUES('13000000-0000-4000-8000-000000000918','10000000-0000-4000-8000-000000000001','platform-billing-approver@example.test','Platform Billing Approver','ACTIVE')
 ON CONFLICT(id) DO NOTHING;
+UPDATE users
+SET password_hash='scrypt$nailsoft-demo-owner$0fc74e8eecbefabd51c25bde52305b97aeacbf373d234e7d627beeb8f59382f6d18293e20bf7837189eba0ef54445494eac854f09522f4ac3c54c6116bbcd42a'
+WHERE id='13000000-0000-4000-8000-000000000918';
 INSERT INTO tenant_memberships(id,tenant_id,user_id,status,joined_at)
 VALUES('13000000-0000-4000-8000-000000000919','10000000-0000-4000-8000-000000000001','13000000-0000-4000-8000-000000000918','ACTIVE',now())
 ON CONFLICT(id) DO NOTHING;

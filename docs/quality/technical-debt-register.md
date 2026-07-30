@@ -1,5 +1,11 @@
 # Technical debt register
 
+## Sprint 13 closure carry-forward
+
+- Production payment/refund provider credentials and adapters remain environment-specific. Production fails closed when no adapter is configured; FAKE is test-only.
+- Provider-loss and long-running reconciliation soak still require production-like staging. The lease/state contract and UNKNOWN blocking behavior are implemented and locally integration-tested.
+- Historical Sprint 13 approvals migrated by `0027` are explicitly marked as unverified migration evidence; they are never promoted to native authenticated approval records.
+
 | Item                                           | Status                        | Impact                                                                                                                                                                                                                     | Follow-up                                                                                                                                                     |
 | ---------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Production OTP vendor and credentials          | Release blocker               | Durable encrypted webhook delivery is implemented, but the production vendor/account is not selected                                                                                                                       | Owner: Platform/SecOps; environment: pre-production; deadline: before production go/no-go; configure provider, credentials, alerting and compliance review    |

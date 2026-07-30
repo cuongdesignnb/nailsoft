@@ -19,6 +19,7 @@ export class PlatformBillingProcessor implements OnModuleDestroy {
       this.advanceDunning(),
       this.expireSupport(),
       this.recoverQuotaReservations(),
+      this.processPayments(),
       this.processRefunds(),
     ]);
     return values.reduce((sum, value) => sum + value, 0);
@@ -427,56 +428,54 @@ export class PlatformBillingProcessor implements OnModuleDestroy {
     return result.rowCount ?? 0;
   }
   async processRefunds() {
+    const operation =
+      (await this.claimProviderOperation("REFUND")) ??
+      (await this.claimProviderOperation("REFUND_STATUS"));
+    if (!operation) return 0;
+    const outcome = await this.invokeProvider(operation);
+    await this.finishRefundOperation(operation, outcome);
+    return 1;
+  }
+  async processPayments() {
+    const operation = await this.claimProviderOperation("PAYMENT");
+    if (!operation) return 0;
+    const outcome = await this.invokeProvider(operation);
+    await this.finishPaymentOperation(operation, outcome);
+    return 1;
+  }
+  private async claimProviderOperation(
+    operationType: "PAYMENT" | "REFUND" | "REFUND_STATUS",
+  ) {
     const c = await this.pool.connect();
     try {
       await c.query("BEGIN");
-      const rows = (
+      const row = (
         await c.query<any>(
-          `SELECT * FROM platform_refunds WHERE status='APPROVED' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 20`,
+          `SELECT * FROM platform_provider_operations
+           WHERE operation_type=$1 AND (
+             state='PENDING' OR
+             (state='CLAIMED' AND lease_expires_at<now())
+           )
+           ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1`,
+          [operationType],
         )
-      ).rows;
-      for (const row of rows) {
-        if (
-          process.env.NODE_ENV === "production" &&
-          !process.env.PLATFORM_BILLING_PROVIDER
-        ) {
-          await c.query(
-            "UPDATE platform_refunds SET status='FAILED',updated_at=now() WHERE id=$1",
-            [row.id],
-          );
-          continue;
-        }
-        await c.query(
-          "UPDATE platform_refunds SET status='SUCCEEDED',provider_reference=COALESCE(provider_reference,'fake-refund-'||id::text),updated_at=now() WHERE id=$1",
-          [row.id],
-        );
-        const refunded =
-          (
-            await c.query<{ refunded_minor: string }>(
-              `SELECT COALESCE(sum(amount_minor),0)::text refunded_minor
-             FROM platform_refunds
-             WHERE payment_intent_id=$1 AND status='SUCCEEDED'`,
-              [row.payment_intent_id],
-            )
-          ).rows[0]?.refunded_minor ?? "0";
-        await c.query(
-          "UPDATE platform_payment_intents SET status=CASE WHEN amount_minor=$2 THEN 'REFUNDED' ELSE 'PARTIALLY_REFUNDED' END,version=version+1,updated_at=now() WHERE id=$1",
-          [row.payment_intent_id, refunded],
-        );
-        await c.query(
-          `UPDATE platform_invoices i SET refunded_minor=refunded_minor+$2,version=version+1,updated_at=now() FROM platform_payment_intents p WHERE p.id=$1 AND i.id=p.invoice_id`,
-          [row.payment_intent_id, row.amount_minor],
-        );
-        await this.event(
-          c,
-          row.tenant_id,
-          "platform.refund_completed",
-          "platform_refund",
-          row.id,
-        );
+      ).rows[0];
+      if (!row) {
+        await c.query("COMMIT");
+        return null;
       }
+      const claimed = (
+        await c.query<any>(
+          `UPDATE platform_provider_operations
+           SET state='CLAIMED',lease_owner=$2,leased_at=now(),
+               lease_expires_at=now()+interval '60 seconds',attempt_no=attempt_no+1,
+               updated_at=now()
+           WHERE id=$1 RETURNING *`,
+          [row.id, `platform-billing-worker:${process.pid}`],
+        )
+      ).rows[0];
       await c.query("COMMIT");
-      return rows.length;
+      return claimed;
     } catch (e) {
       await c.query("ROLLBACK");
       throw e;
@@ -484,16 +483,372 @@ export class PlatformBillingProcessor implements OnModuleDestroy {
       c.release();
     }
   }
+  private async invokeProvider(operation: any) {
+    const request = operation.request_json ?? {};
+    if (
+      (operation.provider === "FAKE" &&
+        process.env.NODE_ENV === "production") ||
+      (operation.provider !== "FAKE" && !process.env.PLATFORM_BILLING_PROVIDER)
+    )
+      return {
+        status: "FAILED",
+        failureCode: "PLATFORM_BILLING_PROVIDER_NOT_CONFIGURED",
+      };
+    const status = request.simulateOutcome ?? "SUCCEEDED";
+    return {
+      status: ["SUCCEEDED", "FAILED", "UNKNOWN"].includes(status)
+        ? status
+        : "UNKNOWN",
+      providerReference:
+        request.providerReference ??
+        `${operation.provider.toLowerCase()}-${operation.operation_type.toLowerCase()}-${operation.aggregate_id}`,
+      evidenceHash: operation.stable_key,
+      redacted: { simulated: operation.provider === "FAKE" },
+    };
+  }
+  private async finishPaymentOperation(operation: any, outcome: any) {
+    const c = await this.pool.connect();
+    try {
+      await c.query("BEGIN");
+      const locked = (
+        await c.query<any>(
+          "SELECT * FROM platform_provider_operations WHERE id=$1 FOR UPDATE",
+          [operation.id],
+        )
+      ).rows[0];
+      if (!locked || locked.state !== "CLAIMED") {
+        await c.query("COMMIT");
+        return;
+      }
+      const intent = (
+        await c.query<any>(
+          "SELECT * FROM platform_payment_intents WHERE id=$1 FOR UPDATE",
+          [operation.aggregate_id],
+        )
+      ).rows[0];
+      if (!intent) throw new Error("PLATFORM_PAYMENT_NOT_FOUND");
+      await c.query(
+        `INSERT INTO platform_payment_attempts(
+           tenant_id,payment_intent_id,attempt_no,request_json,response_redacted_json,outcome,finished_at
+         ) VALUES($1,$2,$3,$4,$5,$6,now())
+         ON CONFLICT(payment_intent_id,attempt_no) DO NOTHING`,
+        [
+          intent.tenant_id,
+          intent.id,
+          locked.attempt_no,
+          locked.request_json,
+          JSON.stringify(outcome.redacted ?? {}),
+          outcome.status,
+        ],
+      );
+      if (outcome.status === "SUCCEEDED" && !intent.applied_at) {
+        const invoice = (
+          await c.query<any>(
+            "SELECT * FROM platform_invoices WHERE id=$1 FOR UPDATE",
+            [intent.invoice_id],
+          )
+        ).rows[0];
+        if (
+          !invoice ||
+          !["OPEN", "PARTIALLY_PAID", "PAST_DUE"].includes(invoice.status)
+        )
+          throw new Error("PLATFORM_INVOICE_STATUS_INVALID");
+        const dueRaw =
+          BigInt(invoice.total_minor) -
+          BigInt(invoice.paid_minor) -
+          BigInt(invoice.credited_minor ?? 0) -
+          BigInt(invoice.credit_applied_minor ?? 0);
+        const due = dueRaw > 0n ? dueRaw : 0n;
+        const amount = BigInt(intent.amount_minor);
+        const applied = amount < due ? amount : due;
+        const overpayment = amount - applied;
+        const paid = BigInt(invoice.paid_minor) + applied;
+        const settled =
+          paid +
+            BigInt(invoice.credited_minor ?? 0) +
+            BigInt(invoice.credit_applied_minor ?? 0) >=
+          BigInt(invoice.total_minor);
+        await c.query(
+          "UPDATE platform_invoices SET paid_minor=$2,status=$3,version=version+1,updated_at=now() WHERE id=$1",
+          [invoice.id, paid.toString(), settled ? "PAID" : "PARTIALLY_PAID"],
+        );
+        if (overpayment > 0n)
+          await c.query(
+            `INSERT INTO platform_billing_credit_ledger(tenant_id,billing_account_id,entry_type,amount_minor,currency,source_type,source_id,evidence_json)
+             VALUES($1,$2,'OVERPAYMENT',$3,$4,'PAYMENT_INTENT',$5,$6)
+             ON CONFLICT(tenant_id,source_type,source_id,entry_type) DO NOTHING`,
+            [
+              intent.tenant_id,
+              invoice.billing_account_id,
+              overpayment.toString(),
+              intent.currency,
+              intent.id,
+              JSON.stringify({ providerOperationId: operation.id }),
+            ],
+          );
+        await c.query(
+          "UPDATE platform_payment_intents SET applied_to_invoice_minor=$2,overpayment_minor=$3,applied_at=now() WHERE id=$1",
+          [intent.id, applied.toString(), overpayment.toString()],
+        );
+        if (settled) {
+          await c.query(
+            "UPDATE tenants SET access_mode='FULL',lifecycle_status='ACTIVE',lifecycle_version=lifecycle_version+1,updated_at=now() WHERE id=$1 AND access_mode IN('GRACE','READ_ONLY','BILLING_ONLY','SUSPENDED')",
+            [intent.tenant_id],
+          );
+          await c.query(
+            "UPDATE platform_subscriptions SET status='ACTIVE',version=version+1,updated_at=now() WHERE tenant_id=$1 AND status IN('PAST_DUE','GRACE','READ_ONLY','SUSPENDED')",
+            [intent.tenant_id],
+          );
+        }
+      }
+      await c.query(
+        "UPDATE platform_payment_intents SET status=$2,provider_reference=COALESCE(provider_reference,$3),version=version+1,updated_at=now() WHERE id=$1",
+        [intent.id, outcome.status, outcome.providerReference ?? null],
+      );
+      await c.query(
+        "UPDATE platform_provider_operations SET state=$2,response_redacted_json=$3,provider_reference=$4,evidence_hash=$5,finished_at=now(),lease_expires_at=NULL,updated_at=now() WHERE id=$1",
+        [
+          operation.id,
+          outcome.status,
+          JSON.stringify(outcome.redacted ?? {}),
+          outcome.providerReference ?? null,
+          outcome.evidenceHash ?? null,
+        ],
+      );
+      await this.event(
+        c,
+        intent.tenant_id,
+        outcome.status === "SUCCEEDED"
+          ? "platform.payment_succeeded"
+          : outcome.status === "UNKNOWN"
+            ? "platform.payment_unknown"
+            : "platform.payment_failed",
+        "platform_payment_intent",
+        intent.id,
+        `provider-payment:${operation.id}:${outcome.status}`,
+      );
+      await c.query("COMMIT");
+    } catch (e) {
+      await c.query("ROLLBACK");
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+  private async finishRefundOperation(operation: any, outcome: any) {
+    const c = await this.pool.connect();
+    try {
+      await c.query("BEGIN");
+      const locked = (
+        await c.query<any>(
+          "SELECT * FROM platform_provider_operations WHERE id=$1 FOR UPDATE",
+          [operation.id],
+        )
+      ).rows[0];
+      if (!locked || locked.state !== "CLAIMED") {
+        await c.query("COMMIT");
+        return;
+      }
+      const refund = (
+        await c.query<any>(
+          "SELECT * FROM platform_refunds WHERE id=$1 FOR UPDATE",
+          [operation.aggregate_id],
+        )
+      ).rows[0];
+      if (!refund) throw new Error("PLATFORM_REFUND_NOT_FOUND");
+      const payment = (
+        await c.query<any>(
+          "SELECT * FROM platform_payment_intents WHERE id=$1 FOR UPDATE",
+          [refund.payment_intent_id],
+        )
+      ).rows[0];
+      if (!payment) throw new Error("PLATFORM_PAYMENT_NOT_FOUND");
+      await c.query(
+        "UPDATE platform_refunds SET status=$2,provider_reference=COALESCE(provider_reference,$3),provider_evidence_hash=$4,processed_at=now(),failure_code=$5,version=version+1,updated_at=now() WHERE id=$1",
+        [
+          refund.id,
+          outcome.status,
+          outcome.providerReference ?? null,
+          outcome.evidenceHash ?? null,
+          outcome.failureCode ?? null,
+        ],
+      );
+      if (outcome.status === "SUCCEEDED") {
+        const refunded = BigInt(
+          (
+            await c.query<any>(
+              "SELECT COALESCE(sum(amount_minor),0)::text n FROM platform_refunds WHERE payment_intent_id=$1 AND status='SUCCEEDED'",
+              [payment.id],
+            )
+          ).rows[0].n,
+        );
+        if (refunded > BigInt(payment.amount_minor))
+          throw new Error("PLATFORM_REFUND_EXCEEDS_PAID_AMOUNT");
+        await c.query(
+          "UPDATE platform_payment_intents SET status=$2,version=version+1,updated_at=now() WHERE id=$1",
+          [
+            payment.id,
+            refunded === BigInt(payment.amount_minor)
+              ? "REFUNDED"
+              : "PARTIALLY_REFUNDED",
+          ],
+        );
+        const invoice = (
+          await c.query<any>(
+            "SELECT * FROM platform_invoices WHERE id=$1 FOR UPDATE",
+            [payment.invoice_id],
+          )
+        ).rows[0];
+        if (!invoice) throw new Error("PLATFORM_INVOICE_NOT_FOUND");
+        if (refunded > BigInt(invoice.paid_minor))
+          throw new Error("PLATFORM_REFUND_EXCEEDS_PAID_AMOUNT");
+        await c.query(
+          "UPDATE platform_invoices SET refunded_minor=$2,version=version+1,updated_at=now() WHERE id=$1",
+          [invoice.id, refunded.toString()],
+        );
+        await this.createRefundCreditNoteDraft(c, refund, invoice);
+      }
+      await c.query(
+        "UPDATE platform_provider_operations SET state=$2,response_redacted_json=$3,provider_reference=$4,evidence_hash=$5,finished_at=now(),lease_expires_at=NULL,updated_at=now() WHERE id=$1",
+        [
+          operation.id,
+          outcome.status,
+          JSON.stringify(outcome.redacted ?? {}),
+          outcome.providerReference ?? null,
+          outcome.evidenceHash ?? null,
+        ],
+      );
+      await this.event(
+        c,
+        refund.tenant_id,
+        outcome.status === "SUCCEEDED"
+          ? "platform.refund_completed"
+          : outcome.status === "UNKNOWN"
+            ? "platform.refund_unknown"
+            : "platform.refund_failed",
+        "platform_refund",
+        refund.id,
+        `provider-refund:${operation.id}:${outcome.status}`,
+      );
+      await c.query("COMMIT");
+    } catch (e) {
+      await c.query("ROLLBACK");
+      throw e;
+    } finally {
+      c.release();
+    }
+  }
+  private async createRefundCreditNoteDraft(
+    c: pg.PoolClient,
+    refund: any,
+    invoice: any,
+  ) {
+    if (
+      (
+        await c.query(
+          "SELECT 1 FROM platform_credit_notes WHERE source_refund_id=$1",
+          [refund.id],
+        )
+      ).rowCount
+    )
+      return;
+    const lines = (
+      await c.query<any>(
+        "SELECT * FROM platform_invoice_lines WHERE invoice_id=$1 ORDER BY created_at,id FOR UPDATE",
+        [invoice.id],
+      )
+    ).rows;
+    let remaining = BigInt(refund.amount_minor);
+    const allocations: Array<{ line: any; amount: bigint }> = [];
+    for (const line of lines) {
+      if (remaining <= 0n) break;
+      const used = BigInt(
+        (
+          await c.query<any>(
+            `SELECT COALESCE(sum(l.amount_minor),0)::text n FROM platform_credit_note_lines l JOIN platform_credit_notes n ON n.id=l.credit_note_id WHERE l.source_invoice_line_id=$1 AND n.status<>'VOID'`,
+            [line.id],
+          )
+        ).rows[0].n,
+      );
+      const eligible = BigInt(line.total_minor) - used;
+      if (eligible <= 0n) continue;
+      const amount = eligible < remaining ? eligible : remaining;
+      allocations.push({ line, amount });
+      remaining -= amount;
+    }
+    if (remaining > 0n) throw new Error("PLATFORM_CREDIT_NOTE_CUMULATIVE_CAP");
+    const snapshot = {
+      id: invoice.id,
+      status: invoice.status,
+      currency: invoice.currency,
+      totalMinor: String(invoice.total_minor),
+      paidMinor: String(invoice.paid_minor),
+      creditedMinor: String(invoice.credited_minor ?? 0),
+      creditAppliedMinor: String(invoice.credit_applied_minor ?? 0),
+      fingerprint: invoice.fingerprint,
+      version: Number(invoice.version),
+    };
+    const note = (
+      await c.query<any>(
+        `INSERT INTO platform_credit_notes(tenant_id,invoice_id,status,currency,total_minor,reason,evidence_json,fingerprint,created_by_user_id,invoice_snapshot_json,invoice_fingerprint,source_refund_id) VALUES($1,$2,'DRAFT',$3,$4,$5,$6,encode(digest($7,'sha256'),'hex'),$8,$9::jsonb,encode(digest(($9::jsonb)::text,'sha256'),'hex'),$10) RETURNING *`,
+        [
+          refund.tenant_id,
+          invoice.id,
+          invoice.currency,
+          refund.amount_minor,
+          `Refund ${refund.id}`,
+          JSON.stringify({ refundId: refund.id }),
+          refund.id,
+          refund.requested_by_user_id,
+          JSON.stringify(snapshot),
+          refund.id,
+        ],
+      )
+    ).rows[0];
+    for (const allocation of allocations)
+      await c.query(
+        `INSERT INTO platform_credit_note_lines(tenant_id,credit_note_id,description,amount_minor,source_invoice_line_id,eligibility_snapshot_json) VALUES($1,$2,$3,$4,$5,$6)`,
+        [
+          refund.tenant_id,
+          note.id,
+          allocation.line.description,
+          allocation.amount.toString(),
+          allocation.line.id,
+          JSON.stringify({
+            invoiceLineId: allocation.line.id,
+            eligibleMinor: String(allocation.line.total_minor),
+          }),
+        ],
+      );
+    await this.event(
+      c,
+      refund.tenant_id,
+      "platform.credit_note_created",
+      "platform_credit_note",
+      note.id,
+      `refund-credit-note:${refund.id}`,
+    );
+  }
   private event(
     c: pg.PoolClient,
     tenant: string,
     event: string,
     type: string,
     id: string,
+    semanticGenerationKey?: string,
   ) {
     return c.query(
-      `INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,source,metadata_json) VALUES($1,$2,$3,$4,$5,'{"type":"SYSTEM","id":null}','worker','{"schemaVersion":1}')`,
-      [tenant, event, type, id, JSON.stringify({ id, refetch: true })],
+      `INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,source,metadata_json,semantic_generation_key)
+       VALUES($1,$2,$3,$4,$5,'{"type":"SYSTEM","id":null}','worker','{"schemaVersion":1}',$6)
+       ON CONFLICT(tenant_id,semantic_generation_key) WHERE semantic_generation_key IS NOT NULL DO NOTHING`,
+      [
+        tenant,
+        event,
+        type,
+        id,
+        JSON.stringify({ id, refetch: true }),
+        semanticGenerationKey ?? null,
+      ],
     );
   }
   async onModuleDestroy() {

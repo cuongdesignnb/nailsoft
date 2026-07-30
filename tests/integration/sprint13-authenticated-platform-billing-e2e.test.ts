@@ -132,8 +132,9 @@ describe("Sprint 13 authenticated tenant and platform billing E2E", () => {
   });
   it("requires independent platform approval and unique evidence for manual payment", async () => {
     const platform = await login(app, "platform-e2e@example.test"),
+      approver = await login(app, "platform-billing-approver@example.test"),
       url =
-        "/v1/platform/invoices/13000000-0000-4000-8000-000000000952/manual-payments",
+        "/v1/platform/invoices/13000000-0000-4000-8000-000000000952/manual-payment-requests",
       payload = {
         tenantId: "13000000-0000-4000-8000-000000000902",
         amountMinor: "9900",
@@ -141,26 +142,57 @@ describe("Sprint 13 authenticated tenant and platform billing E2E", () => {
         evidenceReference: "WIRE-QA-S13-0001",
         reason: "Deterministic independent evidence",
       };
-    const selfApproval = await app.inject({
+    const forgedApproval = await app.inject({
       method: "POST",
       url,
-      headers: command(platform, "s13-manual-payment-self"),
-      payload: {
-        ...payload,
-        approvedByUserId: "30000000-0000-4000-8000-000000000015",
-      },
-    });
-    expect(selfApproval.statusCode, selfApproval.body).toBe(403);
-    const approved = await app.inject({
-      method: "POST",
-      url,
-      headers: command(platform, "s13-manual-payment-approved"),
+      headers: command(platform, "s13-manual-payment-forged"),
       payload: {
         ...payload,
         approvedByUserId: "13000000-0000-4000-8000-000000000918",
       },
     });
+    expect(forgedApproval.statusCode, forgedApproval.body).toBe(409);
+    const created = await app.inject({
+      method: "POST",
+      url,
+      headers: command(platform, "s13-manual-payment-create"),
+      payload,
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json().data.status).toBe("DRAFT");
+    const requestId = created.json().data.id;
+    const submitted = await app.inject({
+      method: "POST",
+      url: `/v1/platform/manual-payment-requests/${requestId}/submit`,
+      headers: command(platform, "s13-manual-payment-submit"),
+      payload: { tenantId: payload.tenantId },
+    });
+    expect(submitted.statusCode, submitted.body).toBe(201);
+    const selfApproval = await app.inject({
+      method: "POST",
+      url: `/v1/platform/manual-payment-requests/${requestId}/approve`,
+      headers: command(platform, "s13-manual-payment-self"),
+      payload: { tenantId: payload.tenantId },
+    });
+    expect(selfApproval.statusCode, selfApproval.body).toBe(403);
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/platform/manual-payment-requests/${requestId}/approve`,
+      headers: command(approver, "s13-manual-payment-approved"),
+      payload: { tenantId: payload.tenantId },
+    });
     expect(approved.statusCode, approved.body).toBe(201);
+    expect(approved.json().data.approvedByUserId).toBe(
+      "13000000-0000-4000-8000-000000000918",
+    );
+    const processed = await app.inject({
+      method: "POST",
+      url: `/v1/platform/manual-payment-requests/${requestId}/process`,
+      headers: command(platform, "s13-manual-payment-process"),
+      payload: { tenantId: payload.tenantId },
+    });
+    expect(processed.statusCode, processed.body).toBe(201);
+    expect(processed.json().data.status).toBe("SUCCEEDED");
     expect(
       (
         await db.query(
