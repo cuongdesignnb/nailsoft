@@ -12,6 +12,13 @@ test("review approval and lock preserve independent authenticated actors", async
       [tenant],
     );
     await db.query(
+      `UPDATE attendance_exceptions
+       SET state='RESOLVED',resolution_reason='E2E fixture session voided',resolved_at=now(),updated_at=now()
+       WHERE tenant_id=$1 AND staff_id='47000000-0000-4000-8000-000000000005'
+         AND state IN('OPEN','ACKNOWLEDGED')`,
+      [tenant],
+    );
+    await db.query(
       `INSERT INTO timesheet_day_entries(tenant_id,timesheet_id,local_date,branch_id,regular_seconds,payable_seconds,fingerprint)
        VALUES($1,'f1200000-0000-4000-8000-000000000061','2026-08-05','20000000-0000-4000-8000-000000000001',14400,14400,'seed-timesheet-submitted')`,
       [tenant],
