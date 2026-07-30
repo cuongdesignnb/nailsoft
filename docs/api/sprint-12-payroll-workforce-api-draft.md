@@ -22,6 +22,10 @@ Policies: `GET|POST /workforce-compliance/policies`; `POST /policies/{id}/versio
 
 `GET|POST /payroll-calendars`; commands `/update`, `/activate`, `/deactivate`. `GET /payroll/periods`; `POST /payroll/periods/generate`. `GET|POST /payroll/runs`; `GET /payroll/runs/{runId}`; commands `/calculate`, `/recalculate`, `/submit`, `/approve`, `/finalize`, `/request-void`, `/approve-void`. `POST /payroll/corrections`, then `/{id}/submit|approve|reject`, creates independently approved sources for supplemental/correction runs without mutating an original statement. Recalculation deletes only draft children in FK order and increments `calculationGeneration`. Worker and exception reads are nested below the run; exception commands acknowledge/resolve/waive.
 
+Source-coverage hardening adds `POST /payroll/tips/{tipAllocationId}/disposition`. It requires `payroll.adjustment.manage`, an idempotency key and a reason. Only explicit `PAYROLL_PENDING` tips can be claimed; `PAID_DIRECT`, `REVERSED`, `UNKNOWN` and `NOT_PAYROLL_ELIGIBLE` are excluded. `POST /payroll/corrections` accepts positive supplemental earnings only and returns `PAYROLL_CORRECTION_POSITIVE_DELTA_REQUIRED` for zero or negative values.
+
+Regular payroll discovers every effective `SALARY` and `SALARY_PLUS_COMMISSION` profile even without attendance, commission or tip sources. Missing `SALARY_PERIOD_AMOUNT` becomes a blocking `MISSING_PAY_RATE` worker exception. Overtime day-entry values are derived from clocked attendance using the session's approved policy-version snapshot; clients cannot submit regular/overtime results.
+
 Statements: `GET /pay-statements`, `/{id}`, `/staff/me/pay-statements`, `/staff/me/pay-statements/{id}`.
 
 ## Payout and reporting

@@ -1,6 +1,14 @@
 # Sprint 12 Completion Report
 
-STATUS=`READY_FOR_BA_PO_ACCEPTANCE`
+## Final source-coverage hotfix
+
+- Migration `0025_sprint12_payroll_source_coverage_hardening` adds tip disposition/claim evidence, overtime classification snapshots, period overlap protection, late-attendance routing and an early positive-only correction constraint.
+- Regular runs include every effective salaried profile; missing salary rates are blocking exceptions rather than silent omission.
+- Tip payroll eligibility is profile-independent and exactly-once through `PAYROLL_PENDING → PAYROLL_CLAIMED → PAYROLL_PAID`; direct-paid, reversed and fail-closed historical tips are excluded.
+- Overtime is projected from authenticated clock events and versioned policy rules into day entries; closed/locked periods are not mutated.
+- Final commit and CI evidence are recorded after the exact pushed commit completes successfully.
+
+STATUS=`PENDING_FINAL_SOURCE_COVERAGE_CI`
 
 SPRINT_12_START_CHECKPOINT=`2934ba5944d01bee133f56c364d214cffa668376`
 SPRINT_12_FOUNDATION_COMMIT=`aebfb44c23f44e499ae957e79d4723fc4695171e`
@@ -13,6 +21,33 @@ CLOSURE_IMPLEMENTATION_CI_URL=`https://github.com/cuongdesignnb/nailsoft/actions
 CLOSURE_IMPLEMENTATION_CI_SHA=`80e6b4e99aef8315dfb49d448ce93cfd8c8edd7a`
 CLOSURE_IMPLEMENTATION_CI_STATUS=`SUCCESS`
 FINAL_EVIDENCE_CI=`MUST_BE_SUCCESS_BEFORE_FINAL_HANDOFF`
+
+FINAL_SOURCE_COVERAGE_COMMIT=`THIS_COMMIT`
+FINAL_SOURCE_COVERAGE_CI=`MUST_BE_SUCCESS_BEFORE_FINAL_EVIDENCE_COMMIT`
+
+MIGRATION_0025=`0025_sprint12_payroll_source_coverage_hardening`
+MIGRATION_0025_FRESH=`PASS`
+MIGRATION_0025_ROLLBACK=`PASS_TO_0024`
+MIGRATION_0025_REUP=`PASS`
+
+SALARY_WITHOUT_TIMESHEET_INCLUDED=`YES`
+SALARY_MISSING_RATE_EXCEPTION=`YES`
+TIP_PROFILE_INDEPENDENT=`YES`
+TIP_DIRECT_PAID_EXCLUDED=`YES`
+TIP_REVERSED_EXCLUDED=`YES`
+TIP_SOURCE_EXACTLY_ONCE=`YES`
+OVERTIME_OPERATIONAL_CLASSIFICATION=`YES`
+OVERTIME_POLICY_VERSIONED=`YES`
+OVERTIME_SECONDS_NOT_DOUBLE_CLASSIFIED=`YES`
+NEGATIVE_CORRECTION_CONTRACT=`POSITIVE_ONLY_REJECTED_AT_API_AND_DB_WRITE_BOUNDARY`
+SUPPLEMENTAL_DELTA_STATEMENT=`POSITIVE_DELTA_ONLY_ORIGINAL_FINALIZED_STATEMENT_IMMUTABLE`
+CLOSED_PERIOD_PROJECTION_DENIED=`YES`
+PERIOD_OVERLAP_GUARD=`YES_POSTGRESQL_EXCLUSION_CONSTRAINT`
+LATE_ATTENDANCE_WORKFLOW=`YES_EXCEPTION_WITH_CORRECTION_SUPPLEMENTAL_ROUTE`
+
+TARGETED_INTEGRATION=`PASS_5_SOURCE_COVERAGE_FILES`
+TARGETED_E2E=`PASS_7_AUTHENTICATED_API_FLOWS_WITH_ISOLATED_DETERMINISTIC_RESET`
+FINAL_SOURCE_COVERAGE_FULL_REGRESSION=`PASS_LOCAL_SPRINT_1_12`
 
 MIGRATION_0024=`0024_sprint12_payroll_correctness_hardening`
 MIGRATION_FRESH=`PASS`
@@ -85,4 +120,4 @@ UX_UI_REDESIGN_STARTED=`NO`
 
 - Sprint 13 was not started.
 - UX/UI redesign was not started.
-- No migration from `0001` through `0023` was modified.
+- No migration from `0001` through `0024` was modified.

@@ -811,6 +811,19 @@ export class PayrollWorkforceController {
       r,
     );
   }
+  @Post("payroll/tips/:id/disposition")
+  @RequirePermission("payroll.adjustment.manage")
+  async setTipDisposition(
+    @Param("id") id: string,
+    @Body() b: any,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(
+      await this.s.setTipPayrollDisposition(r.auth, id, b, key(k), rid(r)),
+      r,
+    );
+  }
   @Post("payroll/corrections/:id/submit")
   @RequirePermission("payroll.adjustment.manage")
   async submitCorrection(

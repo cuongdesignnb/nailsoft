@@ -154,6 +154,19 @@ export class WorkforceService {
     });
   }
 
+  private overtimeThreshold(rule: any): bigint | null {
+    if (!rule || typeof rule !== "object") return null;
+    const seconds =
+      rule.thresholdSeconds ?? rule.afterSeconds ?? rule.regularSeconds;
+    if (Number.isFinite(Number(seconds)) && Number(seconds) >= 0)
+      return BigInt(Math.floor(Number(seconds)));
+    if (Number.isFinite(Number(rule.thresholdMinutes)))
+      return BigInt(Math.floor(Number(rule.thresholdMinutes) * 60));
+    if (Number.isFinite(Number(rule.thresholdHours)))
+      return BigInt(Math.floor(Number(rule.thresholdHours) * 3600));
+    return null;
+  }
+
   private async rebuildTimesheet(
     c: PoolClient,
     tenantId: string,
@@ -180,8 +193,11 @@ export class WorkforceService {
 
     const sessions = (
       await c.query<any>(
-        `SELECT s.*,b.timezone branch_timezone
+        `SELECT s.*,b.timezone branch_timezone,
+                v.daily_overtime_rules_json,v.weekly_overtime_rules_json,
+                v.consecutive_day_rules_json,v.fingerprint policy_fingerprint
          FROM attendance_sessions s JOIN branches b ON b.tenant_id=s.tenant_id AND b.id=s.branch_id
+         LEFT JOIN workforce_compliance_policy_versions v ON v.tenant_id=s.tenant_id AND v.id=s.policy_version_id
          WHERE s.tenant_id=$1 AND s.staff_id=$2 AND s.ended_at IS NOT NULL
            AND (s.started_at AT TIME ZONE b.timezone)::date <= $4::date
            AND (s.ended_at AT TIME ZONE b.timezone)::date >= $3::date
@@ -203,6 +219,15 @@ export class WorkforceService {
         unpaidBreak: bigint;
       }
     >();
+    const rawSlices: Array<{
+      session: any;
+      localDate: string;
+      branchId: string;
+      startedAt: number;
+      payable: bigint;
+      paidBreak: bigint;
+      unpaidBreak: bigint;
+    }> = [];
     for (const session of sessions) {
       const zone = session.branch_timezone || sheet.timezone;
       const start = DateTime.fromJSDate(new Date(session.started_at), {
@@ -223,8 +248,6 @@ export class WorkforceService {
         cursor = sliceEnd;
       }
       const weights = slices.map((slice) => slice.seconds);
-      const regular = this.allocate(BigInt(session.regular_seconds), weights);
-      const overtime = this.allocate(BigInt(session.overtime_seconds), weights);
       const payable = this.allocate(BigInt(session.payable_seconds), weights);
       const paidBreak = this.allocate(
         BigInt(session.paid_break_seconds),
@@ -240,27 +263,142 @@ export class WorkforceService {
           slice.date > String(sheet.ends_on)
         )
           return;
-        const mapKey = `${slice.date}:${session.branch_id}`;
-        const entry =
-          entries.get(mapKey) ??
-          ({
-            localDate: slice.date,
-            branchId: session.branch_id,
-            sessionIds: [] as string[],
-            regular: 0n,
-            overtime: 0n,
-            payable: 0n,
-            paidBreak: 0n,
-            unpaidBreak: 0n,
-          } satisfies typeof entries extends Map<string, infer V> ? V : never);
-        entry.sessionIds.push(session.id);
-        entry.regular += regular[index]!;
-        entry.overtime += overtime[index]!;
-        entry.payable += payable[index]!;
-        entry.paidBreak += paidBreak[index]!;
-        entry.unpaidBreak += unpaidBreak[index]!;
-        entries.set(mapKey, entry);
+        rawSlices.push({
+          session,
+          localDate: slice.date,
+          branchId: session.branch_id,
+          startedAt: new Date(session.started_at).getTime(),
+          payable: payable[index]!,
+          paidBreak: paidBreak[index]!,
+          unpaidBreak: unpaidBreak[index]!,
+        });
       });
+    }
+
+    rawSlices.sort(
+      (left, right) =>
+        left.localDate.localeCompare(right.localDate) ||
+        left.startedAt - right.startedAt ||
+        left.session.id.localeCompare(right.session.id),
+    );
+    const workedDates = [...new Set(rawSlices.map((slice) => slice.localDate))];
+    const streakByDate = new Map<string, number>();
+    let priorDate: DateTime | null = null;
+    let streak = 0;
+    for (const value of workedDates) {
+      const date = DateTime.fromISO(value, { zone: "utc" });
+      streak =
+        priorDate && date.diff(priorDate, "days").days === 1 ? streak + 1 : 1;
+      streakByDate.set(value, streak);
+      priorDate = date;
+    }
+    const dailyWorked = new Map<string, bigint>();
+    const weeklyWorked = new Map<string, bigint>();
+    await c.query(
+      `DELETE FROM attendance_overtime_classifications
+       WHERE tenant_id=$1 AND attendance_session_id=ANY($2::uuid[]) AND local_date BETWEEN $3 AND $4`,
+      [
+        tenantId,
+        sessions.map((session: any) => session.id),
+        sheet.starts_on,
+        sheet.ends_on,
+      ],
+    );
+    for (const slice of rawSlices) {
+      const session = slice.session;
+      const mapKey = `${slice.localDate}:${slice.branchId}`;
+      const entry =
+        entries.get(mapKey) ??
+        ({
+          localDate: slice.localDate,
+          branchId: slice.branchId,
+          sessionIds: [] as string[],
+          regular: 0n,
+          overtime: 0n,
+          payable: 0n,
+          paidBreak: 0n,
+          unpaidBreak: 0n,
+        } satisfies typeof entries extends Map<string, infer V> ? V : never);
+      if (!entry.sessionIds.includes(session.id))
+        entry.sessionIds.push(session.id);
+      const dailyRule = session.daily_overtime_rules_json ?? {};
+      const weeklyRule = session.weekly_overtime_rules_json ?? {};
+      const consecutiveRule = session.consecutive_day_rules_json ?? {};
+      const dailyThreshold = this.overtimeThreshold(dailyRule);
+      const weeklyThreshold = this.overtimeThreshold(weeklyRule);
+      const weekKey = DateTime.fromISO(slice.localDate, { zone: "utc" })
+        .startOf("week")
+        .toISODate()!;
+      const dayUsed = dailyWorked.get(slice.localDate) ?? 0n;
+      const weekUsed = weeklyWorked.get(weekKey) ?? 0n;
+      let regularCapacity = slice.payable;
+      if (dailyThreshold !== null)
+        regularCapacity =
+          dailyThreshold > dayUsed
+            ? regularCapacity < dailyThreshold - dayUsed
+              ? regularCapacity
+              : dailyThreshold - dayUsed
+            : 0n;
+      if (weeklyThreshold !== null) {
+        const weeklyCapacity =
+          weeklyThreshold > weekUsed ? weeklyThreshold - weekUsed : 0n;
+        if (weeklyCapacity < regularCapacity) regularCapacity = weeklyCapacity;
+      }
+      const afterDays = Number(
+        consecutiveRule.afterDays ??
+          consecutiveRule.consecutiveDaysBeforeOvertime ??
+          0,
+      );
+      if (
+        Number.isFinite(afterDays) &&
+        afterDays > 0 &&
+        (streakByDate.get(slice.localDate) ?? 1) > afterDays
+      )
+        regularCapacity = 0n;
+      const overtime = slice.payable - regularCapacity;
+      dailyWorked.set(slice.localDate, dayUsed + slice.payable);
+      weeklyWorked.set(weekKey, weekUsed + slice.payable);
+      const ruleSnapshot = {
+        policyVersionId: session.policy_version_id,
+        policyFingerprint: session.policy_fingerprint,
+        daily: dailyRule,
+        weekly: weeklyRule,
+        consecutive: consecutiveRule,
+        streak: streakByDate.get(slice.localDate) ?? 1,
+      };
+      const classificationFingerprint = deterministicFingerprint({
+        sessionId: session.id,
+        localDate: slice.localDate,
+        sourcePayableSeconds: slice.payable.toString(),
+        regularSeconds: regularCapacity.toString(),
+        overtimeSeconds: overtime.toString(),
+        rules: ruleSnapshot,
+      });
+      await c.query(
+        `INSERT INTO attendance_overtime_classifications(
+             tenant_id,attendance_session_id,staff_id,branch_id,local_date,policy_version_id,
+             source_payable_seconds,regular_seconds,overtime_seconds,rule_snapshot_json,fingerprint
+           ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          tenantId,
+          session.id,
+          session.staff_id,
+          slice.branchId,
+          slice.localDate,
+          session.policy_version_id,
+          slice.payable.toString(),
+          regularCapacity.toString(),
+          overtime.toString(),
+          JSON.stringify(ruleSnapshot),
+          classificationFingerprint,
+        ],
+      );
+      entry.regular += regularCapacity;
+      entry.overtime += overtime;
+      entry.payable += slice.payable;
+      entry.paidBreak += slice.paidBreak;
+      entry.unpaidBreak += slice.unpaidBreak;
+      entries.set(mapKey, entry);
     }
     const ordered = [...entries.values()].sort((left, right) =>
       `${left.localDate}:${left.branchId}`.localeCompare(
@@ -272,6 +410,8 @@ export class WorkforceService {
         id: session.id,
         fingerprint: session.fingerprint,
         version: session.version,
+        policyVersionId: session.policy_version_id,
+        policyFingerprint: session.policy_fingerprint,
       })),
     );
     const fingerprint = deterministicFingerprint(
@@ -360,6 +500,7 @@ export class WorkforceService {
     c: PoolClient,
     a: AccessClaims,
     session: any,
+    requestId: string,
   ) {
     const bounds = (
       await c.query<any>(
@@ -370,15 +511,89 @@ export class WorkforceService {
         [a.tenantId, session.id],
       )
     ).rows[0];
-    let period = (
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [
+      `timesheet-period:${a.tenantId}`,
+    ]);
+    const policy = (
       await c.query<any>(
-        `SELECT * FROM timesheet_periods WHERE tenant_id=$1 AND starts_on<=$2 AND ends_on>=$3 AND state<>'LOCKED'
-         ORDER BY starts_on DESC LIMIT 1 FOR UPDATE`,
-        [a.tenantId, bounds.starts_on, bounds.ends_on],
+        `SELECT attendance_projection_rules_json FROM workforce_compliance_policy_versions
+         WHERE tenant_id=$1 AND id=$2`,
+        [a.tenantId, session.policy_version_id],
       )
     ).rows[0];
-    if (!period) {
-      period = (
+    const acceptedStates = Array.isArray(
+      policy?.attendance_projection_rules_json?.acceptedPeriodStates,
+    )
+      ? policy.attendance_projection_rules_json.acceptedPeriodStates
+      : ["OPEN", "SUBMISSION_OPEN", "REVIEW"];
+    const overlapping = (
+      await c.query<any>(
+        `SELECT *,starts_on::text starts_on_text,ends_on::text ends_on_text FROM timesheet_periods WHERE tenant_id=$1
+           AND daterange(starts_on,ends_on,'[]') && daterange($2::date,$3::date,'[]')
+         ORDER BY starts_on,id FOR UPDATE`,
+        [a.tenantId, bounds.starts_on, bounds.ends_on],
+      )
+    ).rows;
+    const period = overlapping.find(
+      (candidate: any) =>
+        candidate.starts_on_text <= bounds.starts_on &&
+        candidate.ends_on_text >= bounds.ends_on &&
+        acceptedStates.includes(candidate.state),
+    );
+    const crossesPeriodBoundary =
+      overlapping.length > 1 ||
+      (overlapping.length === 1 &&
+        (overlapping[0].starts_on_text > bounds.starts_on ||
+          overlapping[0].ends_on_text < bounds.ends_on));
+    if (crossesPeriodBoundary) {
+      await this.createAttendanceException(
+        c,
+        a,
+        session,
+        "CROSS_PERIOD_ATTENDANCE",
+        requestId,
+      );
+      return null;
+    }
+    if (
+      overlapping.length === 1 &&
+      !period &&
+      ["APPROVED", "LOCKED", "CLOSED"].includes(overlapping[0].state)
+    ) {
+      await this.createAttendanceException(
+        c,
+        a,
+        session,
+        "LATE_ATTENDANCE_AFTER_PERIOD_CLOSE",
+        requestId,
+      );
+      return null;
+    }
+    if (overlapping.length > 0 && !period) {
+      await this.createAttendanceException(
+        c,
+        a,
+        session,
+        "CROSS_PERIOD_ATTENDANCE",
+        requestId,
+      );
+      return null;
+    }
+    let selectedPeriod = period;
+    if (!selectedPeriod) {
+      if (
+        policy?.attendance_projection_rules_json?.autoCreatePeriod === false
+      ) {
+        await this.createAttendanceException(
+          c,
+          a,
+          session,
+          "CROSS_PERIOD_ATTENDANCE",
+          requestId,
+        );
+        return null;
+      }
+      selectedPeriod = (
         await c.query<any>(
           `INSERT INTO timesheet_periods(tenant_id,code,starts_on,ends_on,timezone)
            VALUES($1,$2,$3,$4,$5)
@@ -392,6 +607,18 @@ export class WorkforceService {
           ],
         )
       ).rows[0];
+      await this.emit(
+        c,
+        a,
+        "timesheet.period_auto_created",
+        "timesheet_period",
+        selectedPeriod.id,
+        session.branch_id,
+        requestId,
+        null,
+        this.view(selectedPeriod),
+        "Deterministic attendance projection period",
+      );
     }
     const sheet = (
       await c.query<any>(
@@ -399,7 +626,12 @@ export class WorkforceService {
          VALUES($1,$2,$3,$4)
          ON CONFLICT(tenant_id,period_id,staff_id) DO UPDATE SET updated_at=staff_timesheets.updated_at
          RETURNING *`,
-        [a.tenantId, period.id, session.staff_id, deterministicFingerprint([])],
+        [
+          a.tenantId,
+          selectedPeriod.id,
+          session.staff_id,
+          deterministicFingerprint([]),
+        ],
       )
     ).rows[0];
     return this.rebuildTimesheet(c, a.tenantId, sheet.id);
@@ -547,6 +779,17 @@ export class WorkforceService {
             [a.tenantId, branchId],
           )
         ).rows[0];
+        const compliancePolicy = (
+          await c.query<any>(
+            `SELECT v.* FROM workforce_compliance_policies p
+             JOIN workforce_compliance_policy_versions v ON v.tenant_id=p.tenant_id AND v.policy_id=p.id
+             WHERE p.tenant_id=$1 AND p.status='ACTIVE' AND v.legal_review_status='APPROVED'
+               AND v.effective_from<=($2::timestamptz AT TIME ZONE $3)::date
+               AND (v.effective_to IS NULL OR v.effective_to>=($2::timestamptz AT TIME ZONE $3)::date)
+             ORDER BY v.version DESC LIMIT 1`,
+            [a.tenantId, new Date(), branch.timezone],
+          )
+        ).rows[0];
         if (policy?.geofence_mode === "ENFORCED" && !body?.locationEvidence)
           throw new ConflictException({
             code: "TIME_CLOCK_LOCATION_REQUIRED",
@@ -621,8 +864,16 @@ export class WorkforceService {
           });
           session = (
             await c.query<any>(
-              `INSERT INTO attendance_sessions(tenant_id,branch_id,staff_id,clock_in_event_id,started_at,state,fingerprint) VALUES($1,$2,$3,$4,$5,'OPEN',$6) RETURNING *`,
-              [a.tenantId, branchId, staffId, ev.id, now, fp],
+              `INSERT INTO attendance_sessions(tenant_id,branch_id,staff_id,clock_in_event_id,started_at,state,fingerprint,policy_version_id) VALUES($1,$2,$3,$4,$5,'OPEN',$6,$7) RETURNING *`,
+              [
+                a.tenantId,
+                branchId,
+                staffId,
+                ev.id,
+                now,
+                fp,
+                compliancePolicy?.id ?? null,
+              ],
             )
           ).rows[0];
         } else {
@@ -677,7 +928,7 @@ export class WorkforceService {
               ],
             )
           ).rows[0];
-          await this.projectClosedSession(c, a, session);
+          await this.projectClosedSession(c, a, session, requestId);
         }
         await this.emit(
           c,
@@ -2164,10 +2415,11 @@ export class WorkforceService {
             message: "Correction must reference a finalized pay statement",
           });
         const delta = BigInt(this.required(body?.deltaMinor, "deltaMinor"));
-        if (delta === 0n)
+        if (delta <= 0n)
           throw new ConflictException({
-            code: "PAYROLL_CORRECTION_ZERO_DELTA",
-            message: "Correction delta cannot be zero",
+            code: "PAYROLL_CORRECTION_POSITIVE_DELTA_REQUIRED",
+            message:
+              "Supplemental corrections must be positive; recovery deductions require a separate approved workflow",
           });
         if (body?.currency !== original.currency)
           throw new ConflictException({
@@ -2213,6 +2465,87 @@ export class WorkforceService {
           null,
           requestId,
           null,
+          this.view(row),
+          reason,
+          key,
+        );
+        return this.view(row);
+      },
+    );
+  }
+  async setTipPayrollDisposition(
+    a: AccessClaims,
+    id: string,
+    body: any,
+    key: string,
+    requestId: string,
+  ) {
+    const disposition = this.required(body?.disposition, "disposition");
+    if (
+      ![
+        "PAYROLL_PENDING",
+        "PAID_DIRECT",
+        "NOT_PAYROLL_ELIGIBLE",
+        "REVERSED",
+      ].includes(disposition)
+    )
+      throw new ConflictException({
+        code: "TIP_PAYROLL_DISPOSITION_INVALID",
+        message: "Unsupported tip payroll disposition",
+      });
+    const reason = this.required(body?.reason, "reason");
+    return this.command(
+      a,
+      key,
+      "payroll.tip.disposition",
+      { id, disposition, reason, evidence: body?.evidence ?? {} },
+      async (c) => {
+        const old = (
+          await c.query<any>(
+            `SELECT * FROM pos_tip_allocations WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+            [a.tenantId, id],
+          )
+        ).rows[0];
+        if (!old)
+          throw new NotFoundException({
+            code: "TIP_ALLOCATION_NOT_FOUND",
+            message: "Tip allocation not found",
+          });
+        if (
+          ["PAYROLL_CLAIMED", "PAYROLL_PAID"].includes(old.payroll_disposition)
+        )
+          throw new ConflictException({
+            code: "TIP_PAYROLL_DISPOSITION_LOCKED",
+            message: "Claimed or paid tip disposition is immutable",
+          });
+        const row = (
+          await c.query<any>(
+            `UPDATE pos_tip_allocations SET payroll_disposition=$3,
+               claimed_by_payroll_run_id=NULL,payroll_paid_at=NULL,
+               payroll_disposition_evidence_json=$4
+             WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+            [
+              a.tenantId,
+              id,
+              disposition,
+              JSON.stringify({
+                reason,
+                evidence: redactWorkforceEvidence(body?.evidence ?? {}),
+                actorUserId: a.userId,
+                requestId,
+              }),
+            ],
+          )
+        ).rows[0];
+        await this.emit(
+          c,
+          a,
+          "payroll.tip_disposition_changed",
+          "pos_tip_allocation",
+          id,
+          null,
+          requestId,
+          this.view(old),
           this.view(row),
           reason,
           key,
@@ -2359,6 +2692,13 @@ export class WorkforceService {
           [a.tenantId, id],
         );
         await c.query(
+          `UPDATE pos_tip_allocations SET payroll_disposition='PAYROLL_PENDING',
+             claimed_by_payroll_run_id=NULL,payroll_paid_at=NULL,
+             payroll_disposition_evidence_json=payroll_disposition_evidence_json||jsonb_build_object('releasedFromRun',$2::text)
+           WHERE tenant_id=$1 AND claimed_by_payroll_run_id=$2::uuid AND payroll_disposition='PAYROLL_CLAIMED'`,
+          [a.tenantId, id],
+        );
+        await c.query(
           "DELETE FROM payroll_source_allocations WHERE tenant_id=$1 AND payroll_run_id=$2 AND state='CLAIMED'",
           [a.tenantId, id],
         );
@@ -2419,10 +2759,13 @@ export class WorkforceService {
                AND (p.effective_from IS NULL OR p.effective_from<=$3)
                AND (p.effective_to IS NULL OR p.effective_to>=$2)
                AND (
-                 EXISTS(SELECT 1 FROM staff_timesheets t WHERE t.tenant_id=p.tenant_id AND t.staff_id=p.staff_id AND t.period_id=$4 AND t.state='LOCKED')
-                 OR EXISTS(SELECT 1 FROM commission_entries e WHERE e.tenant_id=p.tenant_id AND e.staff_id=p.staff_id AND e.status='LOCKED' AND e.business_date BETWEEN $2 AND $3)
-                 OR EXISTS(SELECT 1 FROM pos_tip_allocations a JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id AND t.status='ACTIVE' JOIN pos_orders o ON o.tenant_id=t.tenant_id AND o.id=t.pos_order_id AND o.status='PAID' WHERE a.tenant_id=p.tenant_id AND a.staff_id=p.staff_id AND o.paid_at::date BETWEEN $2 AND $3)
-                 OR EXISTS(SELECT 1 FROM payroll_correction_sources x WHERE x.tenant_id=p.tenant_id AND x.staff_id=p.staff_id AND x.state='APPROVED' AND x.original_payroll_run_id=$5)
+                 ($6::boolean=false AND (
+                   p.profile_type IN('SALARY','SALARY_PLUS_COMMISSION')
+                   OR EXISTS(SELECT 1 FROM staff_timesheets t WHERE t.tenant_id=p.tenant_id AND t.staff_id=p.staff_id AND t.period_id=$4 AND t.state='LOCKED')
+                   OR EXISTS(SELECT 1 FROM commission_entries e WHERE e.tenant_id=p.tenant_id AND e.staff_id=p.staff_id AND e.status='LOCKED' AND e.business_date BETWEEN $2 AND $3)
+                   OR EXISTS(SELECT 1 FROM pos_tip_allocations a JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id AND t.status='ACTIVE' JOIN pos_orders o ON o.tenant_id=t.tenant_id AND o.id=t.pos_order_id AND o.status='PAID' WHERE a.tenant_id=p.tenant_id AND a.staff_id=p.staff_id AND a.payroll_disposition='PAYROLL_PENDING' AND o.paid_at::date BETWEEN $2 AND $3)
+                 ))
+                 OR ($6::boolean=true AND EXISTS(SELECT 1 FROM payroll_correction_sources x WHERE x.tenant_id=p.tenant_id AND x.staff_id=p.staff_id AND x.state='APPROVED' AND x.original_payroll_run_id=$5))
                ) ORDER BY p.staff_id`,
             [
               a.tenantId,
@@ -2430,6 +2773,7 @@ export class WorkforceService {
               run.ends_on,
               run.timesheet_period_id,
               run.correction_of_payroll_run_id,
+              supplemental,
             ],
           )
         ).rows;
@@ -2743,12 +3087,19 @@ export class WorkforceService {
                 fingerprint: source.generation_key,
               });
             }
+          }
+
+          // Tip payroll is governed by explicit payout disposition, not by
+          // whether the worker earns commission. Claiming is atomic and makes
+          // the source unavailable to concurrent payroll runs.
+          if (!supplemental) {
             const tips = (
               await c.query<any>(
-                `SELECT a.id,a.amount_minor,t.currency FROM pos_tip_allocations a
+                `SELECT a.id,a.amount_minor,t.currency,a.payroll_disposition_fingerprint FROM pos_tip_allocations a
                  JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id AND t.status='ACTIVE'
                  JOIN pos_orders o ON o.tenant_id=t.tenant_id AND o.id=t.pos_order_id AND o.status='PAID'
-                 WHERE a.tenant_id=$1 AND a.staff_id=$2 AND o.paid_at::date BETWEEN $3 AND $4 ORDER BY a.id FOR SHARE OF a`,
+                 WHERE a.tenant_id=$1 AND a.staff_id=$2 AND a.payroll_disposition='PAYROLL_PENDING'
+                   AND o.paid_at::date BETWEEN $3 AND $4 ORDER BY a.id FOR UPDATE OF a SKIP LOCKED`,
                 [a.tenantId, profile.staff_id, run.starts_on, run.ends_on],
               )
             ).rows;
@@ -2759,6 +3110,17 @@ export class WorkforceService {
                 });
                 continue;
               }
+              const claimed = (
+                await c.query<any>(
+                  `UPDATE pos_tip_allocations SET payroll_disposition='PAYROLL_CLAIMED',
+                     claimed_by_payroll_run_id=$3::uuid,
+                     payroll_disposition_evidence_json=payroll_disposition_evidence_json||jsonb_build_object('claimedByRun',$3::text)
+                   WHERE tenant_id=$1 AND id=$2 AND payroll_disposition='PAYROLL_PENDING'
+                   RETURNING payroll_disposition_fingerprint`,
+                  [a.tenantId, source.id, id],
+                )
+              ).rows[0];
+              if (!claimed) continue;
               const amount = BigInt(source.amount_minor);
               await c.query(
                 `INSERT INTO payroll_earning_lines(tenant_id,payroll_worker_id,earning_type,amount_minor,currency,source_type,source_id,source_fingerprint)
@@ -2769,7 +3131,7 @@ export class WorkforceService {
                   amount.toString(),
                   run.currency,
                   source.id,
-                  `tip:${source.id}`,
+                  claimed.payroll_disposition_fingerprint,
                 ],
               );
               await c.query(
@@ -2780,13 +3142,17 @@ export class WorkforceService {
                   id,
                   worker.id,
                   source.id,
-                  `tip:${source.id}`,
+                  claimed.payroll_disposition_fingerprint,
                   amount.toString(),
                   run.currency,
                 ],
               );
               workerGross += amount;
-              sourceEvidence.push({ type: "TIP", id: source.id });
+              sourceEvidence.push({
+                type: "TIP",
+                id: source.id,
+                fingerprint: claimed.payroll_disposition_fingerprint,
+              });
             }
           }
 
@@ -2803,16 +3169,10 @@ export class WorkforceService {
               )
             ).rows;
             for (const source of corrections) {
-              if (
-                source.currency !== run.currency ||
-                BigInt(source.delta_minor) < 0n
-              ) {
-                await addException(
-                  source.currency !== run.currency
-                    ? "CURRENCY_MISMATCH"
-                    : "NEGATIVE_NET_PAY",
-                  { correctionSourceId: source.id },
-                );
+              if (source.currency !== run.currency) {
+                await addException("CURRENCY_MISMATCH", {
+                  correctionSourceId: source.id,
+                });
                 continue;
               }
               const amount = BigInt(source.delta_minor);
@@ -3304,7 +3664,7 @@ export class WorkforceService {
                WHERE s.tenant_id=$1 AND s.payroll_run_id=$2 AND s.state='CLAIMED' AND (
                  (s.source_type='LOCKED_TIMESHEET' AND NOT EXISTS(SELECT 1 FROM staff_timesheets t WHERE t.tenant_id=s.tenant_id AND t.id=s.source_id AND t.state='LOCKED' AND t.fingerprint=s.source_fingerprint)) OR
                  (s.source_type='LOCKED_COMMISSION_ENTRIES' AND NOT EXISTS(SELECT 1 FROM commission_entries e WHERE e.tenant_id=s.tenant_id AND e.id=s.source_id AND e.status='LOCKED' AND e.generation_key=s.source_fingerprint AND e.commission_minor=s.allocated_minor)) OR
-                 (s.source_type='LOCKED_TIP_ALLOCATIONS' AND NOT EXISTS(SELECT 1 FROM pos_tip_allocations a JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id AND t.status='ACTIVE' JOIN pos_orders o ON o.tenant_id=t.tenant_id AND o.id=t.pos_order_id AND o.status='PAID' WHERE a.tenant_id=s.tenant_id AND a.id=s.source_id AND a.amount_minor=s.allocated_minor)) OR
+                 (s.source_type='LOCKED_TIP_ALLOCATIONS' AND NOT EXISTS(SELECT 1 FROM pos_tip_allocations a JOIN pos_tips t ON t.tenant_id=a.tenant_id AND t.id=a.pos_tip_id AND t.status='ACTIVE' JOIN pos_orders o ON o.tenant_id=t.tenant_id AND o.id=t.pos_order_id AND o.status='PAID' WHERE a.tenant_id=s.tenant_id AND a.id=s.source_id AND a.amount_minor=s.allocated_minor AND a.payroll_disposition='PAYROLL_CLAIMED' AND a.claimed_by_payroll_run_id=s.payroll_run_id AND a.payroll_disposition_fingerprint=s.source_fingerprint)) OR
                  (s.source_type='PRIOR_RUN_CORRECTIONS' AND NOT EXISTS(SELECT 1 FROM payroll_correction_sources x WHERE x.tenant_id=s.tenant_id AND x.id=s.source_id AND x.state='CLAIMED' AND x.claimed_by_payroll_run_id=s.payroll_run_id AND x.fingerprint=s.source_fingerprint AND x.delta_minor=s.allocated_minor))
                )`,
               [a.tenantId, id],
@@ -3324,6 +3684,12 @@ export class WorkforceService {
           );
           await c.query(
             "UPDATE payroll_correction_sources SET state='CONSUMED',consumed_at=now(),updated_at=now() WHERE tenant_id=$1 AND claimed_by_payroll_run_id=$2 AND state='CLAIMED'",
+            [a.tenantId, id],
+          );
+          await c.query(
+            `UPDATE pos_tip_allocations SET payroll_disposition='PAYROLL_PAID',payroll_paid_at=now(),
+               payroll_disposition_evidence_json=payroll_disposition_evidence_json||jsonb_build_object('finalizedByRun',$2::text)
+             WHERE tenant_id=$1 AND claimed_by_payroll_run_id=$2 AND payroll_disposition='PAYROLL_CLAIMED'`,
             [a.tenantId, id],
           );
         }

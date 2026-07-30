@@ -135,7 +135,12 @@ paths:
         - { $ref: "#/components/parameters/IdempotencyKey" }
       responses:
         "200": { description: Applied adjustment and rebuilt projection }
-        "409": { description: Invalid state, stale version, or payroll-locked source }
+        "409":
+          {
+            description: Invalid state,
+            stale version,
+            or payroll-locked source,
+          }
   /workforce-compliance/policies/{policyId}/versions/{versionId}/activate:
     post:
       parameters:
@@ -194,11 +199,34 @@ paths:
   /payroll/corrections:
     post:
       tags: [payroll]
-      summary: Create an immutable prior-run correction source
+      summary: Create a positive immutable prior-run supplemental earning source
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
       responses:
         "200": { description: Draft correction source }
-        "409": { description: Invalid original statement, amount, or currency }
+        "409":
+          {
+            description: Invalid original statement,
+            non-positive amount,
+            or currency,
+          }
+  /payroll/tips/{tipAllocationId}/disposition:
+    post:
+      tags: [payroll]
+      summary: Record evidence-backed payroll eligibility or direct payment for a settled tip allocation
+      parameters:
+        - {
+            name: tipAllocationId,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      responses:
+        "200": { description: Versioned tip payroll disposition }
+        "409":
+          {
+            description: Invalid or already claimed/paid disposition transition,
+          }
   /payroll/corrections/{correctionId}/approve:
     post:
       tags: [payroll]
@@ -307,7 +335,8 @@ paths:
       parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
       responses:
         "200": { description: Provider event applied once }
-        "409": { description: Amount, currency, provider key, or state mismatch }
+        "409":
+          { description: Amount, currency, provider key, or state mismatch }
   /customer/me/communication-preferences:
     get:
       {

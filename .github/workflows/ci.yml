@@ -73,7 +73,7 @@ jobs:
           exit "$status"
       - name: Fresh database migration
         run: pnpm db:migrate
-      - name: Sprint 12 hardening migration rollback to 0023 and re-migrate
+      - name: Sprint 12 source coverage migration rollback to 0024 and re-migrate
         run: pnpm db:rollback && pnpm db:migrate
       - name: Deterministic seed
         run: pnpm db:seed
@@ -230,6 +230,24 @@ jobs:
             pnpm db:seed
             pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
           done
+      - name: Sprint 12 salary and tip source coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/integration/sprint12-salary-source-coverage.test.ts \
+            tests/integration/sprint12-tip-payroll-disposition.test.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec vitest run "$spec" --maxWorkers=1 --minWorkers=1
+          done
+      - name: Sprint 12 operational overtime classification
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint12-overtime-operational-classification.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 12 supplemental signed-delta contract
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint12-negative-correction-contract.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 12 period projection safety
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint12-timesheet-period-projection-safety.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 10 stored-value correctness integration
         shell: bash
         run: |
@@ -437,6 +455,23 @@ jobs:
             tests/e2e/sprint12-supplemental-payroll.spec.ts \
             tests/e2e/sprint12-payout-exactly-once.spec.ts \
             tests/e2e/sprint12-manual-payout-evidence.spec.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec playwright test "$spec" --config=playwright.api.config.ts
+          done
+      - name: Sprint 12 final authenticated E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/e2e/sprint12-salary-without-timesheet.spec.ts \
+            tests/e2e/sprint12-hourly-tip-payroll.spec.ts \
+            tests/e2e/sprint12-salary-tip-payroll.spec.ts \
+            tests/e2e/sprint12-direct-paid-tip-excluded.spec.ts \
+            tests/e2e/sprint12-clock-to-overtime-to-payroll.spec.ts \
+            tests/e2e/sprint12-negative-supplemental-contract.spec.ts \
+            tests/e2e/sprint12-late-attendance-closed-period.spec.ts
           do
             pnpm db:reset
             pnpm db:seed

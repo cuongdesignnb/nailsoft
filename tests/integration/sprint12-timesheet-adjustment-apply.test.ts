@@ -46,13 +46,8 @@ describe.sequential("Sprint 12 adjustment apply", () => {
     expect(created.statusCode).toBe(409);
 
     await db.query(
-      `INSERT INTO timesheet_periods(id,tenant_id,code,starts_on,ends_on,timezone)
-       VALUES('f1240000-0000-4000-8000-000000000001',$1,'S12-CORRECTION-OPEN','2026-07-28','2026-07-28','Asia/Ho_Chi_Minh')`,
-      [tenant],
-    );
-    await db.query(
       `INSERT INTO staff_timesheets(id,tenant_id,period_id,staff_id,state,fingerprint,projected_at,projection_input_fingerprint)
-       VALUES('f1240000-0000-4000-8000-000000000002',$1,'f1240000-0000-4000-8000-000000000001','47000000-0000-4000-8000-000000000003','DRAFT','before',now(),'input')`,
+       VALUES('f1240000-0000-4000-8000-000000000002',$1,'f1200000-0000-4000-8000-000000000051','47000000-0000-4000-8000-000000000003','DRAFT','before',now(),'input')`,
       [tenant],
     );
     const request = await app.inject({

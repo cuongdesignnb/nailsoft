@@ -7,6 +7,7 @@ erDiagram
   TIME_CLOCK_EVENT ||--o| ATTENDANCE_SESSION : projects
   ATTENDANCE_SESSION ||--o{ ATTENDANCE_BREAK : contains
   ATTENDANCE_SESSION ||--o{ ATTENDANCE_EXCEPTION : raises
+  ATTENDANCE_SESSION ||--o{ ATTENDANCE_OVERTIME_CLASSIFICATION : classifies
   WORKFORCE_POLICY ||--o{ WORKFORCE_POLICY_VERSION : versions
   WORKFORCE_POLICY_VERSION ||--o{ COMPLIANCE_VIOLATION : evaluates
   TIMESHEET_PERIOD ||--o{ STAFF_TIMESHEET : groups
@@ -20,6 +21,7 @@ erDiagram
   PAYROLL_RUN ||--o{ PAYROLL_RUN_WORKER : calculates
   PAYROLL_RUN_WORKER ||--o{ PAYROLL_EARNING_LINE : earns
   PAYROLL_RUN_WORKER ||--o{ PAYROLL_SOURCE_ALLOCATION : consumes
+  POS_TIP_ALLOCATION }o--o| PAYROLL_RUN : claimed_by
   PAYROLL_RUN ||--o{ PAYROLL_CORRECTION_SOURCE : corrects
   PAYROLL_RUN ||--o{ PAYROLL_RUN : supplemental_of
   PAYROLL_RUN ||--|| PAYROLL_FINALIZATION_SNAPSHOT : freezes
@@ -30,4 +32,4 @@ erDiagram
   PAYOUT_ITEM ||--|| PAYOUT_RECONCILIATION : reconciles
 ```
 
-Every operational child carries `tenant_id`; branch/staff foreign keys are composite. Ledger/history tables are append-only. Migration `0024_sprint12_payroll_correctness_hardening` adds immutable attendance correction overlays, explicit payroll profile/policy/rate references, correction-source attribution, staff-owned payment-method keys and stable provider request keys. Open-session/open-break, effective-rate overlap, active provider-attempt and source-use constraints are enforced by PostgreSQL.
+Every operational child carries `tenant_id`; branch/staff foreign keys are composite. Ledger/history tables are append-only. Migration `0025_sprint12_payroll_source_coverage_hardening` adds fail-closed tip dispositions and atomic payroll claims, versioned overtime-classification snapshots, a tenant period no-overlap exclusion constraint, late-attendance exception types and the positive-only supplemental correction constraint. Source payable seconds remain unchanged; every classification row proves `regular + overtime = source payable`.

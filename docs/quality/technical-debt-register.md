@@ -67,3 +67,5 @@
 - Local deterministic load/concurrency evidence is not a production claim. Run high-volume clock, payroll source and provider-event soak on production-like staging before go-live.
 - Kiosk PIN/gateway throttling and device-secret rotation depend on deployment gateway/secret manager; domain device trust and lockout fields are present.
 - Commission and tip source types are uniquely reserved in the payroll allocation ledger; end-to-end production settlement import needs final finance reconciliation against provider/commission period calendars.
+- Historical tip allocations are intentionally backfilled `UNKNOWN` and excluded from payroll. Finance must attach payout evidence and explicitly classify them before any recovery/import; the migration does not infer whether cash was already handed directly to staff.
+- Overtime thresholds remain jurisdiction data. Production enablement requires Legal-approved daily, weekly and consecutive-day rule JSON plus boundary fixtures for every activated jurisdiction; the deterministic engine supplies no statutory default.
