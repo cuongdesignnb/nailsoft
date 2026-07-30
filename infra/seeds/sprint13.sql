@@ -6,13 +6,13 @@ VALUES
 ('13000000-0000-4000-8000-000000000903','Sprint 13 Read Only Fixture','sprint13-read-only-fixture','en-US','USD','UTC','ACTIVE','READ_ONLY','READ_ONLY')
 ON CONFLICT(id) DO NOTHING;
 INSERT INTO users(id,origin_tenant_id,email,display_name,status)
-VALUES('30000000-0000-4000-8000-000000000018','10000000-0000-4000-8000-000000000001','platform-billing-approver@example.test','Platform Billing Approver','ACTIVE')
+VALUES('13000000-0000-4000-8000-000000000918','10000000-0000-4000-8000-000000000001','platform-billing-approver@example.test','Platform Billing Approver','ACTIVE')
 ON CONFLICT(id) DO NOTHING;
 INSERT INTO tenant_memberships(id,tenant_id,user_id,status,joined_at)
-VALUES('90000000-0000-4000-8000-000000000018','10000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000018','ACTIVE',now())
+VALUES('13000000-0000-4000-8000-000000000919','10000000-0000-4000-8000-000000000001','13000000-0000-4000-8000-000000000918','ACTIVE',now())
 ON CONFLICT(id) DO NOTHING;
 INSERT INTO membership_roles(membership_id,role)
-VALUES('90000000-0000-4000-8000-000000000018','PLATFORM_SUPER_ADMIN')
+VALUES('13000000-0000-4000-8000-000000000919','PLATFORM_SUPER_ADMIN')
 ON CONFLICT(membership_id,role) DO NOTHING;
 INSERT INTO platform_billing_accounts(id,tenant_id,legal_name,billing_email,currency,locale,timezone,state,collection_mode,invoice_prefix)
 VALUES

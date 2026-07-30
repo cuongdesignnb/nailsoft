@@ -157,7 +157,7 @@ describe("Sprint 13 authenticated tenant and platform billing E2E", () => {
       headers: command(platform, "s13-manual-payment-approved"),
       payload: {
         ...payload,
-        approvedByUserId: "30000000-0000-4000-8000-000000000018",
+        approvedByUserId: "13000000-0000-4000-8000-000000000918",
       },
     });
     expect(approved.statusCode, approved.body).toBe(201);
