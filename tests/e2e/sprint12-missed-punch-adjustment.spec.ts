@@ -15,10 +15,8 @@ test("approved missed-punch adjustment applies as an immutable overlay", async (
   try {
     await statements(
       db,
-      `INSERT INTO timesheet_periods(id,tenant_id,code,starts_on,ends_on,timezone)
-       VALUES('f1250000-0000-4000-8000-000000000001',$1,'E2E-ADJUST','2026-07-28','2026-07-28','Asia/Ho_Chi_Minh');
-       INSERT INTO staff_timesheets(id,tenant_id,period_id,staff_id,state,fingerprint,projected_at,projection_input_fingerprint)
-       VALUES('f1250000-0000-4000-8000-000000000002',$1,'f1250000-0000-4000-8000-000000000001',$2,'DRAFT','before',now(),'input')`,
+      `INSERT INTO staff_timesheets(id,tenant_id,period_id,staff_id,state,fingerprint,projected_at,projection_input_fingerprint)
+       VALUES('f1250000-0000-4000-8000-000000000002',$1,'f1200000-0000-4000-8000-000000000051',$2,'DRAFT','before',now(),'input')`,
       [tenant, staff3],
     );
     const adjustment = await post(
