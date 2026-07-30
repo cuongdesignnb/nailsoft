@@ -6,6 +6,7 @@ const tenant = "10000000-0000-4000-8000-000000000001";
 const branch = "20000000-0000-4000-8000-000000000001";
 const registerA = "a1000000-0000-4000-8000-000000000001";
 const registerB = "c1000000-0000-4000-8000-000000000006";
+const cashSessionA = "a3000000-0000-4000-8000-000000000001";
 const cashierA = "30000000-0000-4000-8000-000000000016";
 const cashierB = "30000000-0000-4000-8000-000000000002";
 const run = `s6-reconciliation-${Date.now()}`;
@@ -61,6 +62,12 @@ describe.sequential(
           "RECON-B-OTHER",
           30_000,
         ],
+        [
+          "c4000000-0000-4000-8000-000000000004",
+          registerA,
+          "RECON-A-CASH",
+          10_000,
+        ],
       ] as const;
       for (const [id, registerId, number, amount] of orders)
         await db.query(
@@ -98,14 +105,22 @@ describe.sequential(
           30_000,
           cashierB,
         ],
+        [
+          "c6000000-0000-4000-8000-000000000004",
+          orders[3][0],
+          registerA,
+          "CASH",
+          10_000,
+          cashierA,
+        ],
       ] as const;
       for (const [id, orderId, registerId, tender, amount, actor] of payments) {
         await db.query(
           `INSERT INTO payments(
           id,tenant_id,branch_id,register_id,pos_order_id,payment_reference,tender_type,status,
           currency,requested_minor,captured_minor,provider,provider_transaction_id,
-          idempotency_key_hash,request_hash,created_by_user_id,captured_at)
-         VALUES($1,$2,$3,$4,$5,$6,$7,'CAPTURED','VND',$8,$8,'closure-fixture',$9,'fixture','fixture',$10,now())`,
+          cash_session_id,idempotency_key_hash,request_hash,created_by_user_id,captured_at)
+         VALUES($1,$2,$3,$4,$5,$6,$7,'CAPTURED','VND',$8,$8,'closure-fixture',$9,$10,'fixture','fixture',$11,now())`,
           [
             id,
             tenant,
@@ -116,6 +131,7 @@ describe.sequential(
             tender,
             amount,
             `${run}-${id}`,
+            tender === "CASH" ? cashSessionA : null,
             actor,
           ],
         );
@@ -171,13 +187,13 @@ describe.sequential(
       return response.json().data;
     }
 
-  const mixTotal = (value: {
-    paymentMix: Record<string, { amountMinor: number }>;
-  }) =>
-    Object.values(value.paymentMix).reduce(
-      (sum, row) => sum + Number(row.amountMinor),
-      0,
-    );
+    const mixTotal = (value: {
+      paymentMix: Record<string, { amountMinor: number }>;
+    }) =>
+      Object.values(value.paymentMix).reduce(
+        (sum, row) => sum + Number(row.amountMinor),
+        0,
+      );
 
     it("includes cash, card and bank by immutable register attribution", async () => {
       const a = await report(`&registerId=${registerA}`);
