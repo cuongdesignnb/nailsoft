@@ -37,6 +37,9 @@ export async function createApp() {
   const realtimeAdapter = new RedisIoAdapter(app);
   await realtimeAdapter.connect();
   app.useWebSocketAdapter(realtimeAdapter);
+  app.getHttpAdapter().getInstance().addHook("onClose", async () => {
+    await realtimeAdapter.close();
+  });
   const config = new DocumentBuilder()
     .setTitle("Nailsoft API")
     .setDescription("Multi-tenant salon management API")

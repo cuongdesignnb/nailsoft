@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.16.0,
+    version: 0.15.1,
     description: Sprint 13 closure-hardened SaaS billing approval workflows,
     provider leases,
     exact payment allocation,
@@ -4574,14 +4574,6 @@ paths:
       tags: [Accounting]
       security: [{ bearerAuth: [] }]
       responses: { '201': { description: Period created }, '409': { description: Overlap rejected } }
-  /accounting/periods/{id}/{command}:
-    post:
-      tags: [Accounting]
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - { $ref: '#/components/parameters/ResourceId' }
-        - { name: command, in: path, required: true, schema: { enum: [open, soft_close, request_close, approve_close, request_reopen, approve_reopen] } }
-      responses: { '200': { description: Period state transition } }
   /accounting/journals:
     get:
       tags: [Accounting]
@@ -4593,14 +4585,6 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/JournalInput' } } } }
       responses: { '201': { description: Draft journal }, '422': { description: Unbalanced journal } }
-  /accounting/journals/{id}/{command}:
-    post:
-      tags: [Accounting]
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - { $ref: '#/components/parameters/ResourceId' }
-        - { name: command, in: path, required: true, schema: { enum: [submit, approve, reject, post] } }
-      responses: { '200': { description: Journal transition }, '409': { description: Version or state conflict } }
   /accounting/reports/trial-balance:
     get:
       tags: [Accounting]
@@ -4622,6 +4606,78 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: bookId, in: query, required: true, schema: { type: string, format: uuid } }]
       responses: { '200': { description: Bank accounts } }
+  /accounting/journals/{id}/submit:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Submitted for approval }, '409': { description: Version conflict } }
+  /accounting/journals/{id}/approve:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Independently approved }, '403': { description: Self approval denied } }
+  /accounting/journals/{id}/post:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Posted journal with immutable number } }
+  /accounting/journals/{id}/reject:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Journal rejected } }
+  /accounting/journals/{id}/request-reversal:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Reversal requested }, '409': { description: Reversal conflict } }
+  /accounting/journals/{id}/approve-reversal:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Compensating journal created }, '403': { description: Independent approval required } }
+  /accounting/periods/{id}/open:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Period opened } }
+  /accounting/periods/{id}/soft-close:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Period soft closed } }
+  /accounting/periods/{id}/request-close:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Period close requested } }
+  /accounting/periods/{id}/request-reopen:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Period reopen requested } }
+  /accounting/periods/{id}/approve-close:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Period close approval } }
+  /accounting/periods/{id}/approve-reopen:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Period reopen approval } }
 
 components:
   parameters:

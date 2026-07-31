@@ -1,159 +1,17 @@
-# Business event catalog
-
-## Standard envelope
-
-Every domain and outbox event uses this immutable structure:
-
-```json
-{
-  "eventId": "uuid",
-  "eventType": "appointment.confirmed",
-  "eventVersion": 1,
-  "occurredAt": "2026-07-10T15:00:00.000Z",
-  "tenantId": "uuid",
-  "branchId": null,
-  "aggregateType": "appointment",
-  "aggregateId": "uuid",
-  "aggregateVersion": 12,
-  "actor": { "type": "USER", "id": "uuid" },
-  "source": "api",
-  "correlationId": "uuid",
-  "causationId": null,
-  "traceId": null,
-  "data": {},
-  "metadata": { "schemaVersion": 1 }
-}
-```
-
-## Contract rules
-
-- `eventId` is globally unique and is the consumer idempotency key.
-- `eventVersion` versions the event payload; incompatible changes require an increment and consumer migration.
-- `aggregateVersion` is monotonic per aggregate and lets clients/consumers detect ordering gaps.
-- Published event content is immutable. Corrections are new events.
-- Tenant and authorized branch context are mandatory; `branchId` may be null only for tenant-wide events.
-- Passwords, tokens, raw card data and unnecessary sensitive customer data are forbidden.
-- Correlation follows the request/workflow; causation points to the direct triggering command or event.
-
-## Initial catalog
-
-The owning sprint finalizes payload schemas and acceptance tests for: appointment created/confirmed/rescheduled/cancelled, customer checked in, service started/completed, invoice created, payment completed/failed, refund completed, tip recorded, commission calculated, voucher redeemed, package used, stock below threshold, shift started/ended, and notification requested/delivered/failed.
-
-## Sprint 2 events
-
-`service_category.created`, `service_category.updated`, `service_category.archived`, `service.created`, `service.updated`, `service.activated`, `service.deactivated`, `service.archived`, `service_price.created`, `service_price.updated`, `service_price.cancelled`, `skill.created`, `skill.updated`, `skill.archived`, `resource.created`, `resource.updated`, `resource.status_changed`, `staff.created`, `staff.updated`, `staff.status_changed`, `staff.branch_assigned`, `staff.branch_assignment_ended`, `staff.skill_changed`, `shift.created`, `shift.updated`, `shift.published`, `shift.cancelled`, `leave.requested`, `leave.approved`, `leave.rejected`, and `leave.cancelled` use the standard envelope and are consumed idempotently by `eventId`.
-Hardening failures are synchronous domain conflicts and do not emit events. Successful mutations continue to emit the existing audited events (`staff.branch_assignment_updated`, `shift.published`, `service.addons_changed`, `leave.*`) through the transactional outbox.
-
-## Sprint 3 events
-
-`availability.block_created`, `availability.block_updated`, and `availability.block_cancelled` are written transactionally with the block audit record. `availability.version_bumped`, `availability.cache_invalidated`, `calendar.projection_updated`, and `calendar.projection_removed` describe downstream processing and realtime fan-out. WebSocket clients receive `availability.invalidated` and `calendar.event_created|updated|removed`, then refetch PostgreSQL-backed APIs; realtime payloads are never final state.
-
-### Durable realtime routing
-
-The Worker routes organization (`branch.updated`, `business_hours.updated`), service and price, service skill/resource requirements, staff/assignment/skill, shift, leave, resource and availability-block events. Tenant-wide events resolve every active branch; branch-wide events resolve active staff rooms; staff-specific events resolve the authoritative branch assignment. Each delivery reads the latest `availability_versions` row and carries the outbox `eventId`.
-
-Security events `session.revoked`, `session.logout_all`, `membership.suspended`, `membership.revoked`, `user.suspended`, `user.disabled`, `authorization.changed`, `branch_scope.removed` and `role.changed` map to minimal Redis disconnect control messages. Unknown events are acknowledged and increment `outbox_event_ignored_total`. A branch or staff target that does not belong to the event tenant is failed without emit.
-
-## Sprint 4 events
-
-`slot_hold.created`, `slot_hold.released`, `slot_hold.expired`, `slot_hold.consumed`, `appointment.created`, `appointment.pending_confirmation`, `appointment.deposit_required`, `appointment.deposit_waived`, `appointment.confirmed`, `appointment.rescheduled`, `appointment.cancelled` and `appointment.expired` use the standard transactional outbox envelope.
-
-Booking events contain identifiers, status, aggregate version, schedule boundaries and `refetch: true`; they never contain raw capability tokens, OTP values, customer contact details, notes or the full booking aggregate. The Worker routes tenant/branch/assigned-staff rooms and emits availability invalidation plus calendar create/update/remove hints. Notification jobs are created idempotently by appointment/event and are delivered by provider adapters.
-
-Public contact and booking-access OTP delivery uses the durable `booking_otp_delivery_jobs` lifecycle (`PENDING -> PROCESSING -> DELIVERED | FAILED`) rather than a domain event carrying the code. The challenge and encrypted delivery job are committed in one PostgreSQL transaction. Worker claims use `FOR UPDATE SKIP LOCKED`, recover expired leases and retry with a bounded schedule. Provider calls receive the decrypted code only in memory; OTP values, capabilities and provider credentials are forbidden from outbox payloads and logs.
-
-## Sprint 5 events
-
-Walk-in events: `walkin.created`, `walkin.status_changed`, `walkin.estimate_updated`, `walkin.converted`.
-
-Appointment operations: `appointment.arrived`, `appointment.checked_in`, `appointment.check_in_reverted`, `appointment.operational_status_changed`, `appointment.item_added`, `appointment.item_cancelled`, `appointment.checkout_ready`.
-
-Execution events: `service_session.created`, `service_session.started`, `service_session.paused`, `service_session.resumed`, `service_session.completed`, `service_session.cancelled`, `service_session.staff_transferred`, `service_session.note_added`, `service_session.note_updated`, `service_session.media_added`, `service_session.media_upload_reported`, `service_session.media_deleted`.
-
-`service_session.media_upload_reported` explicitly means that an authorized client reported completion. It does not assert object integrity and never promotes metadata to `READY`; that state requires a trusted provider callback or Worker verification of object existence, checksum, MIME type and size.
-
-All are committed with the authoritative transaction. Payloads contain identifiers, status/version and `refetch: true`, never customer contact, notes or media URLs. The Worker resolves tenant, branch, assigned-staff and authorized appointment rooms, reads `branch_operational_versions`, then emits `operations.invalidated` plus `walkin.updated`, `appointment.updated` or `service_session.updated`. Realtime is an invalidation signal only.
-
-# Sprint 6 financial events
-
-The following events use the existing safe outbox envelope and contain refetch identifiers plus minor-unit/currency summaries only:
-
-- `pos.order_created`, `pos.register_assigned`, `pos.order_recalculated`, `pos.order_finalized`, `pos.order_partially_paid`, `pos.order_paid`, `pos.order_voided`
-- `pos.discount_applied`, `pos.discount_approved`, `pos.tip_set`
-- `payment.captured`, `payment.failed`
-- `invoice.issued`, `invoice.delivery_requested`
-- `cash_session.opened`, `cash_session.closing_started`, `cash_session.declared`, `cash_session.reopened`, `cash_session.closed`, `cash_movement.created`
-
-Worker routing targets tenant, branch, register, cash-session, order and appointment rooms. Payloads are invalidation signals, not financial truth, and exclude customer/payment secrets.
-
-# Sprint 7 correction and commission events
-
-Refund lifecycle: `refund.created`, `refund.submitted`, `refund.approved`, `refund.rejected`, `refund.cancelled`, `refund.processing`, `refund.completed`, `refund.failed`, `refund.unknown`, `refund.cash_executed`, `refund.external_recorded`.
-
-Correction documents: `credit_note.issued`, `credit_note.delivery_requested`.
-
-Commission: `commission.rule_created`, `commission.rule_superseded`, `commission.rule_deactivated`, `commission.entry_generated`, `commission.refund_reversal_generated`, `commission.adjustment_requested`, `commission.adjustment_approved`, `commission.adjustment_rejected`, `commission.period_created`, `commission.period_review_started`, `commission.period_reopened`, `commission.period_locked`.
-
-Reporting: `financial.export_requested`.
-
-Events are committed with audit and authoritative PostgreSQL state. Refund payloads contain only invoice/refund IDs, reference, status, amount/currency, branch/register attribution and `refetch: true`; provider secrets, full references, customer data and payment credentials are forbidden. Worker routing emits `refund.updated`, `credit_note.updated`, `commission.updated` or `financial.updated` to authorized tenant/branch/staff rooms. Staff events contain an authorized staff ID and never salon-wide revenue.
-
-# Sprint 8 customer benefit events
-
-Voucher: `voucher.campaign_created`, `voucher.code_issued`, `voucher.reserved`, `voucher.redeemed`, `voucher.released`, `voucher.reversed`, `voucher.updated`.
-
-Loyalty: `loyalty.program_created`, `loyalty.points_pending`, `loyalty.points_available`, `loyalty.points_reserved`, `loyalty.points_redeemed`, `loyalty.points_released`, `loyalty.points_expired`, `loyalty.adjustment_requested`, `loyalty.adjustment_approved`, `loyalty.updated`.
-
-Membership and package: `membership.tier_created`, `membership.assigned`, `membership.upgraded`, `membership.revoked`, `membership.updated`, `package.product_created`, `package.issued`, `package.reserved`, `package.committed`, `package.released`, `package.reversed`, `package.updated`, `benefits.refund_reversed`.
-
-Closure semantics: `membership.updated` also signals automatic downgrade or no-qualifying-tier removal after rolling paid-minus-refunded recomputation. `benefits.refund_reversed` identifies the refund and affected application/allocation only; exact monetary, points, unit and fractional-use evidence remains in append-only PostgreSQL allocation rows. Benefit Worker jobs use bounded retries and `DEAD_LETTER`; job errors never become business events.
-
-Payloads contain tenant/branch and aggregate IDs, version/status and `refetch: true`; voucher codes, customer contacts, ledger notes and qualification detail are forbidden. Worker fans out minimal `voucher.updated`, `loyalty.updated`, `membership.updated`, `package.updated` and `benefits.wallet_invalidated` signals to authorized tenant/branch rooms. Clients refetch PostgreSQL-backed APIs.
-
-# Sprint 9 inventory events
-
-`inventory.item_created`, `inventory.item_archived`, `inventory.location_created`, `inventory.supplier_created`, `inventory.recipe_created`, `inventory.purchase_order_created`, `inventory.purchase_order_submitted`, `inventory.purchase_order_approved`, `inventory.receipt_created`, `inventory.receipt_posted`, `inventory.transfer_created`, `inventory.transfer_shipped`, `inventory.transfer_received`, `inventory.adjustment_requested`, `inventory.adjustment_posted`, `inventory.count_created`, `inventory.count_submitted`, `inventory.count_approved`, `inventory.count_posted`, `inventory.service_reserved`, `inventory.service_shortage`, `inventory.service_consumed`, `inventory.service_released`, `inventory.product_reserved`, `inventory.return_inspected`, `inventory.alert_acknowledged`, `inventory.reservation_expired`, `inventory.export_requested`.
-
-Payloads contain aggregate/branch identifiers and `refetch: true`, never supplier contacts, barcode values, customer PII or cost evidence.
-
-# Sprint 10 stored-value events
-
-Gift card: `gift_card.product_created`, `gift_card.issuance_pending`, `gift_card.activated`, `gift_card.reloaded`, `gift_card.suspended`, `gift_card.reactivated`, `gift_card.cancelled`, `gift_card.replaced`, `gift_card.updated`.
-
-Settlement: `stored_value.reserved`, `stored_value.redeemed`, `stored_value.released`, `stored_value.refund_restored`, `stored_value.export_requested`, `stored_value.reconciliation_exception_opened`, `stored_value.legal_policy_approved`.
-
-Customer credit: `customer_credit.adjustment_requested`, `customer_credit.adjustment_approved`, `customer_credit.adjustment_rejected`, `customer_credit.adjustment_cancelled`, `customer_credit.issued_from_refund`.
-
-All events are committed with audit and the financial transaction. Payloads contain only tenant/branch/aggregate IDs, currency, minor-unit summaries and `refetch: true`; they never contain card number/hash, PIN/hash, customer contact or legal notes. Worker fan-out emits `gift_card.updated`, `customer_credit.updated`, `stored_value.wallet_invalidated`, `stored_value.liability_invalidated` or `stored_value.reconciliation_invalidated`. PostgreSQL remains authoritative.
-
-# Sprint 11 customer-engagement events
-
-Consent and communication: `customer.communication_preferences_updated`, `customer.consent_granted`, `customer.consent_withdrawn`, `communication.template_created`, `communication.template_version_created`, `communication.template_version_activated`, `communication.rule_created`, `communication.message_generated`, `communication.message_sent`, `communication.message_failed`, `communication.message_dead_lettered`, `communication.message_suppressed`.
-
-Marketing: `marketing.segment_created`, `marketing.segment_updated`, `marketing.campaign_created`, `marketing.campaign_submitted`, `marketing.campaign_approved`, `marketing.campaign_scheduled`, `marketing.campaign_started`, `marketing.campaign_paused`, `marketing.campaign_resumed`, `marketing.campaign_completed`, `marketing.campaign_cancelled`.
-
-Reviews and recovery: `review.request_created`, `review.submitted`, `review.published`, `review.hidden`, `review.flagged`, `review.response_published`, `service_recovery.created`, `service_recovery.triaged`, `service_recovery.assigned`, `service_recovery.started`, `service_recovery.waiting_customer`, `service_recovery.resolved`, `service_recovery.closed`, `service_recovery.task_created`, `service_recovery.task_completed`, `service_recovery.contact_logged`, `service_recovery.compensation_requested`, `service_recovery.compensation_approved`, `service_recovery.compensation_rejected`.
-
-Payloads carry tenant/branch/aggregate identifiers, status/version and `refetch: true`. They exclude email addresses/bodies, token values, review customer contact, recovery statements and provider secrets. Worker invalidations (`communication.updated`, `marketing.updated`, `review.updated`, `service_recovery.updated`) are refetch signals only.
-
-Sprint 11 closure makes `marketing.campaign_completed` a Worker-derived, replay-safe terminal event containing generation and refetch identifiers plus persisted sent/suppressed/failed/cancelled counters. Owning-domain customer-credit and loyalty adjustment decisions synchronize `service_recovery.compensation_posted` or `service_recovery.compensation_failed` through PostgreSQL triggers and the transactional outbox; payloads contain references and state only, never ledger notes or customer contact.
-
-# Sprint 12 workforce and payroll events
-
-Time clock: `time_clock.clocked_in`, `time_clock.clocked_out`, `time_clock.break_started`, `time_clock.break_ended`, `time_clock.exception_created`, `time_clock.exception_resolved`.
-
-# Sprint 13 platform commerce events
-
-Catalog/subscription: `platform.plan_published`, `platform.price_activated`, `platform.subscription_created`, `platform.subscription_changed`, `platform.subscription_renewed`, `platform.subscription_cancelled`, `platform.subscription_reactivated`, `platform.entitlement_override_created`, `platform.quota_denied`, `platform.usage_recorded`.
-
-Sprint 13 billing closure: `platform.manual_payment_request_created`, `platform.manual_payment_submitted`, `platform.manual_payment_approved`, `platform.manual_payment_rejected`, `platform.manual_payment_succeeded`, `platform.payment_processing_scheduled`, `platform.payment_succeeded`, `platform.payment_failed`, `platform.payment_unknown`, `platform.refund_requested`, `platform.refund_pending_approval`, `platform.refund_approved`, `platform.refund_processing`, `platform.refund_completed`, `platform.refund_failed`, `platform.refund_unknown`, `platform.credit_note_created`, `platform.credit_note_submitted`, `platform.credit_note_approved`, `platform.credit_note_finalized`, `platform.credit_applied`. Usage events carry a semantic generation key so source replay emits one audit/outbox generation regardless of idempotency-key changes.
-
-Billing/payment: `platform.invoice_finalized`, `platform.credit_note_finalized`, `platform.payment_succeeded`, `platform.payment_failed`, `platform.payment_unknown`, `platform.payment_reconciled`, `platform.refund_completed`, `platform.dunning_stage_changed`, `tenant.access_mode_changed`.
-
-Support: `support.grant_approved`, `support.grant_revoked`, `support.grant_expired`, `support.session_started`, `support.session_ended`. Payloads contain aggregate IDs and `refetch: true`; billing contact, provider evidence, support tokens and salon data are forbidden.
-
-Timesheet/compliance: `timesheet.submitted`, `timesheet.approved`, `timesheet.rejected`, `timesheet.reopened`, `timesheet.locked`, `timesheet.adjustment_requested`, `timesheet.adjustment_approved`, `timesheet.adjustment_applied`, `workforce.policy_created`, `workforce.policy_activated`, `workforce.violation_created`, `workforce.violation_resolved`.
-
-Payroll/payout: `pay_profile.updated`, `pay_rate.created`, `pay_rate.deactivated`, `payroll.run_created`, `payroll.calculated`, `payroll.tip_disposition_changed`, `payroll.correction_created`, `payroll.correction_pending_approval`, `payroll.correction_approved`, `payroll.correction_rejected`, `payroll.submitted`, `payroll.approved`, `payroll.finalized`, `payroll.void_requested`, `payroll.voided`, `payroll.exception_created`, `payroll.source_allocated`, `payout.batch_created`, `payout.batch_approved`, `payout.processing_started`, `payout.item_paid`, `payout.item_failed`, `payout.item_unknown`, `payout.provider_event_reconciled`, `payout.reversal_requested`, `payout.reversed`, `payout.reconciliation_resolved`.
-
-Realtime invalidations are `time_clock.status_updated`, `attendance.session_updated`, `attendance.exception_updated`, `timesheet.updated`, `timesheet.adjustment_updated`, `workforce.compliance_updated`, `payroll.run_updated`, `payroll.worker_updated`, `payroll.exception.updated`, `pay_statement.ready`, `payout.batch.updated`, `payout.item.updated`, and `payout.reconciliation.updated`. Payloads contain IDs plus `refetch: true`; full pay statements, rates/totals, bank references, device secrets, PINs and raw location never leave authoritative PostgreSQL through realtime.
+# Accounting event catalog
+
+| Event | Aggregate | Meaning |
+|---|---|---|
+| `accounting.journal.created` | journal | Draft journal created |
+| `accounting.journal.approved` | journal | Independent approval recorded |
+| `accounting.journal.posted` | journal | Balanced immutable journal posted |
+| `accounting.period.closed` | period | Close approval completed |
+| `accounting.opening_balance.posted` | opening balance | Cutover journal posted |
+| `accounting.bank.reconciled` | reconciliation | Reconciliation closed |
+| `accounting.journal.reversal_requested` | journal | Reversal approval requested |
+| `accounting.journal.reversal_created` | journal | Compensating journal created |
+| `accounting.journal.reversed` | journal | Original journal reversed after compensating post |
+| `accounting.period.pending_close` | period | Close requested with checklist evidence |
+| `accounting.period.reopened` | period | Dual-control reopen completed |
+
+Payloads contain identifiers and fingerprints only; PostgreSQL remains the source of truth.

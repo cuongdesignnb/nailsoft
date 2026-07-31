@@ -27,6 +27,11 @@ export class RedisIoAdapter extends IoAdapter {
       this.adapter = null;
     }
   }
+  override async close() {
+    if (this.pub?.isOpen) await this.pub.disconnect();
+    if (this.sub?.isOpen) await this.sub.disconnect();
+    this.adapter = null;
+  }
   override createIOServer(port: number, options?: ServerOptions) {
     const server = super.createIOServer(port, options);
     if (this.adapter) server.adapter(this.adapter);

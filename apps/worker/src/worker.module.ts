@@ -24,6 +24,8 @@ import { WorkforceProcessor } from "./workforce.processor.js";
 import { WorkforcePoller } from "./workforce.poller.js";
 import { PlatformBillingProcessor } from "./platform-billing.processor.js";
 import { PlatformBillingPoller } from "./platform-billing.poller.js";
+import { AccountingPostingProcessor } from "./accounting-posting.processor.js";
+import { AccountingPostingPoller } from "./accounting-posting.poller.js";
 
 @Module({
   providers: [
@@ -52,6 +54,8 @@ import { PlatformBillingPoller } from "./platform-billing.poller.js";
     WorkforcePoller,
     PlatformBillingProcessor,
     PlatformBillingPoller,
+    AccountingPostingProcessor,
+    AccountingPostingPoller,
   ],
   exports: [OutboxRepository, OutboxEventRouter, OutboxProcessor],
 })

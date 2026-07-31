@@ -53,22 +53,40 @@ export class AccountingService {
     this.guard(auth);
     return (await this.db.query<any>("SELECT * FROM accounting_books WHERE tenant_id=$1 ORDER BY code", [auth.tenantId])).rows;
   }
-  async createBook(auth: AccessClaims, input: any, requestId: string) {
+  async createBook(auth: AccessClaims, input: any, requestId: string, idempotencyKey = "") {
     this.guard(auth);
     const code = str(input?.code, "book_code");
     const name = str(input?.name, "book_name");
     const currency = str(input?.functionalCurrency ?? input?.currency, "currency").toUpperCase();
     if (currency.length !== 3) throw new BadRequestException({ code: "CURRENCY_INVALID" });
     return this.db.transaction(async (c) => {
+      const requestFingerprint = fingerprint({ code, name, currency, timezone: input?.timezone ?? "UTC" });
+      if (idempotencyKey) {
+        const inserted = await c.query<any>(`INSERT INTO accounting_command_idempotency(tenant_id,operation,idempotency_key,request_fingerprint,state) VALUES($1,'book.create',$2,$3,'PROCESSING') ON CONFLICT DO NOTHING RETURNING id`, [auth.tenantId, idempotencyKey, requestFingerprint]);
+        if (!inserted.rows[0]) {
+          const prior = await c.query<any>(`SELECT * FROM accounting_command_idempotency WHERE tenant_id=$1 AND operation='book.create' AND idempotency_key=$2 FOR UPDATE`, [auth.tenantId, idempotencyKey]);
+          if (prior.rows[0]?.request_fingerprint !== requestFingerprint) throw new ConflictException({ code: "IDEMPOTENCY_KEY_REUSED" });
+          if (prior.rows[0]?.response_json) return prior.rows[0].response_json;
+          throw new ConflictException({ code: "IDEMPOTENCY_REQUEST_IN_PROGRESS" });
+        }
+      }
       const r = await c.query<any>(`INSERT INTO accounting_books(tenant_id,code,name,functional_currency,timezone,status,configuration_status,posting_mode)
         VALUES($1,$2,$3,$4,$5,'DRAFT','INCOMPLETE','DISABLED') RETURNING *`, [auth.tenantId, code, name, currency, input?.timezone ?? "UTC"]);
       await this.audit(c, auth, "accounting.book_created", "accounting_book", r.rows[0].id, null, r.rows[0], requestId);
       await this.event(c, auth, "accounting.book.created", "accounting_book", r.rows[0].id, { code }, requestId);
+      if (idempotencyKey) await c.query(`UPDATE accounting_command_idempotency SET state='COMPLETED',response_json=$3,completed_at=now() WHERE tenant_id=$1 AND operation='book.create' AND idempotency_key=$2`, [auth.tenantId, idempotencyKey, json(r.rows[0])]);
       return r.rows[0];
     });
   }
   async activateBook(auth: AccessClaims, id: string, input: any, requestId: string) {
     await this.book(auth, id);
+    const readiness = await this.db.query<any>(`SELECT
+      (SELECT count(*) FROM accounting_periods WHERE tenant_id=$1 AND book_id=$2) periods,
+      (SELECT count(*) FROM accounting_accounts WHERE tenant_id=$1 AND book_id=$2 AND active) active_accounts,
+      (SELECT count(*) FROM accounting_configuration_checklists WHERE tenant_id=$1 AND book_id=$2 AND status<>'READY') pending_checklist`, [auth.tenantId, id]);
+    const ready = readiness.rows[0];
+    if (Number(ready.periods) === 0 || Number(ready.active_accounts) === 0 || Number(ready.pending_checklist) > 0) throw new ConflictException({ code: "ACCOUNTING_BOOK_NOT_READY", message: "Accounting checklist, period and chart-of-accounts readiness are required" });
+    if (input?.postingMode === "AUTO_POST" && Number(ready.pending_checklist) > 0) throw new ConflictException({ code: "ACCOUNTING_AUTO_POST_NOT_READY" });
     return this.db.transaction(async (c) => {
       const r = await c.query<any>(`UPDATE accounting_books SET status='ACTIVE',configuration_status='ACTIVE',posting_mode=COALESCE($3,posting_mode),version=version+1,updated_at=now()
         WHERE tenant_id=$1 AND id=$2 AND status IN('DRAFT','CONFIGURING') RETURNING *`, [auth.tenantId, id, input?.postingMode ?? null]);
@@ -103,8 +121,14 @@ export class AccountingService {
     });
   }
   async deactivateAccount(auth: AccessClaims, id: string, input: any, requestId: string) {
-    return this.updateAccount(auth, id, { ...input, name: input?.name }, requestId).then(async (x) => {
-      await this.db.query("UPDATE accounting_accounts SET active=false,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2", [auth.tenantId, id]); return { ...x, active: false };
+    return this.db.transaction(async (c) => {
+      const current = await c.query<any>("SELECT * FROM accounting_accounts WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [auth.tenantId, id]);
+      if (!current.rows[0]) throw new NotFoundException({ code: "ACCOUNT_NOT_FOUND" });
+      if (input?.version != null && Number(input.version) !== Number(current.rows[0].version)) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      const next = await c.query<any>("UPDATE accounting_accounts SET active=false,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *", [auth.tenantId, id]);
+      await this.audit(c, auth, "accounting.account_deactivated", "accounting_account", id, current.rows[0], next.rows[0], requestId, input?.reason);
+      await this.event(c, auth, "accounting.account.deactivated", "accounting_account", id, {}, requestId);
+      return next.rows[0];
     });
   }
   async periods(auth: AccessClaims, bookId: string) { await this.book(auth, bookId); return (await this.db.query<any>("SELECT * FROM accounting_periods WHERE tenant_id=$1 AND book_id=$2 ORDER BY starts_on", [auth.tenantId, bookId])).rows; }
@@ -122,8 +146,17 @@ export class AccountingService {
       const current = await c.query<any>("SELECT * FROM accounting_periods WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [auth.tenantId, id]);
       if (!current.rows[0]) throw new NotFoundException({ code: "ACCOUNTING_PERIOD_NOT_FOUND" });
       if (!allowed[target]?.includes(current.rows[0].state)) throw new ConflictException({ code: "ACCOUNTING_PERIOD_STATE_INVALID" });
-      if ((target === "CLOSED" || target === "REOPENED") && !input?.reason) throw new BadRequestException({ code: "REASON_REQUIRED" });
-      const next = await c.query<any>("UPDATE accounting_periods SET state=$3,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *", [auth.tenantId, id, target]);
+      if ((target === "CLOSED" || target === "REOPENED" || target === "PENDING_CLOSE" || target === "REOPEN_PENDING") && !input?.reason) throw new BadRequestException({ code: "REASON_REQUIRED" });
+      if (target === "CLOSED" && current.rows[0].close_requested_by_user_id === auth.userId) throw new ForbiddenException({ code: "ACCOUNTING_PERIOD_SELF_APPROVAL_DENIED" });
+      if (target === "REOPENED" && current.rows[0].reopen_requested_by_user_id === auth.userId) throw new ForbiddenException({ code: "ACCOUNTING_PERIOD_SELF_APPROVAL_DENIED" });
+      if (target === "CLOSED") {
+        const pending = await c.query<any>(`SELECT
+          (SELECT count(*) FROM accounting_posting_candidates WHERE tenant_id=$1 AND book_id=$2 AND period_id=$3 AND state NOT IN ('POSTED','IGNORED','REVERSED')) AS candidates,
+          (SELECT count(*) FROM accounting_journals WHERE tenant_id=$1 AND book_id=$2 AND period_id=$3 AND state IN ('DRAFT','PENDING_APPROVAL','APPROVED','POSTING','FAILED','REVERSAL_PENDING')) AS journals`, [auth.tenantId, current.rows[0].book_id, id]);
+        if (Number(pending.rows[0].candidates) > 0 || Number(pending.rows[0].journals) > 0) throw new ConflictException({ code: "ACCOUNTING_PERIOD_CLOSE_BLOCKED", message: "Posting candidates and journals must be resolved before close" });
+      }
+      const evidence = target === "PENDING_CLOSE" ? "close_requested_by_user_id=$4" : target === "CLOSED" ? "close_approved_by_user_id=$4" : target === "REOPEN_PENDING" ? "reopen_requested_by_user_id=$4" : target === "REOPENED" ? "reopen_approved_by_user_id=$4" : "";
+      const next = await c.query<any>(`UPDATE accounting_periods SET state=$3,${evidence ? `${evidence},` : ""}version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`, [auth.tenantId, id, target, auth.userId]);
       await c.query(`INSERT INTO accounting_period_close_history(tenant_id,period_id,from_state,to_state,actor_user_id,reason,request_id) VALUES($1,$2,$3,$4,$5,$6,$7)`, [auth.tenantId,id,current.rows[0].state,target,auth.userId,input?.reason ?? "state transition",requestId]);
       await this.audit(c, auth, `accounting.period_${target.toLowerCase()}`, "accounting_period", id, current.rows[0], next.rows[0], requestId, input?.reason); return next.rows[0];
     });
@@ -137,7 +170,80 @@ export class AccountingService {
     if(debit!==credit||debit<=0n) throw new BadRequestException({code:"JOURNAL_NOT_BALANCED"});
     return this.db.transaction(async(c)=>{ const generation=key??fingerprint({bookId,periodId,lines}); if(key){const old=await c.query<any>("SELECT * FROM accounting_journals WHERE tenant_id=$1 AND book_id=$2 AND generation_key=$3",[auth.tenantId,bookId,generation]);if(old.rows[0]){const oldLines=await c.query<any>("SELECT * FROM accounting_journal_lines WHERE tenant_id=$1 AND journal_id=$2 ORDER BY line_no",[auth.tenantId,old.rows[0].id]);return {...old.rows[0],lines:oldLines.rows};}} const j=await c.query<any>(`INSERT INTO accounting_journals(tenant_id,book_id,period_id,journal_type,accounting_date,currency,source_type,source_id,generation_key,requested_by_user_id,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,[auth.tenantId,bookId,periodId,input?.journalType??"MANUAL",input?.accountingDate,str(input?.currency,"currency").toUpperCase(),input?.sourceType??null,input?.sourceId??null,generation,auth.userId,requestId]); for(let i=0;i<lines.length;i++){const l=lines[i];await c.query(`INSERT INTO accounting_journal_lines(tenant_id,journal_id,line_no,account_id,debit_minor,credit_minor,functional_debit_minor,functional_credit_minor,currency,exchange_numerator,exchange_denominator,branch_id,cost_center_id,staff_id,vendor_id,customer_id,tax_code_id,source_line_reference,fingerprint) VALUES($1,$2,$3,$4,$5,$6,$5,$6,$7,1,1,$8,$9,$10,$11,$12,$13,$14,$15)`,[auth.tenantId,j.rows[0].id,i+1,l.accountId, l.debitMinor??0,l.creditMinor??0,str(input?.currency,"currency").toUpperCase(),l.branchId??null,l.costCenterId??null,l.staffId??null,l.vendorId??null,l.customerId??null,l.taxCodeId??null,l.sourceLineReference??null,fingerprint(l)]);} await this.audit(c,auth,"accounting.journal_created","accounting_journal",j.rows[0].id,null,j.rows[0],requestId); return {...j.rows[0],lines}; });
   }
-  async journalTransition(auth: AccessClaims,id:string,target:string,input:any,requestId:string){return this.db.transaction(async(c)=>{const x=await c.query<any>("SELECT * FROM accounting_journals WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);if(!x.rows[0])throw new NotFoundException({code:"JOURNAL_NOT_FOUND"});if(input?.version!=null&&Number(input.version)!==Number(x.rows[0].version))throw new ConflictException({code:"VERSION_CONFLICT"});if(target==="APPROVED"&&x.rows[0].requested_by_user_id===auth.userId)throw new ForbiddenException({code:"JOURNAL_SELF_APPROVAL_DENIED"});const valid:Record<string,string[]|undefined>={PENDING_APPROVAL:["DRAFT"],APPROVED:["PENDING_APPROVAL"],REJECTED:["PENDING_APPROVAL"],POSTED:["APPROVED"]};if(!valid[target]?.includes(x.rows[0].state))throw new ConflictException({code:"JOURNAL_STATE_INVALID"});const n=await c.query<any>(`UPDATE accounting_journals SET state=$3,${target==="APPROVED"?"approved_by_user_id=$4,":""}${target==="POSTED"?"posted_by_user_id=$4,posted_at=now(),":""}version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,[auth.tenantId,id,target,auth.userId]);await c.query(`INSERT INTO accounting_journal_approval_history(tenant_id,journal_id,from_state,to_state,actor_user_id,reason,fingerprint,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[auth.tenantId,id,x.rows[0].state,target,auth.userId,input?.reason??"state transition",fingerprint({id,target,version:n.rows[0].version}),requestId]);await this.audit(c,auth,`accounting.journal_${target.toLowerCase()}`,"accounting_journal",id,x.rows[0],n.rows[0],requestId,input?.reason);await this.event(c,auth,`accounting.journal.${target.toLowerCase()}`,"accounting_journal",id,{state:target},requestId);return n.rows[0];});}
+  private async allocateJournalNumber(c: PoolClient, tenantId: string, bookId: string, periodId: string) {
+    const row = await c.query<any>(`SELECT b.code book_code,f.id fiscal_year_id,f.year_no FROM accounting_books b JOIN accounting_periods p ON p.tenant_id=b.tenant_id AND p.book_id=b.id AND p.id=$3 JOIN accounting_fiscal_years f ON f.tenant_id=p.tenant_id AND f.id=p.fiscal_year_id WHERE b.tenant_id=$1 AND b.id=$2 FOR UPDATE`, [tenantId, bookId, periodId]);
+    if (!row.rows[0]) throw new ConflictException({ code: "ACCOUNTING_PERIOD_SCOPE_INVALID" });
+    await c.query(`INSERT INTO accounting_journal_number_sequences(tenant_id,book_id,fiscal_year_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, [tenantId, bookId, row.rows[0].fiscal_year_id]);
+    const seq = await c.query<any>(`SELECT next_value FROM accounting_journal_number_sequences WHERE tenant_id=$1 AND book_id=$2 AND fiscal_year_id=$3 FOR UPDATE`, [tenantId, bookId, row.rows[0].fiscal_year_id]);
+    const value = BigInt(seq.rows[0].next_value);
+    await c.query(`UPDATE accounting_journal_number_sequences SET next_value=next_value+1 WHERE tenant_id=$1 AND book_id=$2 AND fiscal_year_id=$3`, [tenantId, bookId, row.rows[0].fiscal_year_id]);
+    return `${row.rows[0].book_code}-${row.rows[0].year_no}-${value.toString().padStart(6, "0")}`;
+  }
+  async postJournal(auth: AccessClaims, id: string, input: any, requestId: string) {
+    return this.db.transaction(async (c) => {
+      const x = await c.query<any>("SELECT * FROM accounting_journals WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [auth.tenantId, id]);
+      if (!x.rows[0]) throw new NotFoundException({ code: "JOURNAL_NOT_FOUND" });
+      if (input?.version != null && Number(input.version) !== Number(x.rows[0].version)) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      if (x.rows[0].state !== "APPROVED") throw new ConflictException({ code: "JOURNAL_STATE_INVALID" });
+      const period = await c.query<any>("SELECT * FROM accounting_periods WHERE tenant_id=$1 AND id=$2 AND book_id=$3 FOR UPDATE", [auth.tenantId, x.rows[0].period_id, x.rows[0].book_id]);
+      if (!period.rows[0] || !["OPEN", "REOPENED"].includes(period.rows[0].state)) throw new ConflictException({ code: "ACCOUNTING_PERIOD_NOT_POSTABLE" });
+      if (x.rows[0].accounting_date < period.rows[0].starts_on || x.rows[0].accounting_date > period.rows[0].ends_on) throw new ConflictException({ code: "ACCOUNTING_DATE_OUTSIDE_PERIOD" });
+      const lineTotals = await c.query<any>("SELECT count(*)::int count,coalesce(sum(functional_debit_minor),0)::bigint debit,coalesce(sum(functional_credit_minor),0)::bigint credit FROM accounting_journal_lines WHERE tenant_id=$1 AND journal_id=$2", [auth.tenantId, id]);
+      const t = lineTotals.rows[0];
+      if (t.count < 2 || BigInt(t.debit) <= 0n || BigInt(t.debit) !== BigInt(t.credit)) throw new BadRequestException({ code: "ACCOUNTING_JOURNAL_NOT_BALANCED" });
+      const number = await this.allocateJournalNumber(c, auth.tenantId, x.rows[0].book_id, x.rows[0].period_id);
+      const n = await c.query<any>(`UPDATE accounting_journals SET state='POSTED',journal_number=$3,posted_by_user_id=$4,posted_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='APPROVED' RETURNING *`, [auth.tenantId, id, number, auth.userId]);
+      if (!n.rows[0]) throw new ConflictException({ code: "JOURNAL_STATE_CONFLICT" });
+      await c.query(`INSERT INTO accounting_journal_approval_history(tenant_id,journal_id,from_state,to_state,actor_user_id,reason,fingerprint,request_id) VALUES($1,$2,'APPROVED','POSTED',$3,$4,$5,$6)`, [auth.tenantId, id, auth.userId, input?.reason ?? "post", fingerprint({ id, number }), requestId]);
+      await this.audit(c, auth, "accounting.journal_posted", "accounting_journal", id, x.rows[0], n.rows[0], requestId, input?.reason);
+      await this.event(c, auth, "accounting.journal.posted", "accounting_journal", id, { journalNumber: number }, requestId);
+      if (n.rows[0].reversal_of_journal_id) {
+        const original = await c.query<any>("SELECT * FROM accounting_journals WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [auth.tenantId, n.rows[0].reversal_of_journal_id]);
+        if (original.rows[0]?.state === "POSTED") {
+          const reversed = await c.query<any>("UPDATE accounting_journals SET state='REVERSED',version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 AND state='POSTED' RETURNING *", [auth.tenantId, n.rows[0].reversal_of_journal_id]);
+          if (reversed.rows[0]) {
+            await this.audit(c, auth, "accounting.journal_reversed", "accounting_journal", n.rows[0].reversal_of_journal_id, original.rows[0], reversed.rows[0], requestId, "reversal journal posted");
+            await this.event(c, auth, "accounting.journal.reversed", "accounting_journal", n.rows[0].reversal_of_journal_id, { reversalJournalId: id }, requestId);
+          }
+        }
+      }
+      return n.rows[0];
+    });
+  }
+  async journalTransition(auth: AccessClaims,id:string,target:string,input:any,requestId:string){return this.db.transaction(async(c)=>{const x=await c.query<any>("SELECT * FROM accounting_journals WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);if(!x.rows[0])throw new NotFoundException({code:"JOURNAL_NOT_FOUND"});if(input?.version!=null&&Number(input.version)!==Number(x.rows[0].version))throw new ConflictException({code:"VERSION_CONFLICT"});if(target==="APPROVED"&&x.rows[0].requested_by_user_id===auth.userId)throw new ForbiddenException({code:"JOURNAL_SELF_APPROVAL_DENIED"});const valid:Record<string,string[]|undefined>={PENDING_APPROVAL:["DRAFT"],APPROVED:["PENDING_APPROVAL"],REJECTED:["PENDING_APPROVAL"]};if(!valid[target]?.includes(x.rows[0].state))throw new ConflictException({code:"JOURNAL_STATE_INVALID"});const n=await c.query<any>(`UPDATE accounting_journals SET state=$3,${target==="APPROVED"?"approved_by_user_id=$4,":""}version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,[auth.tenantId,id,target,auth.userId]);await c.query(`INSERT INTO accounting_journal_approval_history(tenant_id,journal_id,from_state,to_state,actor_user_id,reason,fingerprint,request_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[auth.tenantId,id,x.rows[0].state,target,auth.userId,input?.reason??"state transition",fingerprint({id,target,version:n.rows[0].version}),requestId]);await this.audit(c,auth,`accounting.journal_${target.toLowerCase()}`,"accounting_journal",id,x.rows[0],n.rows[0],requestId,input?.reason);await this.event(c,auth,`accounting.journal.${target.toLowerCase()}`,"accounting_journal",id,{state:target},requestId);return n.rows[0];});}
+  async requestJournalReversal(auth: AccessClaims,id:string,input:any,requestId:string){
+    const reason=str(input?.reason,"reason");
+    return this.db.transaction(async c=>{
+      const x=await c.query<any>("SELECT * FROM accounting_journals WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);
+      if(!x.rows[0]) throw new NotFoundException({code:"JOURNAL_NOT_FOUND"});
+      if(x.rows[0].state!=="POSTED") throw new ConflictException({code:"JOURNAL_REVERSAL_NOT_ALLOWED"});
+      if(input?.version!=null&&Number(input.version)!==Number(x.rows[0].version)) throw new ConflictException({code:"VERSION_CONFLICT"});
+      await c.query(`INSERT INTO accounting_journal_approval_history(tenant_id,journal_id,from_state,to_state,actor_user_id,reason,fingerprint,request_id) VALUES($1,$2,'POSTED','REVERSAL_PENDING',$3,$4,$5,$6)`,[auth.tenantId,id,auth.userId,reason,fingerprint({id,reason,version:x.rows[0].version}),requestId]);
+      await this.audit(c,auth,"accounting.journal_reversal_requested","accounting_journal",id,x.rows[0],{state:"REVERSAL_PENDING",reason},requestId,reason);
+      await this.event(c,auth,"accounting.journal.reversal_requested","accounting_journal",id,{reason},requestId);
+      return {...x.rows[0],reversalRequested:true};
+    });
+  }
+  async approveJournalReversal(auth: AccessClaims,id:string,input:any,requestId:string){
+    const reason=str(input?.reason,"reason");
+    return this.db.transaction(async c=>{
+      const x=await c.query<any>("SELECT * FROM accounting_journals WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);
+      if(!x.rows[0]) throw new NotFoundException({code:"JOURNAL_NOT_FOUND"});
+      if(x.rows[0].state!=="POSTED") throw new ConflictException({code:"JOURNAL_REVERSAL_NOT_ALLOWED"});
+      if(x.rows[0].posted_by_user_id===auth.userId) throw new ForbiddenException({code:"JOURNAL_REVERSAL_SELF_APPROVAL_DENIED"});
+      const existing=await c.query<any>("SELECT r.* FROM accounting_journal_reversal_links l JOIN accounting_journals r ON r.tenant_id=l.tenant_id AND r.id=l.reversal_journal_id WHERE l.tenant_id=$1 AND l.original_journal_id=$2 FOR UPDATE",[auth.tenantId,id]);
+      if(existing.rows[0]) return existing.rows[0];
+      const number=await this.allocateJournalNumber(c,auth.tenantId,x.rows[0].book_id,x.rows[0].period_id);
+      const reversal=await c.query<any>(`INSERT INTO accounting_journals(tenant_id,book_id,period_id,journal_type,accounting_date,currency,journal_number,source_type,source_id,reversal_of_journal_id,requested_by_user_id,approved_by_user_id,state,evidence_json) VALUES($1,$2,$3,'REVERSAL',$4,$5,$6,'JOURNAL_REVERSAL',$7,$8,$9,$10,'APPROVED',$11) RETURNING *`,[auth.tenantId,x.rows[0].book_id,x.rows[0].period_id,x.rows[0].accounting_date,x.rows[0].currency,number,id,id, x.rows[0].requested_by_user_id,auth.userId,json({reason,originalJournalId:id})]);
+      const lines=await c.query<any>("SELECT * FROM accounting_journal_lines WHERE tenant_id=$1 AND journal_id=$2 ORDER BY line_no",[auth.tenantId,id]);
+      for(let i=0;i<lines.rows.length;i++){const l=lines.rows[i];await c.query(`INSERT INTO accounting_journal_lines(tenant_id,journal_id,line_no,account_id,debit_minor,credit_minor,functional_debit_minor,functional_credit_minor,currency,exchange_numerator,exchange_denominator,branch_id,cost_center_id,staff_id,vendor_id,customer_id,tax_code_id,source_line_reference,fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,[auth.tenantId,reversal.rows[0].id,i+1,l.account_id,l.credit_minor,l.debit_minor,l.functional_credit_minor,l.functional_debit_minor,l.currency,l.exchange_numerator,l.exchange_denominator,l.branch_id,l.cost_center_id,l.staff_id,l.vendor_id,l.customer_id,l.tax_code_id,`REVERSAL:${id}:${l.line_no}`,fingerprint({original:id,line:l.line_no})]);}
+      await c.query(`INSERT INTO accounting_journal_reversal_links(tenant_id,original_journal_id,reversal_journal_id,reason,created_by_user_id) VALUES($1,$2,$3,$4,$5)`,[auth.tenantId,id,reversal.rows[0].id,reason,auth.userId]);
+      await c.query(`INSERT INTO accounting_journal_approval_history(tenant_id,journal_id,from_state,to_state,actor_user_id,reason,fingerprint,request_id) VALUES($1,$2,'POSTED','REVERSAL_PENDING',$3,$4,$5,$6)`,[auth.tenantId,id,auth.userId,reason,fingerprint({id,reversalId:reversal.rows[0].id}),requestId]);
+      await this.audit(c,auth,"accounting.journal_reversal_approved","accounting_journal",id,x.rows[0],reversal.rows[0],requestId,reason);
+      await this.event(c,auth,"accounting.journal.reversal_created","accounting_journal",reversal.rows[0].id,{originalJournalId:id},requestId);
+      return reversal.rows[0];
+    });
+  }
   async candidates(auth: AccessClaims, q:any){return (await this.db.query<any>("SELECT * FROM accounting_posting_candidates WHERE tenant_id=$1 AND ($2::uuid IS NULL OR book_id=$2) ORDER BY created_at DESC LIMIT 200",[auth.tenantId,q?.bookId??null])).rows;}
   async taxCodes(auth:AccessClaims,bookId:string){await this.book(auth,bookId);return (await this.db.query<any>("SELECT * FROM accounting_tax_codes WHERE tenant_id=$1 AND book_id=$2 ORDER BY code,effective_from DESC",[auth.tenantId,bookId])).rows;}
   async createTaxCode(auth:AccessClaims,input:any,requestId:string){const bookId=str(input?.bookId,"book_id");await this.book(auth,bookId);const num=BigInt(input?.rateNumerator??0),den=BigInt(input?.rateDenominator??0);if(num<0n||den<=0n)throw new BadRequestException({code:"TAX_RATE_INVALID"});return this.db.transaction(async c=>{const body={...input,rateNumerator:num.toString(),rateDenominator:den.toString()};const r=await c.query<any>(`INSERT INTO accounting_tax_codes(tenant_id,book_id,code,jurisdiction_reference,tax_type,rate_numerator,rate_denominator,inclusive,direction,effective_from,fingerprint) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,[auth.tenantId,bookId,str(input?.code,"tax_code"),str(input?.jurisdictionReference,"jurisdiction_reference"),input?.taxType??"VAT",num.toString(),den.toString(),Boolean(input?.inclusive),input?.direction??"OUTPUT",input?.effectiveFrom,fingerprint(body)]);await this.audit(c,auth,"accounting.tax_code_created","accounting_tax_code",r.rows[0].id,null,r.rows[0],requestId);return r.rows[0];});}
@@ -145,15 +251,29 @@ export class AccountingService {
   async openingBalances(auth:AccessClaims,bookId:string){await this.book(auth,bookId);return (await this.db.query<any>("SELECT * FROM accounting_opening_balance_imports WHERE tenant_id=$1 AND book_id=$2 ORDER BY created_at DESC",[auth.tenantId,bookId])).rows;}
   async createOpeningBalance(auth:AccessClaims,input:any,requestId:string){const bookId=str(input?.bookId,"book_id");await this.book(auth,bookId);const rows=input?.rows;if(!Array.isArray(rows)||!rows.length)throw new BadRequestException({code:"OPENING_BALANCE_ROWS_REQUIRED"});const d=rows.reduce((n:any,x:any)=>n+BigInt(x.debitMinor??0),0n),c=rows.reduce((n:any,x:any)=>n+BigInt(x.creditMinor??0),0n);if(d!==c)throw new BadRequestException({code:"OPENING_BALANCE_NOT_BALANCED"});return this.db.transaction(async client=>{const i=await client.query<any>(`INSERT INTO accounting_opening_balance_imports(tenant_id,book_id,cutover_date,currency,file_checksum,state,total_debit_minor,total_credit_minor,created_by_user_id) VALUES($1,$2,$3,$4,$5,'DRAFT',$6,$7,$8) RETURNING *`,[auth.tenantId,bookId,input.cutoverDate,str(input.currency,"currency").toUpperCase(),input.fileChecksum??fingerprint(rows),d.toString(),c.toString(),auth.userId]);for(let n=0;n<rows.length;n++){const x=rows[n];await client.query(`INSERT INTO accounting_opening_balance_rows(tenant_id,import_id,row_no,account_id,debit_minor,credit_minor,currency) VALUES($1,$2,$3,$4,$5,$6,$7)`,[auth.tenantId,i.rows[0].id,n+1,x.accountId,x.debitMinor??0,x.creditMinor??0,str(input.currency,"currency").toUpperCase()]);}await this.audit(client,auth,"accounting.opening_balance_created","accounting_opening_balance_import",i.rows[0].id,null,i.rows[0],requestId);return i.rows[0];});}
   async transitionOpeningBalance(auth:AccessClaims,id:string,target:string,input:any,requestId:string){return this.db.transaction(async c=>{const current=await c.query<any>("SELECT * FROM accounting_opening_balance_imports WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);if(!current.rows[0])throw new NotFoundException({code:"OPENING_BALANCE_NOT_FOUND"});if(target==="APPROVED"&&current.rows[0].created_by_user_id===auth.userId)throw new ForbiddenException({code:"OPENING_BALANCE_SELF_APPROVAL_DENIED"});const valid:any={VALIDATED:["DRAFT"],PENDING_APPROVAL:["VALIDATED"],APPROVED:["PENDING_APPROVAL"],POSTED:["APPROVED"]};if(!valid[target]?.includes(current.rows[0].state))throw new ConflictException({code:"OPENING_BALANCE_STATE_INVALID"});const n=await c.query<any>(`UPDATE accounting_opening_balance_imports SET state=$3,approved_by_user_id=CASE WHEN $3='APPROVED' THEN $4 ELSE approved_by_user_id END,version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING *`,[auth.tenantId,id,target,auth.userId]);await this.audit(c,auth,`accounting.opening_balance_${target.toLowerCase()}`,"accounting_opening_balance_import",id,current.rows[0],n.rows[0],requestId,input?.reason);return n.rows[0];});}
+  async postOpeningBalance(auth:AccessClaims,id:string,input:any,requestId:string){return this.db.transaction(async c=>{const current=await c.query<any>("SELECT * FROM accounting_opening_balance_imports WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);if(!current.rows[0])throw new NotFoundException({code:"OPENING_BALANCE_NOT_FOUND"});if(current.rows[0].state!=="APPROVED")throw new ConflictException({code:"OPENING_BALANCE_STATE_INVALID"});const rows=await c.query<any>("SELECT * FROM accounting_opening_balance_rows WHERE tenant_id=$1 AND import_id=$2 ORDER BY row_no",[auth.tenantId,id]);const period=await c.query<any>("SELECT * FROM accounting_periods WHERE tenant_id=$1 AND book_id=$2 AND $3::date BETWEEN starts_on AND ends_on AND state IN('OPEN','REOPENED') ORDER BY starts_on LIMIT 1 FOR UPDATE",[auth.tenantId,current.rows[0].book_id,current.rows[0].cutover_date]);if(!period.rows[0])throw new ConflictException({code:"OPENING_BALANCE_PERIOD_NOT_POSTABLE"});const number=await this.allocateJournalNumber(c,auth.tenantId,current.rows[0].book_id,period.rows[0].id);const j=await c.query<any>(`INSERT INTO accounting_journals(tenant_id,book_id,period_id,journal_type,accounting_date,currency,journal_number,requested_by_user_id,approved_by_user_id,state) VALUES($1,$2,$3,'OPENING_BALANCE',$4,$5,$6,$7,$8,'APPROVED') RETURNING *`,[auth.tenantId,current.rows[0].book_id,period.rows[0].id,current.rows[0].cutover_date,current.rows[0].currency,number,current.rows[0].created_by_user_id,current.rows[0].approved_by_user_id]);for(let i=0;i<rows.rows.length;i++){const x=rows.rows[i];await c.query(`INSERT INTO accounting_journal_lines(tenant_id,journal_id,line_no,account_id,debit_minor,credit_minor,functional_debit_minor,functional_credit_minor,currency,exchange_numerator,exchange_denominator) VALUES($1,$2,$3,$4,$5,$6,$5,$6,$7,1,1)`,[auth.tenantId,j.rows[0].id,i+1,x.account_id,x.debit_minor,x.credit_minor,current.rows[0].currency]);}const posted=await c.query<any>(`UPDATE accounting_journals SET state='POSTED',posted_by_user_id=$3,posted_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING *`,[auth.tenantId,j.rows[0].id,auth.userId]);const n=await c.query<any>("UPDATE accounting_opening_balance_imports SET state='POSTED',posted_journal_id=$3,version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING *",[auth.tenantId,id,posted.rows[0].id]);await this.audit(c,auth,"accounting.opening_balance_posted","accounting_opening_balance_import",id,current.rows[0],n.rows[0],requestId,input?.reason);return {...n.rows[0],postedJournal:posted.rows[0]};});}
   async bankImports(auth:AccessClaims,bankAccountId:string){return (await this.db.query<any>("SELECT * FROM accounting_bank_statement_imports WHERE tenant_id=$1 AND bank_account_id=$2 ORDER BY created_at DESC",[auth.tenantId,bankAccountId])).rows;}
   async reconciliations(auth:AccessClaims,bankAccountId:string){return (await this.db.query<any>("SELECT * FROM accounting_bank_reconciliations WHERE tenant_id=$1 AND bank_account_id=$2 ORDER BY created_at DESC",[auth.tenantId,bankAccountId])).rows;}
   async statementSnapshots(auth:AccessClaims,bookId:string){return (await this.db.query<any>("SELECT * FROM accounting_statement_snapshots WHERE tenant_id=$1 AND book_id=$2 ORDER BY created_at DESC",[auth.tenantId,bookId])).rows;}
-  async trialBalance(auth:AccessClaims, q:any){const params=[auth.tenantId,q?.bookId??null,q?.periodId??null];return (await this.db.query<any>(`SELECT l.account_id,a.code,a.name,a.account_type,SUM(l.functional_debit_minor)::bigint debit_minor,SUM(l.functional_credit_minor)::bigint credit_minor,SUM(l.functional_debit_minor-l.functional_credit_minor)::bigint balance_minor FROM accounting_journal_lines l JOIN accounting_journals j ON j.tenant_id=l.tenant_id AND j.id=l.journal_id JOIN accounting_accounts a ON a.id=l.account_id WHERE l.tenant_id=$1 AND j.state='POSTED' AND ($2::uuid IS NULL OR j.book_id=$2) AND ($3::uuid IS NULL OR j.period_id=$3) GROUP BY l.account_id,a.code,a.name,a.account_type ORDER BY a.code`,params)).rows;}
-  async generalLedger(auth:AccessClaims,q:any){const params=[auth.tenantId,q?.bookId??null,q?.accountId??null];return (await this.db.query<any>(`SELECT j.id,j.journal_number,j.accounting_date,j.journal_type,l.line_no,l.account_id,a.code,a.name,l.debit_minor,l.credit_minor,l.currency FROM accounting_journal_lines l JOIN accounting_journals j ON j.tenant_id=l.tenant_id AND j.id=l.journal_id JOIN accounting_accounts a ON a.id=l.account_id WHERE l.tenant_id=$1 AND j.state='POSTED' AND ($2::uuid IS NULL OR j.book_id=$2) AND ($3::uuid IS NULL OR l.account_id=$3) ORDER BY j.accounting_date,j.created_at,l.line_no LIMIT 5000`,params)).rows;}
+  async trialBalance(auth:AccessClaims, q:any){const bookId=str(q?.bookId,"book_id");await this.book(auth,bookId);const params=[auth.tenantId,bookId,q?.periodId??null];return (await this.db.query<any>(`SELECT l.account_id,a.code,a.name,a.account_type,SUM(l.functional_debit_minor)::bigint debit_minor,SUM(l.functional_credit_minor)::bigint credit_minor,SUM(l.functional_debit_minor-l.functional_credit_minor)::bigint balance_minor FROM accounting_journal_lines l JOIN accounting_journals j ON j.tenant_id=l.tenant_id AND j.id=l.journal_id JOIN accounting_accounts a ON a.id=l.account_id WHERE l.tenant_id=$1 AND j.state='POSTED' AND j.book_id=$2 AND ($3::uuid IS NULL OR j.period_id=$3) GROUP BY l.account_id,a.code,a.name,a.account_type ORDER BY a.code`,params)).rows;}
+  async generalLedger(auth:AccessClaims,q:any){const bookId=str(q?.bookId,"book_id");await this.book(auth,bookId);const params=[auth.tenantId,bookId,q?.accountId??null];return (await this.db.query<any>(`SELECT j.id,j.journal_number,j.accounting_date,j.journal_type,l.line_no,l.account_id,a.code,a.name,l.debit_minor,l.credit_minor,l.currency FROM accounting_journal_lines l JOIN accounting_journals j ON j.tenant_id=l.tenant_id AND j.id=l.journal_id JOIN accounting_accounts a ON a.id=l.account_id WHERE l.tenant_id=$1 AND j.state='POSTED' AND j.book_id=$2 AND ($3::uuid IS NULL OR l.account_id=$3) ORDER BY j.accounting_date,j.created_at,l.line_no LIMIT 5000`,params)).rows;}
   async reports(auth:AccessClaims,q:any){return {trialBalance:await this.trialBalance(auth,q),generalLedger:await this.generalLedger(auth,q),generatedAt:new Date().toISOString(),source:"POSTED_JOURNALS"};}
   async profitAndLoss(auth:AccessClaims,q:any){const rows=await this.trialBalance(auth,q);return rows.filter((x:any)=>["REVENUE","EXPENSE","CONTRA_REVENUE","CONTRA_EXPENSE"].includes(x.account_type));}
   async balanceSheet(auth:AccessClaims,q:any){const rows=await this.trialBalance(auth,q);return rows.filter((x:any)=>!["REVENUE","EXPENSE","CONTRA_REVENUE","CONTRA_EXPENSE"].includes(x.account_type));}
   async openItems(auth:AccessClaims,q:any){return (await this.db.query<any>("SELECT * FROM accounting_open_items WHERE tenant_id=$1 AND ($2::uuid IS NULL OR book_id=$2) ORDER BY due_on",[auth.tenantId,q?.bookId??null])).rows;}
-  async allocateOpenItem(auth:AccessClaims,id:string,input:any,requestId:string){const value=BigInt(input?.amountMinor??0);if(value<=0n)throw new BadRequestException({code:"ALLOCATION_AMOUNT_INVALID"});return this.db.transaction(async c=>{const x=await c.query<any>("SELECT * FROM accounting_open_items WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);if(!x.rows[0])throw new NotFoundException({code:"OPEN_ITEM_NOT_FOUND"});const remaining=BigInt(x.rows[0].original_minor)-BigInt(x.rows[0].settled_minor);if(value>remaining)throw new ConflictException({code:"OPEN_ITEM_ALLOCATION_EXCEEDS_BALANCE"});await c.query("UPDATE accounting_open_items SET settled_minor=settled_minor+$3,state=CASE WHEN settled_minor+$3=original_minor THEN 'SETTLED' ELSE 'PARTIALLY_SETTLED' END,version=version+1 WHERE tenant_id=$1 AND id=$2",[auth.tenantId,id,value.toString()]);const a=await c.query<any>(`INSERT INTO accounting_open_item_allocations(tenant_id,open_item_id,settlement_journal_id,amount_minor) VALUES($1,$2,$3,$4) RETURNING *`,[auth.tenantId,id,str(input?.settlementJournalId,"settlement_journal_id"),value.toString()]);await this.audit(c,auth,"accounting.open_item_allocated","accounting_open_item",id,x.rows[0],a.rows[0],requestId);return a.rows[0];});}
+  async allocateOpenItem(auth:AccessClaims,id:string,input:any,requestId:string){
+    const value=BigInt(input?.amountMinor??0); if(value<=0n) throw new BadRequestException({code:"ALLOCATION_AMOUNT_INVALID"});
+    const settlementJournalId=str(input?.settlementJournalId,"settlement_journal_id");
+    return this.db.transaction(async c=>{
+      const x=await c.query<any>("SELECT * FROM accounting_open_items WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);
+      if(!x.rows[0]) throw new NotFoundException({code:"OPEN_ITEM_NOT_FOUND"});
+      const journal=await c.query<any>("SELECT * FROM accounting_journals WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,settlementJournalId]);
+      if(!journal.rows[0]||journal.rows[0].book_id!==x.rows[0].book_id||journal.rows[0].state!=="POSTED"||journal.rows[0].currency!==x.rows[0].currency) throw new ConflictException({code:"SETTLEMENT_JOURNAL_NOT_POSTED"});
+      const remaining=BigInt(x.rows[0].original_minor)-BigInt(x.rows[0].settled_minor); if(value>remaining) throw new ConflictException({code:"OPEN_ITEM_ALLOCATION_EXCEEDS_BALANCE"});
+      await c.query("UPDATE accounting_open_items SET settled_minor=settled_minor+$3,state=CASE WHEN settled_minor+$3=original_minor THEN 'SETTLED' ELSE 'PARTIALLY_SETTLED' END,version=version+1 WHERE tenant_id=$1 AND id=$2",[auth.tenantId,id,value.toString()]);
+      const a=await c.query<any>(`INSERT INTO accounting_open_item_allocations(tenant_id,open_item_id,settlement_journal_id,amount_minor) VALUES($1,$2,$3,$4) RETURNING *`,[auth.tenantId,id,settlementJournalId,value.toString()]);
+      await this.audit(c,auth,"accounting.open_item_allocated","accounting_open_item",id,x.rows[0],a.rows[0],requestId); return a.rows[0];
+    });
+  }
   async bankAccounts(auth:AccessClaims,bookId:string){await this.book(auth,bookId);return (await this.db.query<any>("SELECT * FROM accounting_bank_accounts WHERE tenant_id=$1 AND book_id=$2",[auth.tenantId,bookId])).rows;}
 }
