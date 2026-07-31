@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.15.1,
+    version: 0.16.0,
     description: Sprint 13 closure-hardened SaaS billing approval workflows,
     provider leases,
     exact payment allocation,
@@ -17,7 +17,10 @@ info:
     payment,
     tip and cash-session API plus Sprint 5 operations and prior booking lifecycle,
     public booking,
-    availability and calendar API,
+    availability and calendar API plus Sprint 14 general ledger,
+    accounting periods,
+    double-entry journals,
+    bank reconciliation and derived statements,
   }
 servers: [{ url: http://localhost:3001/v1 }]
 security: [{ bearerAuth: [], tenantContext: [] }]
@@ -4533,6 +4536,93 @@ paths:
             },
         }
       responses: { "200": { description: Recorded or replayed event } }
+  /accounting/books:
+    get:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Accounting books } }
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AccountingBookInput' } } } }
+      responses: { '201': { description: Book created }, '409': { description: Duplicate or state conflict } }
+  /accounting/books/{id}/activate:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Book activated } }
+  /accounting/accounts:
+    get:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: bookId, in: query, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: Chart of accounts } }
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AccountingAccountInput' } } } }
+      responses: { '201': { description: Account created } }
+  /accounting/periods:
+    get:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: bookId, in: query, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: Accounting periods } }
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      responses: { '201': { description: Period created }, '409': { description: Overlap rejected } }
+  /accounting/periods/{id}/{command}:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ResourceId' }
+        - { name: command, in: path, required: true, schema: { enum: [open, soft_close, request_close, approve_close, request_reopen, approve_reopen] } }
+      responses: { '200': { description: Period state transition } }
+  /accounting/journals:
+    get:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Journals } }
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/JournalInput' } } } }
+      responses: { '201': { description: Draft journal }, '422': { description: Unbalanced journal } }
+  /accounting/journals/{id}/{command}:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { $ref: '#/components/parameters/ResourceId' }
+        - { name: command, in: path, required: true, schema: { enum: [submit, approve, reject, post] } }
+      responses: { '200': { description: Journal transition }, '409': { description: Version or state conflict } }
+  /accounting/reports/trial-balance:
+    get:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Derived trial balance from posted journals } }
+  /accounting/reports/general-ledger:
+    get:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Posted general ledger } }
+  /accounting/open-items:
+    get:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Open item aging } }
+  /accounting/bank-accounts:
+    get:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: bookId, in: query, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: Bank accounts } }
+
 components:
   parameters:
     IdempotencyKey:
@@ -4567,6 +4657,13 @@ components:
     CreditNoteId:
       {
         name: creditNoteId,
+        in: path,
+        required: true,
+        schema: { type: string, format: uuid },
+      }
+    ResourceId:
+      {
+        name: id,
         in: path,
         required: true,
         schema: { type: string, format: uuid },
@@ -4620,6 +4717,41 @@ components:
       type: object
       additionalProperties: true
       description: Command-specific object; every write requires Idempotency-Key and granular authorization.
+    AccountingBookInput:
+      type: object
+      required: [code, name, functionalCurrency]
+      properties:
+        code: { type: string, minLength: 1, maxLength: 32 }
+        name: { type: string, minLength: 1, maxLength: 160 }
+        functionalCurrency: { type: string, minLength: 3, maxLength: 3 }
+        timezone: { type: string }
+    AccountingAccountInput:
+      type: object
+      required: [bookId, code, name, accountType]
+      properties:
+        bookId: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        accountType: { enum: [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE, CONTRA_ASSET, CONTRA_LIABILITY, CONTRA_REVENUE, CONTRA_EXPENSE] }
+        controlClass: { type: string, nullable: true }
+    JournalInput:
+      type: object
+      required: [bookId, periodId, accountingDate, currency, lines]
+      properties:
+        bookId: { type: string, format: uuid }
+        periodId: { type: string, format: uuid }
+        accountingDate: { type: string, format: date }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        lines:
+          type: array
+          minItems: 2
+          items:
+            type: object
+            required: [accountId]
+            properties:
+              accountId: { type: string, format: uuid }
+              debitMinor: { type: string, pattern: '^[0-9]+$' }
+              creditMinor: { type: string, pattern: '^[0-9]+$' }
     ManualPaymentRequestCommand:
       type: object
       required: [tenantId, amountMinor, currency, evidenceReference, reason]
