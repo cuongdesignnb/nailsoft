@@ -29,7 +29,7 @@ describe("Sprint 13 OpenAPI platform billing contract", () => {
       expect(yaml).toContain(path);
     }
 
-    expect(yaml).toContain("version: 0.15.1");
+    expect(yaml).toContain("version: 0.16.0");
     expect(yaml).toContain("#/components/parameters/IdempotencyKey");
     expect(yaml).toContain("PlanChangeCommand:");
     expect(yaml).toContain("UsageEventCommand:");

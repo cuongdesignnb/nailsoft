@@ -2,7 +2,14 @@
 
 ## Status
 
-Foundation is accepted; closure remains IN_PROGRESS pending authenticated E2E and final CI acceptance. Sprint 15 is not authorized and UX/UI redesign remains deferred.
+STATUS=BA_PO_ACCEPTED
+SPRINT_14=DONE
+SPRINT_14_FINAL_COMMIT=d1c9eea1bf51e9c6212f28a781c3b277cdbbef6a
+SPRINT_14_FINAL_CI=30687504311
+SPRINT_14_FINAL_CI_STATUS=SUCCESS
+DOCKER_COMPOSE_RUNNING_SERVICES=0
+
+Sprint 15 is authorized from this checkpoint; Sprint 16 is not authorized and UX/UI redesign remains deferred.
 
 ## Git checkpoint
 
@@ -48,9 +55,8 @@ Foundation is accepted; closure remains IN_PROGRESS pending authenticated E2E an
 - Docker QA: fresh reset, rollback from 0030 to 0029, re-migrate, seed and targeted PostgreSQL closure/source-bank integration passed; Docker services were stopped after QA.
 - Targeted QA result: source/reconciliation integration 2/2 and prior closure integration 2/2 passed; API/Worker typecheck, lint, build, contract tests and unit regression passed.
 - Authenticated E2E was added to CI and the transition-period SQL bind bug found during local QA was fixed before the final commit.
-- CI must provide the exact final commit evidence before BA/PO acceptance.
+- Exact final CI run `30687504311` passed on `d1c9eea1bf51e9c6212f28a781c3b277cdbbef6a`.
 
 ## QA still required
 
-- Authenticated E2E and full regression CI on the exact final commit.
 - Production bank-feed credentials, tax filing integration, provider sandboxes and production-scale soak remain technical debt; no Sprint 15 work is started.

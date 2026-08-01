@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   {
     title: Nailsoft API,
-    version: 0.15.1,
+  version: 0.16.0,
     description: Sprint 13 closure-hardened SaaS billing approval workflows,
     provider leases,
     exact payment allocation,
@@ -4782,6 +4782,164 @@ paths:
       parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
       responses: { '200': { description: Period reopen approval } }
 
+  /procurement/vendors:
+    get:
+      tags: [procurement]
+      summary: List tenant-scoped vendors
+      responses: { '200': { description: Vendor list } }
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
+      responses: { '201': { description: Vendor created }, '409': { description: Duplicate or state conflict } }
+  /procurement/purchase-requests:
+    get:
+      tags: [procurement]
+      responses: { '200': { description: Purchase request list } }
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
+      responses: { '201': { description: Purchase request created } }
+  /procurement/purchase-orders:
+    get:
+      tags: [procurement]
+      responses: { '200': { description: Purchase order list } }
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
+      responses: { '201': { description: Purchase order created } }
+  /procurement/receipts:
+    get:
+      tags: [procurement]
+      responses: { '200': { description: Receipt list } }
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
+      responses: { '201': { description: Receipt created } }
+  /procurement/vendor-bills:
+    get:
+      tags: [procurement]
+      responses: { '200': { description: Vendor bill list } }
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
+      responses: { '201': { description: Vendor bill created }, '409': { description: Duplicate invoice or match conflict } }
+  /procurement/ap/open-items:
+    get:
+      tags: [procurement]
+      responses: { '200': { description: AP aging/open items } }
+  /procurement/payment-proposals:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
+      responses: { '201': { description: Payment proposal created } }
+  /procurement/vendor-payments:
+    get:
+      tags: [procurement]
+      responses: { '200': { description: Vendor payment list } }
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
+      responses: { '201': { description: Vendor payment request created } }
+  /procurement/vendor-credit-notes:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
+      responses: { '201': { description: Vendor credit note draft } }
+  /procurement/vendor-returns:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
+      responses: { '201': { description: Vendor return draft } }
+  /procurement/purchase-requests/{id}/submit:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Purchase request submitted } }
+  /procurement/purchase-requests/{id}/approve:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Purchase request independently approved } }
+  /procurement/purchase-requests/{id}/convert-to-po:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Purchase request converted to versioned PO } }
+  /procurement/purchase-orders/{id}/submit:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Purchase order submitted } }
+  /procurement/purchase-orders/{id}/approve:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Purchase order approved } }
+  /procurement/purchase-orders/{id}/amend:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: New purchase order version created } }
+  /procurement/receipts/{id}/accept:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Receipt accepted with quantity cap validation } }
+  /procurement/receipts/{id}/reverse:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Receipt reversal } }
+  /procurement/vendor-bills/{id}/match:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Three-way match result } }
+  /procurement/vendor-bills/{id}/approve:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Vendor bill independently approved } }
+  /procurement/vendor-bills/{id}/post:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Vendor bill posted to AP and accounting candidate } }
+  /procurement/vendor-payments/{id}/approve:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Vendor payment independently approved } }
+  /procurement/vendor-payments/{id}/process:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Payment processor intent claimed; provider call is worker-owned } }
+  /procurement/vendor-payments/{id}/reconcile:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Unknown payment reconciled } }
+  /procurement/vendor-credit-notes/{id}/approve:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Credit note independently approved } }
+  /procurement/vendor-credit-notes/{id}/apply:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Credit note applied to AP open item } }
+
 components:
   parameters:
     IdempotencyKey:
@@ -4872,6 +5030,10 @@ components:
         description: Requested tenant scope; always verified against the authenticated membership,
       }
   schemas:
+    ProcurementCommand:
+      type: object
+      additionalProperties: true
+      description: Tenant/branch-scoped procurement command. Writes require Idempotency-Key, granular permission, audit and outbox evidence.
     PlatformCommand:
       type: object
       additionalProperties: true

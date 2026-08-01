@@ -75,6 +75,12 @@ const titles: Record<string, string> = {
   billingInvoices: "Platform invoices",
   billingWarnings: "Billing and payment warning",
   supportAccess: "Support access grants",
+  procurementVendors: "Procurement vendors",
+  procurementRequests: "Purchase requests",
+  procurementOrders: "Purchase orders",
+  procurementBills: "Vendor bills and three-way match",
+  procurementAp: "Accounts payable aging",
+  procurementPayments: "Vendor payment approvals",
 };
 function endpoint(screen: string, id?: string) {
   if (screen === "billingPlan" || screen === "billingWarnings")
@@ -82,6 +88,12 @@ function endpoint(screen: string, id?: string) {
   if (screen === "billingQuotas") return "/v1/tenant/billing/entitlements";
   if (screen === "billingInvoices") return "/v1/tenant/billing/invoices";
   if (screen === "supportAccess") return "/v1/tenant/support-access-grants";
+  if (screen === "procurementVendors") return "/v1/procurement/vendors";
+  if (screen === "procurementRequests") return "/v1/procurement/purchase-requests";
+  if (screen === "procurementOrders") return "/v1/procurement/purchase-orders";
+  if (screen === "procurementBills") return "/v1/procurement/vendor-bills";
+  if (screen === "procurementAp") return "/v1/procurement/ap/open-items";
+  if (screen === "procurementPayments") return "/v1/procurement/vendor-payments";
   if (screen === "attendanceSummary") return "/v1/workforce/reports/attendance";
   if (screen === "missingPunchAlerts") return "/v1/time-clock/exceptions";
   if (screen === "timesheetApprovals") return "/v1/timesheets";
@@ -223,6 +235,12 @@ export default function OwnerScreen() {
         "billingInvoices",
         "billingWarnings",
         "supportAccess",
+        "procurementVendors",
+        "procurementRequests",
+        "procurementOrders",
+        "procurementBills",
+        "procurementAp",
+        "procurementPayments",
       ].includes(screen)
     )
       return;
@@ -465,6 +483,20 @@ export default function OwnerScreen() {
     );
     await load();
   }
+  async function procurementApprove(kind: "purchase-requests" | "vendor-payments", item: any) {
+    if (!navigator.onLine) {
+      setMessage("Internet connection required. Approval was not queued.");
+      return;
+    }
+    const response = await apiFetch(`/v1/procurement/${kind}/${item.id}/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({ version: item.version, reason: "Approved in Owner Mobile" }),
+    });
+    const body = await response.json().catch(() => ({}));
+    setMessage(response.ok ? "Procurement approval completed." : (body.error?.message ?? "Approval failed safely."));
+    await load();
+  }
   return (
     <SafeAreaView>
       <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }}>
@@ -555,6 +587,12 @@ export default function OwnerScreen() {
                       onPress={() => void approvePurchaseOrder(item)}
                     />
                   )}
+                {screen === "procurementRequests" && item.status === "SUBMITTED" && (
+                  <Button title="Approve request" onPress={() => void procurementApprove("purchase-requests", item)} />
+                )}
+                {screen === "procurementPayments" && item.status === "PENDING_APPROVAL" && (
+                  <Button title="Approve vendor payment" onPress={() => void procurementApprove("vendor-payments", item)} />
+                )}
                 {screen === "campaignApprovals" &&
                   item.status === "PENDING_APPROVAL" && (
                     <Button

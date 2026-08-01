@@ -16,6 +16,6 @@ describe("Sprint 12 OpenAPI and command contract", () => {
     ])
       expect(yaml).toContain(path);
     expect(yaml).toContain("#/components/parameters/IdempotencyKey");
-    expect(yaml).toContain("version: 0.15.1");
+    expect(yaml).toContain("version: 0.16.0");
   });
 });

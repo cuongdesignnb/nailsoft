@@ -531,6 +531,14 @@ jobs:
         run: pnpm exec vitest run tests/mobile/sprint13-platform-billing-mobile-smoke.test.ts
       - name: Sprint 14 accounting unit and contract tests
         run: pnpm test:unit && pnpm test:contract
+      - name: Sprint 15 procurement migration fresh rollback and re-migrate
+        run: pnpm db:reset && pnpm db:rollback && pnpm db:migrate && pnpm db:seed
+      - name: Sprint 15 procurement unit and contract tests
+        run: pnpm exec vitest run apps/api/test/procurement-domain.test.ts tests/contract/sprint15-procurement-contract.test.ts
+      - name: Sprint 15 procurement PostgreSQL invariants
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint15-procurement-invariants.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 15 vendor payment provider boundary
+        run: pnpm exec vitest run apps/worker/src/vendor-payment.provider.test.ts
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke

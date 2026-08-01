@@ -16,6 +16,7 @@ import Sprint11Screen from "./sprint11-screen";
 import Sprint12Screen from "./sprint12-screen";
 import Sprint13Screen from "./sprint13-screen";
 import Sprint14Screen from "./sprint14-screen";
+import Sprint15Screen from "./sprint15-screen";
 
 type Resource = {
   title: string;
@@ -191,6 +192,7 @@ function unwrap(body: any): any[] {
 
 export default function Sprint1Screen() {
   const pathname = usePathname();
+  if (pathname.startsWith("/admin/procurement")) return <Sprint15Screen />;
   if (pathname.startsWith("/admin/accounting")) return <Sprint14Screen />;
   if (pathname.startsWith("/admin/billing") || pathname.startsWith("/admin/support-access"))
     return <Sprint13Screen />;

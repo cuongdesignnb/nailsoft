@@ -88,4 +88,14 @@ INSERT INTO loyalty_programs(
 );
 INSERT INTO commission_rules(tenant_id,name,rule_json,status,rule_code,rule_type,base_mode,percent_basis_points,priority,policy_json,effective_from,created_by_user_id) VALUES
 ('10000000-0000-4000-8000-000000000001','Service 10%','{"value":10}','ACTIVE','LEGACY-SERVICE-10','SERVICE_PERCENT','NET_SERVICE_AFTER_DISCOUNT_BEFORE_TAX',1000,0,'{"migratedFixture":true}',timestamptz '2026-01-01 00:00:00+07','30000000-0000-4000-8000-000000000001'),
-('10000000-0000-4000-8000-000000000001','Retail 5%','{"value":5}','ACTIVE','LEGACY-RETAIL-5','SERVICE_PERCENT','NET_SERVICE_AFTER_DISCOUNT_BEFORE_TAX',500,-1,'{"migratedFixture":true}',timestamptz '2026-01-01 00:00:00+07','30000000-0000-4000-8000-000000000001'); COMMIT;
+('10000000-0000-4000-8000-000000000001','Retail 5%','{"value":5}','ACTIVE','LEGACY-RETAIL-5','SERVICE_PERCENT','NET_SERVICE_AFTER_DISCOUNT_BEFORE_TAX',500,-1,'{"migratedFixture":true}',timestamptz '2026-01-01 00:00:00+07','30000000-0000-4000-8000-000000000001');
+-- Sprint 15 deterministic procurement fixtures.  Values are synthetic and scoped to the demo tenant.
+INSERT INTO procurement_policies(tenant_id,state,procurement_enabled,allow_non_po_expense,non_po_threshold_minor,receipt_tolerance_numerator,receipt_tolerance_denominator)
+VALUES('10000000-0000-4000-8000-000000000001','ACTIVE',true,true,500000,0,1);
+INSERT INTO procurement_vendors(id,tenant_id,code,legal_name,display_name,currency,status,payment_terms_days,masked_tax_reference,created_by_user_id)
+VALUES('8e000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','DEMO-VENDOR-001','Demo Supply Co.','Demo Supply Co.','VND','ACTIVE',30,'***0001','30000000-0000-4000-8000-000000000001');
+INSERT INTO procurement_vendor_contacts(tenant_id,vendor_id,name,email,phone,role,is_primary)
+VALUES('10000000-0000-4000-8000-000000000001','8e000000-0000-4000-8000-000000000001','Demo AP Contact','ap@demo-supply.example.test','+84900009999','Accounts Payable',true);
+INSERT INTO procurement_configuration_checklists(tenant_id,item_code,status,evidence_json,updated_by_user_id)
+VALUES('10000000-0000-4000-8000-000000000001','VENDOR_PAYMENT_PROVIDER','PENDING','{"provider":"not_configured"}','30000000-0000-4000-8000-000000000001'),
+('10000000-0000-4000-8000-000000000001','AP_APPROVAL_POLICY','READY','{"dualControl":true}','30000000-0000-4000-8000-000000000001'); COMMIT;
