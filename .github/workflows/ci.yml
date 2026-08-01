@@ -553,6 +553,33 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint15-procurement-invariants.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 15 vendor payment provider boundary
         run: pnpm exec vitest run apps/worker/src/vendor-payment.provider.test.ts
+      - name: Sprint 15 purchase request and PO integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint15-request-po-integration.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 15 receipt inventory integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint15-receipt-inventory-integration.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 15 vendor bill three-way match integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint15-vendor-bill-match-integration.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 15 AP payment reservation integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint15-ap-payment-integration.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 15 vendor credit and return integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint15-credit-return-integration.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 15 GL source posting integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint15-procurement-accounting-integration.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 15 bank reconciliation integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint15-procurement-bank-reconciliation.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 15 procurement authorization
+        run: pnpm exec vitest run tests/integration/sprint15-procurement-authorization.test.ts
+      - name: Sprint 15 authenticated procurement E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint15-procurement-authenticated.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 15 Owner Mobile smoke
+        run: pnpm exec vitest run tests/mobile/sprint15-procurement-mobile-smoke.test.ts
+      - name: Sprint 15 procurement load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: procurement-vendor-list,procurement-request-list,procurement-po-list,procurement-receipt-list,procurement-bill-ap-list,procurement-payment-proposal-preview
+        run: pnpm load:smoke
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke

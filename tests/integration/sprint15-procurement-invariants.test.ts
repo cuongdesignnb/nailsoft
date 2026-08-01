@@ -30,4 +30,31 @@ describe("Sprint 15 procurement PostgreSQL invariants", () => {
       await db.query("ROLLBACK");
     }
   });
+
+  it("enforces Sprint 15 closure guards for transitions, source events and posted bills", async () => {
+    await db.query("BEGIN");
+    try {
+      const vendor = (await db.query<any>("INSERT INTO procurement_vendors(tenant_id,code,legal_name,display_name,currency,status) VALUES($1,'QA15-G','Guard Vendor','Guard Vendor','VND','ACTIVE') RETURNING id", [tenant])).rows[0];
+      const bill = (await db.query<any>("INSERT INTO procurement_vendor_bills(tenant_id,branch_id,vendor_id,bill_number,normalized_invoice_number,invoice_date,due_date,currency,total_minor,fingerprint,status,version) VALUES($1,$2,$3,'QA-15-G','QA15G','2097-01-01','2097-01-31','VND',1000,'guard','POSTED',1) RETURNING id", [tenant, branch, vendor.id])).rows[0];
+      await db.query("SAVEPOINT posted_bill_guard");
+      await expect(db.query("UPDATE procurement_vendor_bills SET total_minor=2000 WHERE tenant_id=$1 AND id=$2", [tenant, bill.id])).rejects.toMatchObject({ code: "55000" });
+      await db.query("ROLLBACK TO SAVEPOINT posted_bill_guard");
+      const po = (await db.query<any>("INSERT INTO procurement_purchase_orders(tenant_id,branch_id,vendor_id,po_number,currency,total_minor,subtotal_minor,fingerprint) VALUES($1,$2,$3,'QA-PO-G','VND',1000,1000,'po-guard') RETURNING id", [tenant, branch, vendor.id])).rows[0];
+      const version = (await db.query<any>("INSERT INTO procurement_purchase_order_versions(tenant_id,purchase_order_id,version_no,state,currency,fingerprint) VALUES($1,$2,1,'APPROVED','VND','po-version') RETURNING id", [tenant, po.id])).rows[0];
+      const receipt = (await db.query<any>("INSERT INTO procurement_receipts(tenant_id,branch_id,purchase_order_id,order_version_id,receipt_number,received_at,status,version) VALUES($1,$2,$3,$4,'QA-GRN',now(),'DRAFT',1) RETURNING id", [tenant, branch, po.id, version.id])).rows[0];
+      await db.query("SAVEPOINT receipt_guard");
+      await expect(db.query("UPDATE procurement_receipts SET status='ACCEPTED',version=version+1 WHERE tenant_id=$1 AND id=$2", [tenant, receipt.id])).rejects.toMatchObject({ code: "P0001" });
+      await db.query("ROLLBACK TO SAVEPOINT receipt_guard");
+      const item = (await db.query<any>("SELECT id FROM inventory_items WHERE tenant_id=$1 LIMIT 1", [tenant])).rows[0];
+      const location = (await db.query<any>("SELECT id FROM inventory_locations WHERE tenant_id=$1 AND branch_id=$2 LIMIT 1", [tenant, branch])).rows[0];
+      if (item && location) {
+        await db.query("INSERT INTO procurement_inventory_source_events(tenant_id,source_type,source_id,operation,branch_id,item_id,location_id,quantity,fingerprint,request_id) VALUES($1,'QA',$2,'RECEIPT',$3,$4,$5,1,'guard','qa')", [tenant, bill.id, branch, item.id, location.id]);
+        await db.query("SAVEPOINT source_guard");
+        await expect(db.query("INSERT INTO procurement_inventory_source_events(tenant_id,source_type,source_id,operation,branch_id,item_id,location_id,quantity,fingerprint,request_id) VALUES($1,'QA',$2,'RECEIPT',$3,$4,$5,1,'guard2','qa2')", [tenant, bill.id, branch, item.id, location.id])).rejects.toMatchObject({ code: "23505" });
+        await db.query("ROLLBACK TO SAVEPOINT source_guard");
+      }
+    } finally {
+      await db.query("ROLLBACK");
+    }
+  });
 });

@@ -326,6 +326,37 @@ const scenarios = [
       }),
   },
   {
+    name: "procurement-vendor-list",
+    setup: async (worker) => auth(`load-procurement-vendors-${worker}`),
+    run: (state) => request("/v1/procurement/vendors", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "procurement-request-list",
+    setup: async (worker) => auth(`load-procurement-requests-${worker}`),
+    run: (state) => request("/v1/procurement/purchase-requests", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "procurement-po-list",
+    setup: async (worker) => auth(`load-procurement-pos-${worker}`),
+    run: (state) => request("/v1/procurement/purchase-orders", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "procurement-receipt-list",
+    setup: async (worker) => auth(`load-procurement-receipts-${worker}`),
+    run: (state) => request("/v1/procurement/receipts", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "procurement-bill-ap-list",
+    setup: async (worker) => auth(`load-procurement-ap-${worker}`),
+    run: async (state) => { const bills = await request("/v1/procurement/vendor-bills", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }); if (bills.status >= 500) return bills; return request("/v1/procurement/ap/open-items", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }); },
+  },
+  {
+    name: "procurement-payment-proposal-preview",
+    expected: [400, 401, 403, 404, 409],
+    setup: async (worker) => auth(`load-procurement-payment-preview-${worker}`),
+    run: (state, worker) => request("/v1/procurement/payment-proposals", { method: "POST", headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId, "idempotency-key": `load-proposal-${worker}-000000000000` }, body: JSON.stringify({ branchId: "20000000-0000-4000-8000-000000000001", vendorId: "00000000-0000-0000-0000-000000000000", items: [] }) }),
+  },
+  {
     name: "refund-list",
     setup: async (worker) => auth(`load-refunds-${worker}`),
     run: (state) =>

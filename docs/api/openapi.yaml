@@ -4859,6 +4859,24 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
       responses: { '201': { description: Vendor return draft } }
+  /procurement/vendors/{id}/contacts:
+    get:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Vendor contacts } }
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '201': { description: Vendor contact created } }
+  /procurement/vendors/{id}/payment-methods:
+    get:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Vendor payment methods } }
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '201': { description: Vendor payment method created } }
   /procurement/purchase-requests/{id}/submit:
     post:
       tags: [procurement]
@@ -4899,6 +4917,11 @@ paths:
       tags: [procurement]
       parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
       responses: { '200': { description: Receipt reversal } }
+  /procurement/receipts/{id}/reversal-request:
+    post:
+      tags: [procurement]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '200': { description: Receipt reversal requested with independent approval evidence } }
   /procurement/vendor-bills/{id}/match:
     post:
       tags: [procurement]

@@ -39,6 +39,13 @@ export class VendorPaymentProcessor implements OnModuleDestroy {
       const current = (await c.query<any>("SELECT * FROM procurement_vendor_payments WHERE tenant_id=$1 AND id=$2 FOR UPDATE", [row.tenant_id, row.id])).rows[0];
       if (!current || current.status !== "PROCESSING") { await c.query("COMMIT"); return; }
       if (outcome.status === "SUCCEEDED") await this.applyAllocations(c, current);
+      if (outcome.status === "SUCCEEDED") {
+        await c.query("UPDATE procurement_payment_reservations r SET status='CONSUMED',consumed_at=now() WHERE r.tenant_id=$1 AND r.status='ACTIVE' AND EXISTS (SELECT 1 FROM procurement_vendor_payment_allocations a WHERE a.tenant_id=$1 AND a.vendor_payment_id=$2 AND a.open_item_id=r.open_item_id)", [row.tenant_id, row.id]);
+        const book = (await c.query<any>("SELECT b.id book_id,p.id period_id FROM accounting_books b JOIN accounting_periods p ON p.tenant_id=b.tenant_id AND p.book_id=b.id WHERE b.tenant_id=$1 AND b.status='ACTIVE' AND b.posting_mode<>'DISABLED' AND p.state IN('OPEN','REOPENED') ORDER BY p.starts_on LIMIT 1", [row.tenant_id])).rows[0];
+        if (book) await c.query("INSERT INTO accounting_posting_candidates(tenant_id,book_id,period_id,source_type,source_id,source_fingerprint,generation_key,state,source_event_type,source_payload_json) VALUES($1,$2,$3,'PROCUREMENT_VENDOR_PAYMENT',$4,encode(digest($5,'sha256'),'hex'),$6,'PENDING','procurement.vendor_payment.succeeded',$7) ON CONFLICT (tenant_id,book_id,source_type,source_id,generation_key) DO NOTHING", [row.tenant_id, book.book_id, book.period_id, row.id, JSON.stringify({ id: row.id, providerKey: row.provider_key }), `PROCUREMENT_VENDOR_PAYMENT:${row.id}:v1`, JSON.stringify({ branchId: row.branch_id, refetch: true })]);
+      } else if (outcome.status === "FAILED") {
+        await c.query("UPDATE procurement_payment_reservations r SET status='RELEASED',released_at=now() WHERE r.tenant_id=$1 AND r.status='ACTIVE' AND EXISTS (SELECT 1 FROM procurement_vendor_payment_allocations a WHERE a.tenant_id=$1 AND a.vendor_payment_id=$2 AND a.open_item_id=r.open_item_id)", [row.tenant_id, row.id]);
+      }
       await c.query("UPDATE procurement_vendor_payments SET status=$3,evidence_hash=encode(digest($4,'sha256'),'hex'),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2", [row.tenant_id, row.id, outcome.status, JSON.stringify(outcome)]);
       await c.query("UPDATE procurement_vendor_payment_attempts SET status=$3,external_reference=$4,evidence_json=$5 WHERE tenant_id=$1 AND vendor_payment_id=$2 AND status='CLAIMED'", [row.tenant_id, row.id, outcome.status, outcome.externalReference ?? null, JSON.stringify(outcome.evidence ?? {})]);
       await c.query("COMMIT");

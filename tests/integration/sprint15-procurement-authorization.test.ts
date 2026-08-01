@@ -1,0 +1,2 @@
+import { describe, expect, it } from "vitest"; import { readFileSync } from "node:fs";
+describe("Sprint 15 procurement authorization surface",()=>{it("contains only explicit action routes",()=>{const source=readFileSync("apps/api/src/modules/procurement/procurement.controller.ts","utf8");expect(source).not.toContain(":action");for(const action of ["approve","post","process","reconcile","reverse","apply","complete"])expect(source).toContain(`/${action}`)})});

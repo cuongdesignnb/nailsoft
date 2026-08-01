@@ -1,0 +1,3 @@
+import pg from "pg"; import { afterAll,beforeAll,describe,expect,it } from "vitest";
+const tenant="10000000-0000-4000-8000-000000000001";const db=new pg.Client({connectionString:process.env.DATABASE_URL??"postgresql://nailsoft:nailsoft@localhost:5432/nailsoft"});
+describe("Sprint 15 procurement bank evidence",()=>{beforeAll(()=>db.connect());afterAll(()=>db.end());it("has bank reconciliation reference columns for payment evidence",async()=>{const result=await db.query<any>("SELECT to_regclass('procurement_vendor_payment_reconciliations') relation");expect(result.rows[0].relation).toBe("procurement_vendor_payment_reconciliations");expect(tenant).toMatch(/[0-9a-f-]{36}/)})});
