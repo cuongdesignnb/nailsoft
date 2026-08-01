@@ -47,6 +47,17 @@ jobs:
       - uses: pnpm/action-setup@v4
         with: { version: 11.7.0 }
       - run: pnpm install --frozen-lockfile
+      - name: Configure PostgreSQL lock budget
+        shell: bash
+        run: |
+          container=$(docker ps --filter "name=postgres" --format '{{.ID}}' | head -n 1)
+          test -n "$container"
+          docker exec "$container" psql -U nailsoft -d nailsoft -c "ALTER SYSTEM SET max_locks_per_transaction='512';"
+          docker restart "$container"
+          for i in $(seq 1 30); do
+            docker exec "$container" pg_isready -U nailsoft -d nailsoft && break
+            sleep 2
+          done
       - name: Lint
         shell: bash
         run: |
