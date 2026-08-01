@@ -8,7 +8,11 @@
 
 - Start checkpoint: `d1c9eea1bf51e9c6212f28a781c3b277cdbbef6a`
 - Migration: `0031_procurement_vendor_bills_accounts_payable`
-- Final commit: to be recorded after QA/CI
+- Sprint 15 implementation commit: `c6dc17d21d1d671f1466365fef2e2364feb53c05`
+- Final evidence commit: `4d0c32a9797ca9e6a3e5fe2e3277714db8b289c9`
+- CI run: `30702537849` — [GitHub Actions](https://github.com/cuongdesignnb/nailsoft/actions/runs/30702537849)
+- CI status: `SUCCESS`
+- HEAD equals origin/main at evidence commit: `YES`
 - Sprint 16: not started
 - UX/UI redesign: deferred
 
@@ -35,9 +39,20 @@
 - Migration rollback to 0030 and re-migrate: passed.
 - Seed/reset QA: passed after temporary Docker PostgreSQL QA configuration.
 - Docker QA services: stopped after verification; expected running service count is `0`.
+- Full Sprint 1–15 CI regression: passed, including all load-smoke lanes, all six application builds, and Stop containers.
+- Previous run `30695219565` was cancelled by the 60-minute job timeout while `Sprint 13 platform billing load smoke` was running; no load assertion was skipped. The timeout was raised to 120 minutes in the evidence hotfix.
 
 ## Remaining before closure
 
-- Add/execute full Sprint 15 PostgreSQL integration and authenticated E2E lanes.
-- Run full CI on the exact final commit and record run ID/URL.
 - Add production provider worker adapter and load evidence before claiming production readiness.
+
+## Handoff fields
+
+```text
+SPRINT_15_IMPLEMENTATION_COMMIT=c6dc17d21d1d671f1466365fef2e2364feb53c05
+FINAL_EVIDENCE_COMMIT=4d0c32a9797ca9e6a3e5fe2e3277714db8b289c9
+CI_RUN_ID=30702537849
+CI_STATUS=SUCCESS
+DOCKER_COMPOSE_RUNNING_SERVICES=0
+SPRINT_16_STARTED=NO
+```
