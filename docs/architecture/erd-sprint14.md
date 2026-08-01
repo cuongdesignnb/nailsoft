@@ -9,4 +9,6 @@ Book -> BankAccount -> StatementImport -> StatementLine
 BankAccount -> Reconciliation -> Match -> MatchAllocation -> StatementLine
 Book -> OpeningBalanceImport -> OpeningBalanceRow -> Journal
 Book -> StatementDefinition -> StatementSnapshot -> SnapshotLine
+Book -> SourceAdapterMapping -> PostingCandidate -> SourcePostingHistory
+BankAccount -> ReconciliationHistory
 ```

@@ -517,10 +517,18 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-authenticated-platform-billing-e2e.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 13 Owner Mobile smoke
         run: pnpm exec vitest run tests/mobile/sprint13-platform-billing-mobile-smoke.test.ts
-      - name: Sprint 14 migration 0029 rollback to 0028 and re-migrate
+      - name: Sprint 14 migration 0030 rollback to 0029 and re-migrate
         run: pnpm db:reset && pnpm db:rollback && pnpm db:migrate && pnpm db:seed
-      - name: Sprint 14 accounting PostgreSQL schema invariants
-        run: pnpm exec vitest run tests/integration/sprint14-accounting-closure.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 14 source posting worker integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint14-source-reconciliation.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 14 bank statement and reconciliation integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint14-source-reconciliation.test.ts tests/integration/sprint14-accounting-closure.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 14 financial statement correctness
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint14-accounting-closure.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 14 accounting authorization and authenticated E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint14-accounting-authenticated.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 14 Owner Mobile smoke
+        run: pnpm exec vitest run tests/mobile/sprint13-platform-billing-mobile-smoke.test.ts
       - name: Sprint 14 accounting unit and contract tests
         run: pnpm test:unit && pnpm test:contract
       - name: Sprint 8 Owner and Staff Mobile contract smoke

@@ -1,0 +1,14 @@
+BEGIN;
+DROP TRIGGER IF EXISTS accounting_bank_reconciliation_history_append_only ON accounting_bank_reconciliation_history;
+DROP TRIGGER IF EXISTS accounting_source_posting_history_append_only ON accounting_source_posting_history;
+DROP TRIGGER IF EXISTS accounting_bank_line_match_cap_guard ON accounting_bank_match_allocations;
+DROP FUNCTION IF EXISTS accounting_bank_line_match_cap_guard();
+DROP TRIGGER IF EXISTS accounting_bank_reconciliation_guard ON accounting_bank_reconciliations;
+DROP FUNCTION IF EXISTS accounting_bank_reconciliation_guard();
+DROP TRIGGER IF EXISTS accounting_bank_match_scope_guard ON accounting_bank_matches;
+DROP FUNCTION IF EXISTS accounting_bank_match_scope_guard();
+DROP TABLE IF EXISTS accounting_bank_reconciliation_history,accounting_source_posting_history,accounting_source_adapter_mappings;
+ALTER TABLE accounting_posting_candidates DROP COLUMN IF EXISTS source_event_type,DROP COLUMN IF EXISTS source_payload_json,DROP COLUMN IF EXISTS adapter_version,DROP COLUMN IF EXISTS posted_at;
+ALTER TABLE accounting_bank_reconciliations DROP COLUMN IF EXISTS void_requested_by_user_id,DROP COLUMN IF EXISTS void_approved_by_user_id;
+DELETE FROM schema_migrations WHERE version='0030_sprint14_source_reconciliation_statement_closure';
+COMMIT;

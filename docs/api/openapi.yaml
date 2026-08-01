@@ -4606,6 +4606,92 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: bookId, in: query, required: true, schema: { type: string, format: uuid } }]
       responses: { '200': { description: Bank accounts } }
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '201': { description: Bank account created } }
+  /accounting/source-postings:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '202': { description: Source posting candidate accepted }, '409': { description: Source replay conflict } }
+  /accounting/source-mappings:
+    get:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: bookId, in: query, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: Source adapter mappings } }
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      responses: { '201': { description: Active source adapter mapping created } }
+  /accounting/bank-statements/imports:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '201': { description: CSV statement imported }, '409': { description: Duplicate checksum } }
+  /accounting/bank-matches:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
+      responses: { '201': { description: Match created }, '409': { description: Allocation cap or scope conflict } }
+  /accounting/bank-matches/{id}/confirm:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Match confirmed } }
+  /accounting/bank-matches/{id}/unmatch:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Match voided } }
+  /accounting/bank-reconciliations:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      responses: { '201': { description: Reconciliation created } }
+  /accounting/bank-reconciliations/{id}/start-matching:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Matching started } }
+  /accounting/bank-reconciliations/{id}/submit-review:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Reconciliation submitted for review } }
+  /accounting/bank-reconciliations/{id}/reconcile:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Reconciliation balanced } }
+  /accounting/bank-reconciliations/{id}/close:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Reconciliation closed }, '409': { description: Difference unexplained } }
+  /accounting/bank-reconciliations/{id}/request-void:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Void requested } }
+  /accounting/bank-reconciliations/{id}/approve-void:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Void approved } }
   /accounting/journals/{id}/submit:
     post:
       tags: [Accounting]
@@ -4666,6 +4752,23 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ $ref: '#/components/parameters/ResourceId' }]
       responses: { '200': { description: Period reopen requested } }
+  /accounting/statement-snapshots:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      responses: { '201': { description: Statement snapshot generated } }
+  /accounting/statement-snapshots/{id}/approve:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Statement snapshot approved } }
+  /accounting/statement-snapshots/{id}/finalize:
+    post:
+      tags: [Accounting]
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }]
+      responses: { '200': { description: Statement snapshot finalized } }
   /accounting/periods/{id}/approve-close:
     post:
       tags: [Accounting]

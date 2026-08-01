@@ -91,6 +91,15 @@ const operationalEvents = new Set([
   "service_session.media_added",
 ]);
 const financialEvents = new Set([
+  "accounting.source_posting.created",
+  "accounting.journal.created",
+  "accounting.journal.posted",
+  "accounting.bank_statement.imported",
+  "accounting.bank_match.created",
+  "accounting.bank_match.matched",
+  "accounting.bank_match.voided",
+  "accounting.bank_reconciliation.closed",
+  "accounting.statement.generated",
   "accounting.book.activated",
   "accounting.journal.created",
   "accounting.journal.pending_approval",

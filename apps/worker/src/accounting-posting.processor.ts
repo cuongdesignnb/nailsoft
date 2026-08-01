@@ -1,22 +1,42 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import pg from "pg";
+import { createHash } from "node:crypto";
 
-/** Fail-closed posting candidate lease. Mapping/adapters must produce an approved journal before posting. */
+const hash=(v:unknown)=>createHash("sha256").update(JSON.stringify(v??{})).digest("hex");
+const safe=(v:unknown)=>JSON.stringify(v??{});
+
+/** Exactly-once source posting engine. It fails closed when mapping or source evidence is incomplete. */
 @Injectable()
 export class AccountingPostingProcessor implements OnModuleDestroy {
   private readonly pool = new pg.Pool({ connectionString: process.env.DATABASE_URL ?? "postgresql://nailsoft:nailsoft@localhost:5432/nailsoft", max: 2 });
+  private readonly workerId=`accounting-posting-worker:${process.pid}`;
   async run() {
-    const c = await this.pool.connect();
-    try {
-      await c.query("BEGIN");
-      const candidates = (await c.query<any>(`SELECT * FROM accounting_posting_candidates WHERE state IN ('PENDING','FAILED') AND (lease_expires_at IS NULL OR lease_expires_at<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 25`)).rows;
-      for (const candidate of candidates) {
-        await c.query(`UPDATE accounting_posting_candidates SET state='MAPPING',lease_owner=$2,lease_expires_at=now()+interval '60 seconds',retry_count=retry_count+1,updated_at=now() WHERE id=$1`, [candidate.id, `accounting-posting-worker:${process.pid}`]);
-      }
-      await c.query("COMMIT");
-      return candidates.length;
-    } catch (error) { await c.query("ROLLBACK"); throw error; } finally { c.release(); }
+    const c=await this.pool.connect(); let claimed:any[]=[];
+    try{await c.query("BEGIN");claimed=(await c.query<any>(`SELECT * FROM accounting_posting_candidates WHERE state IN ('PENDING','FAILED') AND (lease_expires_at IS NULL OR lease_expires_at<now()) ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 25`)).rows;for(const row of claimed)await c.query(`UPDATE accounting_posting_candidates SET state='MAPPING',lease_owner=$2,lease_expires_at=now()+interval '60 seconds',retry_count=retry_count+1,updated_at=now() WHERE id=$1`,[row.id,this.workerId]);await c.query("COMMIT");}catch(error){await c.query("ROLLBACK");throw error;}finally{c.release();}
+    for(const candidate of claimed) await this.processCandidate(candidate);
+    return claimed.length;
   }
-  async onModuleDestroy() { await this.pool.end(); }
+  private async processCandidate(candidate:any){
+    const c=await this.pool.connect();
+    try{await c.query("BEGIN");const row=(await c.query<any>("SELECT * FROM accounting_posting_candidates WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[candidate.tenant_id,candidate.id])).rows[0];if(!row||row.state!=="MAPPING"){await c.query("COMMIT");return;}
+      const book=(await c.query<any>("SELECT * FROM accounting_books WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[row.tenant_id,row.book_id])).rows[0];
+      const period=(await c.query<any>("SELECT * FROM accounting_periods WHERE tenant_id=$1 AND id=$2 AND book_id=$3 FOR UPDATE",[row.tenant_id,row.period_id,row.book_id])).rows[0];
+      const mapping=(await c.query<any>("SELECT * FROM accounting_source_adapter_mappings WHERE tenant_id=$1 AND book_id=$2 AND source_type=$3 AND event_type=$4 AND state='ACTIVE' ORDER BY version_no DESC LIMIT 1",[row.tenant_id,row.book_id,row.source_type,row.source_event_type])).rows[0];
+      const payload=row.source_payload_json??{};const lines=Array.isArray(payload.lines)?payload.lines:(mapping?.mapping_json?.lines??[]);
+      const fail=async(code:string)=>{const n=await c.query<any>("UPDATE accounting_posting_candidates SET state='REVIEW_REQUIRED',failure_code=$3,lease_owner=NULL,lease_expires_at=NULL,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING *",[row.tenant_id,row.id,code]);await c.query("INSERT INTO accounting_source_posting_history(tenant_id,candidate_id,from_state,to_state,source_fingerprint,request_id) VALUES($1,$2,$3,'REVIEW_REQUIRED',$4,$5)",[row.tenant_id,row.id,row.state,row.source_fingerprint,`worker:${this.workerId}`]);await c.query("COMMIT");return n.rows[0];};
+      if(!book||!period||!['OPEN','REOPENED'].includes(period.state))return fail("ACCOUNTING_PERIOD_NOT_POSTABLE");
+      if(!mapping&&!Array.isArray(payload.lines))return fail("MAPPING_NOT_FOUND");
+      if(!Array.isArray(lines)||lines.length<2)return fail("MAPPING_AMBIGUOUS");
+      const debit=lines.reduce((n:any,l:any)=>n+BigInt(l.debitMinor??0),0n),credit=lines.reduce((n:any,l:any)=>n+BigInt(l.creditMinor??0),0n);if(debit<=0n||debit!==credit)return fail("MAPPING_NOT_BALANCED");
+      for(const line of lines){const account=(await c.query<any>("SELECT id FROM accounting_accounts WHERE tenant_id=$1 AND book_id=$2 AND id=$3 AND active",[row.tenant_id,row.book_id,line.accountId])).rows[0];if(!account)return fail("MAPPING_ACCOUNT_SCOPE_INVALID");}
+      const existing=(await c.query<any>("SELECT * FROM accounting_journals WHERE tenant_id=$1 AND book_id=$2 AND source_type=$3 AND source_id=$4 AND generation_key=$5 FOR UPDATE",[row.tenant_id,row.book_id,row.source_type,row.source_id,row.generation_key])).rows[0];if(existing){await c.query("UPDATE accounting_posting_candidates SET state=$3,journal_id=$4,lease_owner=NULL,lease_expires_at=NULL,posted_at=CASE WHEN $3='POSTED' THEN coalesce($5,now()) ELSE posted_at END,updated_at=now() WHERE tenant_id=$1 AND id=$2",[row.tenant_id,row.id,existing.state==='POSTED'?'POSTED':'READY',existing.id,existing.posted_at]);await c.query("COMMIT");return existing;}
+      const journal=(await c.query<any>(`INSERT INTO accounting_journals(tenant_id,book_id,period_id,journal_type,accounting_date,currency,source_type,source_id,source_fingerprint,generation_key,requested_by_user_id,state,evidence_json) VALUES($1,$2,$3,'SOURCE',$4,$5,$6,$7,$8,$9,NULL,$10,$11) RETURNING *`,[row.tenant_id,row.book_id,row.period_id,payload.accountingDate??period.starts_on,payload.currency??book.functional_currency,row.source_type,row.source_id,row.source_fingerprint,row.generation_key,book.posting_mode==='AUTO_POST'?'APPROVED':'PENDING_APPROVAL',safe({adapterVersion:row.adapter_version,eventType:row.source_event_type,mappingVersion:mapping?.version_no??null})])).rows[0];
+      for(let i=0;i<lines.length;i++){const l=lines[i];await c.query(`INSERT INTO accounting_journal_lines(tenant_id,journal_id,line_no,account_id,debit_minor,credit_minor,functional_debit_minor,functional_credit_minor,currency,exchange_numerator,exchange_denominator,source_line_reference,fingerprint) VALUES($1,$2,$3,$4,$5,$6,$5,$6,$7,1,1,$8,$9)`,[row.tenant_id,journal.id,i+1,String(l.accountId),String(l.debitMinor??0),String(l.creditMinor??0),payload.currency??book.functional_currency,l.sourceLineReference??`${row.source_type}:${i+1}`,hash({sourceFingerprint:row.source_fingerprint,line:i+1})]);}
+      let state='READY';let postedAt=null as unknown;
+      if(book.posting_mode==='AUTO_POST'){const seq=await c.query<any>(`SELECT b.code book_code,f.year_no,f.id fiscal_year_id FROM accounting_books b JOIN accounting_periods p ON p.tenant_id=b.tenant_id AND p.book_id=b.id JOIN accounting_fiscal_years f ON f.tenant_id=p.tenant_id AND f.id=p.fiscal_year_id WHERE b.tenant_id=$1 AND b.id=$2 AND p.id=$3 FOR UPDATE`,[row.tenant_id,row.book_id,row.period_id]);if(!seq.rows[0])return fail("FISCAL_YEAR_NOT_FOUND");await c.query(`INSERT INTO accounting_journal_number_sequences(tenant_id,book_id,fiscal_year_id) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,[row.tenant_id,row.book_id,seq.rows[0].fiscal_year_id]);const next=await c.query<any>("SELECT next_value FROM accounting_journal_number_sequences WHERE tenant_id=$1 AND book_id=$2 AND fiscal_year_id=$3 FOR UPDATE",[row.tenant_id,row.book_id,seq.rows[0].fiscal_year_id]);const number=`${seq.rows[0].book_code}-${seq.rows[0].year_no}-${String(next.rows[0].next_value).padStart(6,'0')}`;await c.query("UPDATE accounting_journal_number_sequences SET next_value=next_value+1 WHERE tenant_id=$1 AND book_id=$2 AND fiscal_year_id=$3",[row.tenant_id,row.book_id,seq.rows[0].fiscal_year_id]);const n=await c.query<any>("UPDATE accounting_journals SET state='POSTED',journal_number=$3,posted_at=now(),version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[row.tenant_id,journal.id,number]);state='POSTED';postedAt=n.rows[0].posted_at;}
+      await c.query<any>("UPDATE accounting_posting_candidates SET state=$3,journal_id=$4,lease_owner=NULL,lease_expires_at=NULL,posted_at=$5,updated_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING *",[row.tenant_id,row.id,state,journal.id,postedAt]);await c.query("INSERT INTO accounting_source_posting_history(tenant_id,candidate_id,from_state,to_state,journal_id,source_fingerprint,request_id) VALUES($1,$2,$3,$4,$5,$6,$7)",[row.tenant_id,row.id,row.state,state,journal.id,row.source_fingerprint,`worker:${this.workerId}`]);await c.query("INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,payload_json,actor_json,metadata_json,semantic_generation_key) VALUES($1,$2,'accounting_journal',$3,$4,'{\"type\":\"SYSTEM\"}','{\"schemaVersion\":1}',$5) ON CONFLICT(tenant_id,semantic_generation_key) WHERE semantic_generation_key IS NOT NULL DO NOTHING",[row.tenant_id,state==='POSTED'?'accounting.journal.posted':'accounting.journal.created',journal.id,safe({refetch:true,sourceType:row.source_type}),`accounting-posting:${row.generation_key}`]);await c.query("COMMIT");
+    }catch(error){await c.query("ROLLBACK");throw error;}finally{c.release();}
+  }
+  async onModuleDestroy(){await this.pool.end();}
 }

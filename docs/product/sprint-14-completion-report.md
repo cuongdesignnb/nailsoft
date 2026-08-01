@@ -6,9 +6,10 @@ Foundation is accepted; closure remains IN_PROGRESS pending authenticated E2E an
 
 ## Git checkpoint
 
-- Start checkpoint: `f5d8b92287d27b773fabde4a6d1b602851bf231c`
+- Start checkpoint: `1ce6a8c92d0d37ed2f8cc1244ce83e2bf64531ae`
 - Foundation migration: `0028_general_ledger_accounting_bank_reconciliation`
 - Closure migration: `0029_sprint14_accounting_correctness_closure`
+- Final closure migration: `0030_sprint14_source_reconciliation_statement_closure`
 - Docker policy: start only for QA, stop after QA.
 
 ## Delivered foundation
@@ -28,6 +29,10 @@ Foundation is accepted; closure remains IN_PROGRESS pending authenticated E2E an
 - Explicit journal and period command routes use granular permissions; self-approval remains denied.
 - Reversal request/approval creates a compensating journal and marks the original reversed only after the compensating journal posts.
 - Period close blocks unresolved posting candidates and non-terminal journals; Accounting control-center UI exposes books, periods, journals, posting queue, reports, open items and reconciliation states with loading/empty/error/permission/retry states.
+- Source posting worker resolves source payload/mapping versions, creates balanced journals exactly once, auto-posts only for configured AUTO_POST books, and moves missing/ambiguous mappings to REVIEW_REQUIRED.
+- POS/refund/stored-value/inventory/payroll/tip/platform source types are explicit adapter boundaries; source domain rows remain unchanged.
+- Bank account creation, CSV import, stable checksum/line fingerprints, match allocation, confirm/unmatch, reconciliation close and dual-control void commands are implemented.
+- Trial Balance includes opening/period/closing columns; P&L exposes revenue/contra-revenue/COGS/gross profit/operating expenses/operating profit; Balance Sheet includes current-period earnings in equity; statement snapshots have generated/approved/final transitions.
 
 ## Verification evidence
 
@@ -38,7 +43,14 @@ Foundation is accepted; closure remains IN_PROGRESS pending authenticated E2E an
 - Docker QA: PASS — fresh reset, rollback from 0029 to 0028, re-migrate, seed and targeted PostgreSQL closure integration (2 tests); Docker services stopped after QA.
 - Full integration runner: the Redis adapter close hook was added to remove the prior app-lifecycle hang; final CI must provide exact-run evidence.
 
+## Final closure QA
+
+- Docker QA: fresh reset, rollback from 0030 to 0029, re-migrate, seed and targeted PostgreSQL closure/source-bank integration passed; Docker services were stopped after QA.
+- Targeted QA result: source/reconciliation integration 2/2 and prior closure integration 2/2 passed; API/Worker typecheck, lint, build, contract tests and unit regression passed.
+- Authenticated E2E was added to CI and the transition-period SQL bind bug found during local QA was fixed before the final commit.
+- CI must provide the exact final commit evidence before BA/PO acceptance.
+
 ## QA still required
 
 - Authenticated E2E and full regression CI on the exact final commit.
-- Deeper source-adapter/bank reconciliation command E2E evidence remains a tracked closure risk; no Sprint 15 work is started.
+- Production bank-feed credentials, tax filing integration, provider sandboxes and production-scale soak remain technical debt; no Sprint 15 work is started.
