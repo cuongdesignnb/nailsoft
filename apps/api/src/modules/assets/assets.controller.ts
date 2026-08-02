@@ -37,15 +37,6 @@ export class AssetsController {
 
   @Get("") @RequirePermission("asset.register.read") assets(@Req() r:AuthenticatedRequest){return this.s.listAssets(r.auth).then(x=>ok(x,r));}
   @Post("") @RequirePermission("asset.register.create") createAsset(@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.createAsset(r.auth,b,key(k),rid(r)).then(x=>ok(x,r));}
-  @Get(":assetId") @RequirePermission("asset.register.read") asset(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.getAsset(r.auth,id).then(x=>ok(x,r));}
-  @Post(":assetId/activate") @RequirePermission("asset.register.manage") activateAsset(@Param("assetId") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.assetStatus(r.auth,id,"ACTIVE",b,key(k),rid(r)).then(x=>ok(x,r));}
-  @Post(":assetId/set-idle") @RequirePermission("asset.register.manage") idleAsset(@Param("assetId") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.assetStatus(r.auth,id,"IDLE",b,key(k),rid(r)).then(x=>ok(x,r));}
-  @Post(":assetId/request-retirement") @RequirePermission("asset.disposal.create") retireAsset(@Param("assetId") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.assetStatus(r.auth,id,"RETIRED",b,key(k),rid(r)).then(x=>ok(x,r));}
-  @Get(":assetId/history") @RequirePermission("asset.register.read") history(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.assetHistory(r.auth,id).then(x=>ok(x,r));}
-  @Get(":assetId/depreciation") @RequirePermission("asset.depreciation.read") depreciation(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.report(r.auth,"depreciation",{assetId:id}).then(x=>ok(x,r));}
-  @Get(":assetId/maintenance") @RequirePermission("asset.maintenance.read") maintenance(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.listWorkOrders(r.auth).then(x=>ok(x.filter((w:any)=>w.asset_id===id),r));}
-  @Get(":assetId/warranty") @RequirePermission("asset.warranty.read") warranty(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.listWarranties(r.auth,id).then(x=>ok(x,r));}
-
   @Get("capitalization-requests") @RequirePermission("asset.capitalization.read") caps(@Req() r:AuthenticatedRequest){return this.s.listCapitalizations(r.auth).then(x=>ok(x,r));}
   @Post("capitalization-requests") @RequirePermission("asset.capitalization.create") createCap(@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.createCapitalization(r.auth,b,key(k),rid(r)).then(x=>ok(x,r));}
   @Get("capitalization-requests/:id") @RequirePermission("asset.capitalization.read") cap(@Param("id") id:string,@Req() r:AuthenticatedRequest){return this.s.getCapitalization(r.auth,id).then(x=>ok(x,r));}
@@ -143,4 +134,12 @@ export class AssetsController {
   @Get("reports/procurement-reconciliation") @RequirePermission("asset.report.read") procurementReport(@Req() r:AuthenticatedRequest){return this.s.report(r.auth,"register",{}).then(x=>ok(x,r));}
   @Post("exports") @RequirePermission("asset.export") createExport(@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.createExport(r.auth,b,key(k),rid(r)).then(x=>ok(x,r));}
   @Get("exports/:id") @RequirePermission("asset.export") exportJob(@Param("id") id:string,@Req() r:AuthenticatedRequest){return this.s.getExport(r.auth,id).then(x=>ok(x,r));}
+  @Get(":assetId") @RequirePermission("asset.register.read") asset(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.getAsset(r.auth,id).then(x=>ok(x,r));}
+  @Post(":assetId/activate") @RequirePermission("asset.register.manage") activateAsset(@Param("assetId") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.assetStatus(r.auth,id,"ACTIVE",b,key(k),rid(r)).then(x=>ok(x,r));}
+  @Post(":assetId/set-idle") @RequirePermission("asset.register.manage") idleAsset(@Param("assetId") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.assetStatus(r.auth,id,"IDLE",b,key(k),rid(r)).then(x=>ok(x,r));}
+  @Post(":assetId/request-retirement") @RequirePermission("asset.disposal.create") retireAsset(@Param("assetId") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.assetStatus(r.auth,id,"RETIRED",b,key(k),rid(r)).then(x=>ok(x,r));}
+  @Get(":assetId/history") @RequirePermission("asset.register.read") history(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.assetHistory(r.auth,id).then(x=>ok(x,r));}
+  @Get(":assetId/depreciation") @RequirePermission("asset.depreciation.read") depreciation(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.report(r.auth,"depreciation",{assetId:id}).then(x=>ok(x,r));}
+  @Get(":assetId/maintenance") @RequirePermission("asset.maintenance.read") maintenance(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.listWorkOrders(r.auth).then(x=>ok(x.filter((w:any)=>w.asset_id===id),r));}
+  @Get(":assetId/warranty") @RequirePermission("asset.warranty.read") warranty(@Param("assetId") id:string,@Req() r:AuthenticatedRequest){return this.s.listWarranties(r.auth,id).then(x=>ok(x,r));}
 }
