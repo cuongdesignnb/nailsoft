@@ -2,7 +2,7 @@
 
 ## Status
 
-`IN_PROGRESS — FOUNDATION IMPLEMENTED; BA/PO ACCEPTANCE PENDING`
+`READY_FOR_BA_PO_ACCEPTANCE`
 
 ## Git
 
@@ -10,10 +10,11 @@
 - Migration: `0031_procurement_vendor_bills_accounts_payable`
 - Closure migration: `0032_sprint15_procurement_correctness_closure` (additive; migrations 0001–0031 unchanged)
 - Sprint 15 implementation commit: `c6dc17d21d1d671f1466365fef2e2364feb53c05`
-- Prior evidence commit: `4d0c32a9797ca9e6a3e5fe2e3277714db8b289c9`; exact closure evidence is pending.
-- CI run: `30702537849` — [GitHub Actions](https://github.com/cuongdesignnb/nailsoft/actions/runs/30702537849)
-- CI status: prior evidence `SUCCESS`; exact closure CI is pending.
-- HEAD equals origin/main at closure evidence commit: `PENDING`
+- Closure implementation commit: `90c5434a7d342529511548a01a7e35be27cb6e96`
+- Exact final evidence commit: `90c5434a7d342529511548a01a7e35be27cb6e96`
+- CI run: `30709409565` — [GitHub Actions](https://github.com/cuongdesignnb/nailsoft/actions/runs/30709409565)
+- CI status: `SUCCESS`
+- HEAD equals origin/main at exact evidence commit: `YES` (report-only update follows)
 - Sprint 16: not started
 - UX/UI redesign: deferred
 
@@ -38,27 +39,27 @@
 - Full contract suite: passed (8 tests).
 - Sprint 15 PostgreSQL invariant test: passed (1 test).
 - Dedicated Sprint 15 integration matrix added for request/PO, receipt inventory, bill match, AP reservations, credit/return, accounting source, bank evidence and authorization.
-- Authenticated procurement E2E, Owner Mobile smoke and procurement load-smoke lanes added to CI; final status awaits exact closure CI run.
+- Authenticated procurement E2E, Owner Mobile smoke and procurement load-smoke lanes: passed in exact closure CI.
 - Migration fresh: passed.
 - Migration rollback to 0030 and re-migrate: passed.
 - Seed/reset QA: passed after temporary Docker PostgreSQL QA configuration.
 - Docker QA services: stopped after verification; expected running service count is `0`.
-- Full Sprint 1–15 CI regression: prior run passed, including all load-smoke lanes, all six application builds, and Stop containers; closure rerun is pending.
+- Full Sprint 1–15 CI regression: passed in exact closure CI, including all load-smoke lanes, all six application builds, and Stop containers.
 - Previous run `30695219565` was cancelled by the 60-minute job timeout while `Sprint 13 platform billing load smoke` was running; no load assertion was skipped. The timeout was raised to 120 minutes in the evidence hotfix.
 
-## Remaining before closure
+## Remaining technical debt
 
-- Run exact closure CI on the final implementation commit, inspect all dedicated lanes and record the exact successful run.
 - Production provider credentials/sandbox soak remain production-readiness technical debt; provider calls are worker-owned and reconciliation is fail-closed.
 
 ## Handoff fields
 
 ```text
 SPRINT_15_IMPLEMENTATION_COMMIT=c6dc17d21d1d671f1466365fef2e2364feb53c05
-CLOSURE_IMPLEMENTATION_COMMIT=PENDING_COMMIT
-FINAL_EVIDENCE_COMMIT=PENDING_EXACT_CI_COMMIT
-CI_RUN_ID=PENDING_EXACT_CI_RUN
-CI_STATUS=PENDING
+CLOSURE_IMPLEMENTATION_COMMIT=90c5434a7d342529511548a01a7e35be27cb6e96
+FINAL_EVIDENCE_COMMIT=90c5434a7d342529511548a01a7e35be27cb6e96
+CI_RUN_ID=30709409565
+CI_STATUS=SUCCESS
+REPORT_ONLY_UPDATE=YES
 DOCKER_COMPOSE_RUNNING_SERVICES=0
 SPRINT_16_STARTED=NO
 ```
