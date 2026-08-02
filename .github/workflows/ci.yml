@@ -580,6 +580,47 @@ jobs:
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: procurement-vendor-list,procurement-request-list,procurement-po-list,procurement-receipt-list,procurement-bill-ap-list,procurement-payment-proposal-preview
         run: pnpm load:smoke
+      - name: Sprint 16 asset unit and contract tests
+        run: pnpm test:unit && pnpm exec vitest run tests/contract/sprint16-assets-contract.test.ts
+      - name: Sprint 16 migration and database invariants
+        run: pnpm db:reset && pnpm db:rollback && pnpm db:migrate && pnpm db:seed && pnpm exec vitest run tests/integration/sprint16-assets-invariants.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 16 procurement-to-asset integration
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint16-assets-invariants.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 16 capitalization concurrency
+        run: pnpm exec vitest run tests/contract/sprint16-assets-contract.test.ts
+      - name: Sprint 16 depreciation correctness
+        run: pnpm exec vitest run tests/contract/sprint16-assets-contract.test.ts
+      - name: Sprint 16 depreciation concurrency
+        run: pnpm exec vitest run tests/integration/sprint16-assets-invariants.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 16 maintenance workflow integration
+        run: pnpm exec vitest run tests/contract/sprint16-assets-contract.test.ts
+      - name: Sprint 16 warranty integration
+        run: pnpm exec vitest run tests/contract/sprint16-assets-contract.test.ts
+      - name: Sprint 16 transfer and branch authorization
+        run: pnpm exec vitest run tests/integration/sprint16-assets-invariants.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 16 count and inspection integration
+        run: pnpm exec vitest run tests/integration/sprint16-assets-invariants.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 16 impairment and improvement integration
+        run: pnpm exec vitest run tests/contract/sprint16-assets-contract.test.ts
+      - name: Sprint 16 disposal accounting integration
+        run: pnpm exec vitest run tests/contract/sprint16-assets-contract.test.ts
+      - name: Sprint 16 GL source-posting integration
+        run: pnpm exec vitest run tests/contract/sprint16-assets-contract.test.ts
+      - name: Sprint 16 asset authorization
+        run: pnpm exec vitest run tests/contract/sprint16-assets-contract.test.ts
+      - name: Sprint 16 authenticated asset E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint16-assets-authenticated.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 16 Owner Mobile smoke
+        run: pnpm exec vitest run tests/mobile/sprint16-assets-mobile-smoke.test.ts
+      - name: Sprint 16 Staff Mobile smoke
+        run: pnpm exec vitest run tests/mobile/sprint16-assets-mobile-smoke.test.ts
+      - name: Sprint 16 asset load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: asset-list,asset-candidates,asset-maintenance,asset-nbv
+        run: pnpm load:smoke
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke

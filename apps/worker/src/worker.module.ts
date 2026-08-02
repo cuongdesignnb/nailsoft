@@ -28,6 +28,7 @@ import { AccountingPostingProcessor } from "./accounting-posting.processor.js";
 import { AccountingPostingPoller } from "./accounting-posting.poller.js";
 import { VendorPaymentProcessor } from "./vendor-payment.processor.js";
 import { VendorPaymentPoller } from "./vendor-payment.poller.js";
+import { AssetProcessor } from "./asset.processor.js";
 
 @Module({
   providers: [
@@ -60,6 +61,7 @@ import { VendorPaymentPoller } from "./vendor-payment.poller.js";
     AccountingPostingPoller,
     VendorPaymentProcessor,
     VendorPaymentPoller,
+    AssetProcessor,
   ],
   exports: [OutboxRepository, OutboxEventRouter, OutboxProcessor],
 })

@@ -4963,6 +4963,29 @@ paths:
       parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
       responses: { '200': { description: Credit note applied to AP open item } }
 
+  /assets/categories:
+    get: { operationId: listAssetCategories, responses: { '200': { description: OK } } }
+    post: { operationId: createAssetCategory, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '201': { description: Created } } }
+  /assets/configuration/readiness:
+    get: { operationId: assetConfigurationReadiness, responses: { '200': { description: OK } } }
+  /assets/candidates:
+    get: { operationId: listAssetCandidates, responses: { '200': { description: OK } } }
+    post: { operationId: createAssetCandidate, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '201': { description: Created } } }
+  /assets/candidates/{id}/approve-capitalization:
+    post: { operationId: approveAssetCandidate, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { description: OK }, '409': { description: Conflict } } }
+  /assets:
+    get: { operationId: listAssets, responses: { '200': { description: OK } } }
+    post: { operationId: createAsset, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '201': { description: Created } } }
+  /assets/capitalization-requests/{id}/approve:
+    post: { operationId: approveCapitalization, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { description: OK }, '409': { description: Conflict } } }
+  /assets/depreciation-runs/{id}/post:
+    post: { operationId: postDepreciationRun, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { description: OK }, '409': { description: Conflict } } }
+  /assets/maintenance-work-orders/{id}/verify:
+    post: { operationId: verifyMaintenanceWorkOrder, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { description: OK }, '409': { description: Conflict } } }
+  /assets/transfers/{id}/receive:
+    post: { operationId: receiveAssetTransfer, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { description: OK }, '409': { description: Conflict } } }
+  /assets/reports/net-book-value:
+    get: { operationId: assetNetBookValueReport, responses: { '200': { description: OK } } }
 components:
   parameters:
     IdempotencyKey:

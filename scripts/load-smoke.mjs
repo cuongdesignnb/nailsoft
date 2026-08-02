@@ -676,6 +676,26 @@ const scenarios = [
         }),
       }),
   },
+  {
+    name: "asset-list",
+    setup: async (worker) => auth(`load-assets-${worker}`),
+    run: (state) => request("/v1/assets", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "asset-candidates",
+    setup: async (worker) => auth(`load-asset-candidates-${worker}`),
+    run: (state) => request("/v1/assets/candidates", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "asset-maintenance",
+    setup: async (worker) => auth(`load-asset-maintenance-${worker}`),
+    run: (state) => request("/v1/assets/reports/maintenance-due", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "asset-nbv",
+    setup: async (worker) => auth(`load-asset-nbv-${worker}`),
+    run: (state) => request("/v1/assets/reports/net-book-value", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
 ];
 
 const selected = new Set(

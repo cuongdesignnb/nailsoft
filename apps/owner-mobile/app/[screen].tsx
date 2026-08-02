@@ -81,8 +81,18 @@ const titles: Record<string, string> = {
   procurementBills: "Vendor bills and three-way match",
   procurementAp: "Accounts payable aging",
   procurementPayments: "Vendor payment approvals",
+  assetSummary: "Fixed asset summary",
+  assetApprovals: "Asset approvals",
+  assetMaintenance: "Maintenance due",
+  assetTransfers: "Asset transfers",
+  assetDisposals: "Disposal approvals",
 };
 function endpoint(screen: string, id?: string) {
+  if (screen === "assetSummary") return "/v1/assets/reports/net-book-value";
+  if (screen === "assetApprovals") return "/v1/assets/capitalization-requests";
+  if (screen === "assetMaintenance") return "/v1/assets/reports/maintenance-due";
+  if (screen === "assetTransfers") return "/v1/assets/transfers";
+  if (screen === "assetDisposals") return "/v1/assets/disposals";
   if (screen === "billingPlan" || screen === "billingWarnings")
     return "/v1/tenant/billing/subscription";
   if (screen === "billingQuotas") return "/v1/tenant/billing/entitlements";

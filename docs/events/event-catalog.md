@@ -1,17 +1,5 @@
-# Accounting event catalog
+# Sprint 16 event catalog
 
-| Event | Aggregate | Meaning |
-|---|---|---|
-| `accounting.journal.created` | journal | Draft journal created |
-| `accounting.journal.approved` | journal | Independent approval recorded |
-| `accounting.journal.posted` | journal | Balanced immutable journal posted |
-| `accounting.period.closed` | period | Close approval completed |
-| `accounting.opening_balance.posted` | opening balance | Cutover journal posted |
-| `accounting.bank.reconciled` | reconciliation | Reconciliation closed |
-| `accounting.journal.reversal_requested` | journal | Reversal approval requested |
-| `accounting.journal.reversal_created` | journal | Compensating journal created |
-| `accounting.journal.reversed` | journal | Original journal reversed after compensating post |
-| `accounting.period.pending_close` | period | Close requested with checklist evidence |
-| `accounting.period.reopened` | period | Dual-control reopen completed |
+`asset.candidate_created`, `asset.candidate_classified`, `asset.capitalization_requested`, `asset.capitalized`, `asset.depreciation_calculated`, `asset.depreciation_posted`, `asset.maintenance_work_order_created`, `asset.maintenance_completed`, `asset.maintenance_verified`, `asset.transfer_requested`, `asset.transfer_received`, `asset.count_opened`, `asset.inspection_completed`, `asset.impairment_posted`, `asset.improvement_capitalized`, `asset.disposed`.
 
-Payloads contain identifiers and fingerprints only; PostgreSQL remains the source of truth.
+Realtime payloads contain aggregate ID and refetch signal only; PostgreSQL remains the source of truth.

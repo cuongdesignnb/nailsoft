@@ -41,9 +41,15 @@ const titles: Record<string, string> = {
   timeClock: "My time clock",
   attendanceHistory: "My attendance history",
   myTimesheets: "My timesheets and corrections",
-  payStatements: "My pay statements",
+    payStatements: "My pay statements",
+    assetMaintenance: "Assigned maintenance",
+    assetInspection: "Assigned inspections",
+    assetTransfer: "Transfer tasks",
 };
-function pathFor(screen: string, id?: string) {
+  function pathFor(screen: string, id?: string) {
+  if (screen === "assetMaintenance") return "/v1/assets/maintenance-work-orders";
+  if (screen === "assetInspection") return "/v1/assets/inspections";
+  if (screen === "assetTransfer") return "/v1/assets/transfers";
   if (screen === "timeClock") return "/v1/staff/me/time-clock/status";
   if (screen === "attendanceHistory") return "/v1/staff/me/attendance";
   if (screen === "myTimesheets") return "/v1/staff/me/timesheets";
