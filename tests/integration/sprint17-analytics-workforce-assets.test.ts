@@ -1,0 +1,2 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest"; import { connection } from "./sprint17-analytics-test-utils"; const db=connection();
+describe("Sprint 17 workforce and asset analytics",()=>{beforeAll(()=>db.connect());afterAll(()=>db.end());it("exposes payroll and fixed asset measures as separate facts",async()=>{const w=await db.query("SELECT to_regclass('analytics_daily_staff_facts') staff,to_regclass('analytics_asset_facts') assets");expect(w.rows[0].staff).toBeTruthy();expect(w.rows[0].assets).toBeTruthy();});});

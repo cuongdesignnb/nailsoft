@@ -11,6 +11,36 @@ export const roles = [
 ] as const;
 export type Role = (typeof roles)[number];
 export type Locale = "vi-VN" | "en-US";
+
+export type AnalyticsFreshnessStatus = "FRESH" | "DELAYED" | "STALE" | "REBUILDING" | "DEGRADED";
+export type AnalyticsComparisonMode = "NONE" | "PREVIOUS_PERIOD" | "PREVIOUS_YEAR" | "CUSTOM_RANGE";
+export interface AnalyticsMetadata {
+  asOf: string;
+  timezone: string;
+  currency: string;
+  metricVersion: number;
+  projectionRevision: number;
+  lastSuccessfulRefreshAt: string | null;
+  freshnessStatus: AnalyticsFreshnessStatus;
+  lagSeconds: number | null;
+}
+export interface AnalyticsKpiSummary {
+  gross_sales_minor: string;
+  discount_minor: string;
+  net_sales_minor: string;
+  tax_collected_minor: string;
+  tips_minor: string;
+  payments_collected_minor: string;
+  completed_appointments: string;
+  bookings_created: string;
+}
+export interface AnalyticsCommandCenterResponse {
+  kpis: AnalyticsKpiSummary;
+  trend: Array<{ businessDate: string; branchId: string; netSalesMinor: string }>;
+  branches: Array<{ branchId: string; branchName: string; netSalesMinor: string }>;
+  alerts: unknown[];
+  metadata: AnalyticsMetadata;
+}
 export function currencyMinorUnit(currency: string): number {
   const normalized = currency.trim().toUpperCase();
   if (["VND", "JPY", "KRW"].includes(normalized)) return 0;

@@ -1,0 +1,2 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest"; import { connection } from "./sprint17-analytics-test-utils"; const db=connection();
+describe("Sprint 17 rebuild concurrency",()=>{beforeAll(()=>db.connect());afterAll(()=>db.end());it("has one immutable checkpoint per tenant/projector",async()=>{const r=await db.query<any>("SELECT tenant_id,projector_name,count(*)::int count FROM analytics_projection_checkpoints GROUP BY tenant_id,projector_name HAVING count(*)>1");expect(r.rows).toHaveLength(0);});});

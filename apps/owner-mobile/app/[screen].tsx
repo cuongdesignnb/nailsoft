@@ -15,6 +15,9 @@ import { api, apiFetch, getSession } from "../lib/session";
 const branch = "20000000-0000-4000-8000-000000000001",
   service = "50000000-0000-4000-8000-000000000001";
 const titles: Record<string, string> = {
+  analyticsOverview: "Business intelligence overview",
+  analyticsBranches: "Branch comparison",
+  analyticsAlerts: "Analytics alerts",
   appointmentsToday: "Appointments today",
   appointments: "Appointment list",
   appointment: "Appointment detail",
@@ -88,6 +91,9 @@ const titles: Record<string, string> = {
   assetDisposals: "Disposal approvals",
 };
 function endpoint(screen: string, id?: string) {
+  if (screen === "analyticsOverview") return "/v1/analytics/command-center";
+  if (screen === "analyticsBranches") return "/v1/analytics/branches/compare";
+  if (screen === "analyticsAlerts") return "/v1/analytics/alerts";
   if (screen === "assetSummary") return "/v1/assets/reports/net-book-value";
   if (screen === "assetApprovals") return "/v1/assets/capitalization-requests";
   if (screen === "assetMaintenance") return "/v1/assets/reports/maintenance-due";

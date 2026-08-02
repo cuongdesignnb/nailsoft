@@ -696,6 +696,36 @@ const scenarios = [
     setup: async (worker) => auth(`load-asset-nbv-${worker}`),
     run: (state) => request("/v1/assets/reports/net-book-value", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
   },
+  {
+    name: "analytics-command-center",
+    setup: async (worker) => auth(`load-analytics-center-${worker}`),
+    run: (state) => request("/v1/analytics/command-center?from=2026-08-01&to=2026-08-31", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "analytics-revenue-trend",
+    setup: async (worker) => auth(`load-analytics-trend-${worker}`),
+    run: (state) => request("/v1/analytics/trends?from=2026-08-01&to=2026-08-31", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "analytics-branch-compare",
+    setup: async (worker) => auth(`load-analytics-branch-${worker}`),
+    run: (state) => request("/v1/analytics/branches/compare?from=2026-08-01&to=2026-08-31", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "analytics-staff-performance",
+    setup: async (worker) => auth(`load-analytics-staff-${worker}`),
+    run: (state) => request("/v1/analytics/staff?from=2026-08-01&to=2026-08-31", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "analytics-data-quality",
+    setup: async (worker) => auth(`load-analytics-quality-${worker}`),
+    run: (state) => request("/v1/analytics/data-quality", { headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId } }),
+  },
+  {
+    name: "analytics-export-create",
+    setup: async (worker) => auth(`load-analytics-export-${worker}`),
+    run: (state) => request("/v1/analytics/exports", { method: "POST", headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId, "idempotency-key": `load-analytics-export-${worker}` }, body: JSON.stringify({ exportType: "COMMAND_CENTER", filters: { from: "2026-08-01", to: "2026-08-31" } }) }),
+  },
 ];
 
 const selected = new Set(

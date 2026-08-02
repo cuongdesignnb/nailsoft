@@ -114,6 +114,9 @@ export default function Home() {
               : "Session unavailable."}
           </Text>
           {[
+            "analyticsOverview",
+            "analyticsBranches",
+            "analyticsAlerts",
             "attendanceSummary",
             "missingPunchAlerts",
             "timesheetApprovals",

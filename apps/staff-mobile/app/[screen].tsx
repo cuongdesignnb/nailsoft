@@ -16,6 +16,7 @@ import { api, apiFetch, getSession } from "../lib/session";
 const branch = "20000000-0000-4000-8000-000000000001",
   service = "50000000-0000-4000-8000-000000000001";
 const titles: Record<string, string> = {
+  myPerformance: "My performance",
   upcomingAppointments: "My upcoming appointments",
   appointment: "My appointment detail",
   profile: "My profile",
@@ -47,6 +48,7 @@ const titles: Record<string, string> = {
     assetTransfer: "Transfer tasks",
 };
   function pathFor(screen: string, id?: string) {
+  if (screen === "myPerformance") return "/v1/analytics/staff/me";
   if (screen === "assetMaintenance") return "/v1/assets/maintenance-work-orders";
   if (screen === "assetInspection") return "/v1/assets/inspections";
   if (screen === "assetTransfer") return "/v1/assets/transfers";

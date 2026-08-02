@@ -1,0 +1,2 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest"; import { connection } from "./sprint17-analytics-test-utils"; const db=connection();
+describe("Sprint 17 analytics authorization",()=>{beforeAll(()=>db.connect());afterAll(()=>db.end());it("requires tenant ownership on fact rows",async()=>{const r=await db.query<any>("SELECT count(*)::int count FROM analytics_daily_branch_facts f LEFT JOIN branches b ON b.tenant_id=f.tenant_id AND b.id=f.branch_id WHERE b.id IS NULL");expect(r.rows[0].count).toBe(0);});});

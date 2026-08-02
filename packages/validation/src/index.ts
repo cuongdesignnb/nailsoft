@@ -53,6 +53,21 @@ export const manualPayoutEvidenceSchema = z
   })
   .strict();
 export const uuidSchema = z.string().uuid();
+export const analyticsDateRangeSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  branchIds: z.union([uuidSchema, z.array(uuidSchema)]).optional(),
+  staffId: uuidSchema.optional(),
+  serviceId: uuidSchema.optional(),
+  comparisonMode: z.enum(["NONE", "PREVIOUS_PERIOD", "PREVIOUS_YEAR", "CUSTOM_RANGE"]).optional(),
+  comparisonFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  comparisonTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  granularity: z.enum(["DAY", "WEEK", "MONTH"]).optional(),
+  currency: z.string().length(3).optional(),
+});
+export const analyticsTargetSchema = z.object({ metricKey: z.string().min(1).max(120), branchId: uuidSchema.optional(), periodStart: z.string(), periodEnd: z.string(), targetValue: z.union([z.string(), z.number()]), currency: z.string().length(3).optional() });
+export const analyticsAlertRuleSchema = z.object({ metricKey: z.string().min(1).max(120), branchId: uuidSchema.optional(), operator: z.enum(["LT", "LTE", "GT", "GTE", "EQ"]), threshold: z.union([z.string(), z.number()]), cooldownMinutes: z.number().int().min(0).max(10080).optional() });
+export const analyticsExportSchema = z.object({ exportType: z.string().min(1), filters: z.record(z.string(), z.unknown()).optional(), branchIds: z.array(uuidSchema).optional() });
 export const tenantContextSchema = z.object({
   tenantId: uuidSchema,
   branchId: uuidSchema.optional(),

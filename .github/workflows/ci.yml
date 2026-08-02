@@ -621,6 +621,39 @@ jobs:
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: asset-list,asset-candidates,asset-maintenance,asset-nbv
         run: pnpm load:smoke
+      - name: Sprint 17 analytics unit and contract tests
+        run: pnpm test:unit && pnpm test:contract && pnpm exec vitest run apps/api/test/sprint17-analytics-domain.test.ts
+      - name: Sprint 17 migration rollback and database invariants
+        run: pnpm db:reset && pnpm db:rollback && pnpm db:migrate && pnpm db:seed && pnpm exec vitest run tests/integration/sprint17-analytics-projection.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 17 projection idempotency and replay
+        run: pnpm exec vitest run tests/integration/sprint17-analytics-projection.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 17 financial metric correctness
+        run: pnpm exec vitest run tests/integration/sprint17-analytics-financial-semantics.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 17 booking and utilization correctness
+        run: pnpm exec vitest run tests/integration/sprint17-analytics-booking-utilization.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 17 customer retention correctness
+        run: pnpm exec vitest run tests/integration/sprint17-analytics-customer-retention.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 17 inventory procurement workforce and asset analytics
+        run: pnpm exec vitest run tests/integration/sprint17-analytics-inventory-procurement.test.ts tests/integration/sprint17-analytics-workforce-assets.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 17 rebuild and refresh concurrency
+        run: pnpm exec vitest run tests/integration/sprint17-analytics-rebuild-concurrency.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 17 analytics authorization
+        run: pnpm exec vitest run tests/integration/sprint17-analytics-authorization.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 17 alert and export integration
+        run: pnpm exec vitest run tests/integration/sprint17-analytics-alert-export.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 17 authenticated analytics E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint17-analytics-authenticated.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 17 Owner Mobile smoke
+        run: pnpm exec vitest run tests/mobile/sprint17-analytics-mobile-smoke.test.ts
+      - name: Sprint 17 Staff Mobile smoke
+        run: pnpm exec vitest run tests/mobile/sprint17-analytics-mobile-smoke.test.ts
+      - name: Sprint 17 analytics load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: analytics-command-center,analytics-revenue-trend,analytics-branch-compare,analytics-staff-performance,analytics-data-quality,analytics-export-create
+        run: pnpm load:smoke
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke
