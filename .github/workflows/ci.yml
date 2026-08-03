@@ -15,7 +15,11 @@ jobs:
     # Full Sprint 1-15 regression intentionally runs serial database resets,
     # authenticated E2E and every load-smoke lane. Keep the assertions and
     # load steps unchanged; allow enough wall-clock time for the complete job.
-    timeout-minutes: 120
+    # The deterministic serial regression plus authenticated E2E, three
+    # PostgreSQL restore drills and supply-chain gates can exceed two hours on
+    # a shared runner. Keep every lane intact and give the full job enough
+    # budget to finish rather than converting a healthy run into CANCELLED.
+    timeout-minutes: 180
     services:
       postgres:
         image: postgres:16-alpine

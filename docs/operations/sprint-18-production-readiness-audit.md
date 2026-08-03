@@ -26,6 +26,10 @@ Audit started from `9faadc8c22b6eed536de88afa06aa7d8df7dbf7c` on `main`. Sprint 
 
 The dependency gate uses patched resolutions for Next.js, sharp, fast-uri, find-my-way, @fastify/static, PostCSS and brace-expansion. Two moderate advisories remain and are tracked for the next dependency maintenance window; no high/critical finding is allowlisted.
 
+## CI cancellation triage
+
+Run `30803780278` on `f3cccbc048704f33ad6751500a76d3859ca83ea4` was cancelled at `2026-08-03T12:00:43Z` after starting at `2026-08-03T10:00:23Z`. The two-hour wall-clock boundary matches the former `timeout-minutes: 120`; no failed assertion was recorded, and the cleanup step completed successfully. The workflow budget is raised to 180 minutes so the complete serial regression, authenticated E2E, restore drills and supply-chain gates can finish without skipping lanes. This is a runtime budget correction, not a test reduction.
+
 ## Stop/go gates
 
 The release remains **not ready for production go-live** until a staging operator records: successful restore drill, RPO/RTO evidence, alert delivery test, vulnerability triage, secret rotation rehearsal and authenticated smoke/load results.
