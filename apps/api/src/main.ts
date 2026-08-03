@@ -34,9 +34,15 @@ export async function createApp() {
   );
   app.setGlobalPrefix("v1");
   await app.register(fastifyCookie);
+  const corsOrigins = allowedOrigins();
   app.enableCors({
-    origin: allowedOrigins(),
-    credentials: true,
+    // Resolve both headers per request. An unknown Origin receives neither an
+    // allow-origin nor an allow-credentials response.
+    delegator: (request, callback) => {
+      const origin = request.headers.origin;
+      const allowed = origin == null || corsOrigins.includes(origin);
+      callback(null, { origin: allowed ? (origin ?? true) : false, credentials: allowed });
+    },
   });
   app.enableShutdownHooks();
   app.useGlobalFilters(new ApiExceptionFilter());
@@ -53,6 +59,9 @@ export async function createApp() {
     const supplied = request.headers["x-request-id"];
     const requestId = typeof supplied === "string" && /^[a-zA-Z0-9._:-]{1,128}$/.test(supplied) ? supplied : randomUUID();
     reply.header("x-request-id", requestId);
+    const suppliedCorrelation = request.headers["x-correlation-id"];
+    const correlationId = typeof suppliedCorrelation === "string" && /^[a-zA-Z0-9._:-]{1,128}$/.test(suppliedCorrelation) ? suppliedCorrelation : requestId;
+    reply.header("x-correlation-id", correlationId);
     const decision = rateLimitDecision(`${request.ip}:${isSensitiveRoute(request.url) ? "sensitive" : "standard"}`, isSensitiveRoute(request.url) ? 60 : 600);
     reply.header("x-ratelimit-limit", decision.limit);
     reply.header("x-ratelimit-remaining", decision.remaining);
@@ -68,6 +77,10 @@ export async function createApp() {
     reply.header("permissions-policy", "camera=(), microphone=(), geolocation=()");
     reply.header("content-security-policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
     if (runtimeConfig.NODE_ENV === "production") reply.header("strict-transport-security", "max-age=31536000; includeSubDomains");
+  });
+  server.addHook("onSend", async (request: FastifyRequest, reply: FastifyReply) => {
+    const origin = request.headers.origin;
+    if (origin && !corsOrigins.includes(origin)) reply.removeHeader("access-control-allow-credentials");
   });
   server.addHook("onResponse", async (_request: FastifyRequest, reply: FastifyReply) => {
     observability.recordRequest(reply.statusCode);

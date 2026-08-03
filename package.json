@@ -25,6 +25,7 @@
     "db:restore": "node scripts/restore.mjs",
     "db:integrity": "node scripts/integrity-check.mjs",
     "security:scan": "node scripts/security-scan.mjs",
+    "security:evidence": "node scripts/supply-chain-audit.mjs",
     "release:manifest": "node scripts/generate-release-manifest.mjs",
     "release:sbom": "node scripts/generate-sbom.mjs",
     "format:check": "prettier --check ."

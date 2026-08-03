@@ -659,9 +659,38 @@ jobs:
       - name: Sprint 18 tenant and request security static scan
         run: pnpm security:scan
       - name: Sprint 18 health migration and backup controls
-        run: pnpm exec vitest run tests/integration/sprint18-production-controls.test.ts && node --check scripts/backup.mjs scripts/restore.mjs scripts/integrity-check.mjs scripts/generate-release-manifest.mjs scripts/generate-sbom.mjs scripts/security-scan.mjs
+        run: pnpm exec vitest run tests/integration/sprint18-production-controls.test.ts && node --check scripts/backup.mjs scripts/restore.mjs scripts/integrity-check.mjs scripts/generate-release-manifest.mjs scripts/generate-sbom.mjs scripts/security-scan.mjs scripts/verify-backup-restore.mjs scripts/supply-chain-audit.mjs
       - name: Sprint 18 release manifest and SBOM
         run: pnpm release:manifest && pnpm release:sbom
+      - name: Sprint 18 security resilience and observability integration
+        run: >-
+          pnpm db:reset && pnpm db:seed && pnpm exec vitest run
+          tests/integration/sprint18-auth-session-hardening.test.ts
+          tests/integration/sprint18-tenant-branch-idor.test.ts
+          tests/integration/sprint18-security-headers-cors.test.ts
+          tests/integration/sprint18-rate-limit-abuse.test.ts
+          tests/integration/sprint18-log-redaction.test.ts
+          tests/integration/sprint18-graceful-shutdown.test.ts
+          tests/integration/sprint18-worker-recovery.test.ts
+          tests/integration/sprint18-observability-alerts.test.ts
+          --maxWorkers=1 --minWorkers=1
+      - name: Install PostgreSQL client for Sprint 18 restore drill
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Sprint 18 backup restore and integrity drill
+        shell: bash
+        run: |
+          set -euo pipefail
+          for repeat in 1 2 3; do
+            pnpm db:reset
+            pnpm db:seed
+            SPRINT18_DRILL_NAMESPACE="ci-${GITHUB_RUN_ID}-${repeat}" pnpm exec node scripts/verify-backup-restore.mjs 2>&1 | tee "sprint18-backup-restore-${repeat}.log"
+            grep -q '"BACKUP_RESTORE_DRILL":"PASS"' "sprint18-backup-restore-${repeat}.log"
+          done
+          grep -q '"BACKUP_RESTORE_DRILL":"PASS"' sprint18-backup-restore-1.log
+          grep -q '"BACKUP_RESTORE_DRILL":"PASS"' sprint18-backup-restore-2.log
+          grep -q '"BACKUP_RESTORE_DRILL":"PASS"' sprint18-backup-restore-3.log
+      - name: Sprint 18 supply chain evidence gates
+        run: pnpm security:evidence
       - name: Sprint 18 authenticated security E2E
         run: pnpm exec playwright test tests/e2e/sprint18-production-security.spec.ts tests/e2e/sprint18-production-smoke.spec.ts --config=playwright.api.config.ts
       - name: Sprint 18 production-readiness load smoke
