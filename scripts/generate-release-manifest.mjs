@@ -1,0 +1,10 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const run = promisify(execFile);
+const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+const { stdout: sha } = await run("git", ["rev-parse", "HEAD"]);
+const manifest = { schemaVersion: "1.0", name: packageJson.name, version: packageJson.version, commitSha: process.env.COMMIT_SHA ?? sha.trim(), buildTimestamp: process.env.BUILD_TIMESTAMP ?? new Date().toISOString(), node: process.version, migrationHead: process.env.MIGRATION_HEAD ?? "unknown", artifactPolicy: "No secrets or customer data" };
+await mkdir("artifacts/sprint18", { recursive: true });
+await writeFile("artifacts/sprint18/release-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify(manifest)}\n`);

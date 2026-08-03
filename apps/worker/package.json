@@ -4,14 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nest start --watch",
-    "build": "nest build",
+    "dev": "pnpm --filter @nailsoft/config build && nest start --watch",
+    "build": "pnpm --filter @nailsoft/config build && nest build",
     "start": "node dist/main.js",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --root ../.. apps/worker/src"
   },
   "dependencies": {
+    "@nailsoft/config": "workspace:*",
     "@socket.io/redis-emitter": "^5.1.0",
     "@nestjs/common": "^11.1.3",
     "@nestjs/core": "^11.1.3",

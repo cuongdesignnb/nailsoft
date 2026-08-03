@@ -1,0 +1,13 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const run = promisify(execFile);
+const { stdout } = await run("pnpm", ["list", "--json", "--depth", "0"], { windowsHide: true });
+const projects = JSON.parse(stdout);
+const roots = Array.isArray(projects) ? projects : [projects];
+const components = [];
+for (const root of roots) for (const [name, info] of Object.entries(root.dependencies ?? {})) components.push({ type: "library", name, version: info.version ?? "unknown", scope: "required" });
+const sbom = { bomFormat: "CycloneDX", specVersion: "1.5", version: 1, metadata: { timestamp: new Date().toISOString(), tools: [{ vendor: "Nailsoft", name: "generate-sbom" }] }, components };
+await mkdir("artifacts/sprint18", { recursive: true });
+await writeFile("artifacts/sprint18/sbom.cyclonedx.json", `${JSON.stringify(sbom, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify({ components: components.length, path: "artifacts/sprint18/sbom.cyclonedx.json" })}\n`);

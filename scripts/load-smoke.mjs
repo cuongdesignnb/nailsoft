@@ -53,6 +53,7 @@ async function authAs(deviceId, actorEmail) {
 const scenarios = [
   { name: "health", run: () => request("/v1/health") },
   { name: "ready", run: () => request("/v1/ready") },
+  { name: "version", run: () => request("/v1/version") },
   {
     name: "login",
     run: (_, worker) =>

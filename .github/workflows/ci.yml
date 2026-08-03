@@ -654,6 +654,23 @@ jobs:
           LOAD_CONCURRENCY: 2
           LOAD_SCENARIOS: analytics-command-center,analytics-revenue-trend,analytics-branch-compare,analytics-staff-performance,analytics-data-quality,analytics-export-create
         run: pnpm load:smoke
+      - name: Sprint 18 environment fail-closed and runtime security
+        run: pnpm exec vitest run packages/config/src/index.test.ts apps/api/test/sprint18-runtime-security.test.ts
+      - name: Sprint 18 tenant and request security static scan
+        run: pnpm security:scan
+      - name: Sprint 18 health migration and backup controls
+        run: pnpm exec vitest run tests/integration/sprint18-production-controls.test.ts && node --check scripts/backup.mjs scripts/restore.mjs scripts/integrity-check.mjs scripts/generate-release-manifest.mjs scripts/generate-sbom.mjs scripts/security-scan.mjs
+      - name: Sprint 18 release manifest and SBOM
+        run: pnpm release:manifest && pnpm release:sbom
+      - name: Sprint 18 authenticated security E2E
+        run: pnpm exec playwright test tests/e2e/sprint18-production-security.spec.ts tests/e2e/sprint18-production-smoke.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 18 production-readiness load smoke
+        env:
+          LOAD_DURATION_SECONDS: 2
+          LOAD_WARMUP_SECONDS: 1
+          LOAD_CONCURRENCY: 2
+          LOAD_SCENARIOS: health,ready,version
+        run: pnpm load:smoke
       - name: Sprint 8 Owner and Staff Mobile contract smoke
         run: pnpm exec vitest run tests/mobile/sprint8-mobile-smoke.test.ts
       - name: Sprint 9 Owner and Staff Mobile contract smoke

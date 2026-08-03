@@ -1,4 +1,4 @@
-const sensitive = /^(password|code|otp|token|accessToken|refreshToken|mfaToken|secret|secret_encrypted|recoveryCodes|cookie|authorization)$/i;
+const sensitive = /^(password|passcode|code|otp|token|accessToken|refreshToken|mfaToken|secret|secret_encrypted|recoveryCodes|cookie|authorization|api[-_]?key|client[-_]?secret|private[-_]?key|signature|webhook[-_]?secret)$/i;
 
 export function redactSensitive(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactSensitive);
