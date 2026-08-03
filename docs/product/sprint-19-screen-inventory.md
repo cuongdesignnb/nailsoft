@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
-Start checkpoint: `2c9f1ecbec44bf561457b305bd8e727d08b72dea`  
-Current phase: Wave 0 only  
+Start checkpoint: `2c9f1ecbec44bf561457b305bd8e727d08b72dea`
+Current phase: Wave 0 only
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
