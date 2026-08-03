@@ -2,18 +2,27 @@ let accessToken: string | undefined;
 let tenantId: string | undefined;
 let activeBranchId: string | undefined;
 import type { AuthContext } from "@nailsoft/domain-types";
-const api =
-  process.env.NEXT_PUBLIC_API_URL ??
-  (typeof window !== "undefined" && window.location.hostname === "127.0.0.1"
-    ? "http://127.0.0.1:3001"
-    : "http://localhost:3001");
+const configuredApi = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+/** Keep web cookies first-party when the E2E/browser host aliases localhost and 127.0.0.1. */
+function apiBaseUrl() {
+  if (typeof window === "undefined") return configuredApi;
+  try {
+    const url = new URL(configuredApi);
+    if (window.location.hostname === "localhost" && url.hostname === "127.0.0.1") url.hostname = "localhost";
+    if (window.location.hostname === "127.0.0.1" && url.hostname === "localhost") url.hostname = "127.0.0.1";
+    return url.origin;
+  } catch {
+    return configuredApi;
+  }
+}
 const csrf = () =>
   document.cookie
     .split("; ")
     .find((value) => value.startsWith("csrfToken="))
     ?.split("=")[1];
 export async function login(input: { email: string; password: string }) {
-  const response = await fetch(`${api}/v1/auth/login`, {
+  const response = await fetch(`${apiBaseUrl()}/v1/auth/login`, {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
@@ -36,7 +45,7 @@ export async function selectWorkspace(
   workspaceToken: string,
   membershipId: string,
 ) {
-  const response = await fetch(`${api}/v1/auth/select-workspace`, {
+  const response = await fetch(`${apiBaseUrl()}/v1/auth/select-workspace`, {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
@@ -78,7 +87,7 @@ export function getActiveBranchId() {
   return activeBranchId;
 }
 async function performRestore() {
-  const response = await fetch(`${api}/v1/auth/refresh`, {
+  const response = await fetch(`${apiBaseUrl()}/v1/auth/refresh`, {
     method: "POST",
     credentials: "include",
     headers: {
@@ -103,7 +112,7 @@ export async function authorizedFetch(path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${accessToken}`);
   if (tenantId) headers.set("x-tenant-id", tenantId);
-  let response = await fetch(`${api}${path}`, {
+  let response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
     headers,
     credentials: "include",
@@ -111,7 +120,7 @@ export async function authorizedFetch(path: string, init: RequestInit = {}) {
   if (response.status === 401 && (await restore())) {
     headers.set("authorization", `Bearer ${accessToken}`);
     headers.set("x-tenant-id", tenantId ?? "");
-    response = await fetch(`${api}${path}`, {
+    response = await fetch(`${apiBaseUrl()}${path}`, {
       ...init,
       headers,
       credentials: "include",
@@ -125,6 +134,6 @@ export function clearMemory() {
   activeBranchId = undefined;
 }
 export function activeSession() {
-  return { accessToken, tenantId, api };
+  return { accessToken, tenantId, api: apiBaseUrl() };
 }
 import { createRefreshSingleFlight } from "@nailsoft/api-client";
