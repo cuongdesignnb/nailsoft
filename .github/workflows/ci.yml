@@ -316,6 +316,10 @@ jobs:
         run: pnpm exec vitest run tests/integration/sprint3-closure-outbox.test.ts
       - name: API contract tests
         run: pnpm test:contract
+      - name: Sprint 19 Wave 0 localization and navigation contracts
+        run: pnpm test:contract --run tests/contract/sprint19-mojibake-contract.test.ts tests/contract/sprint19-auth-context-contract.test.ts tests/contract/sprint19-navigation-registry.test.ts
+      - name: Sprint 19 Wave 0 mobile shell smoke
+        run: pnpm exec vitest run tests/mobile/sprint19-wave0-mobile-shell.test.ts
       - name: Reset deterministic E2E fixture
         run: pnpm db:reset && pnpm db:seed
       - name: Install Playwright Chromium
@@ -346,6 +350,8 @@ jobs:
           tests/e2e/sprint3-closure-outbox-realtime.spec.ts
           tests/e2e/sprint3-closure-websocket-security.spec.ts
           tests/e2e/sprint4-booking-ui.spec.ts
+      - name: Sprint 19 Wave 0 authenticated gallery, responsive and accessibility E2E
+        run: pnpm exec playwright test tests/e2e/sprint19-wave0-shell.spec.ts
       - name: Sprint 4 Booking Web policy and multi-service E2E
         run: pnpm exec playwright test tests/e2e/sprint4-booking-ui.spec.ts
       - name: Sprint 3 closure authenticated E2E

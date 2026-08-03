@@ -10,6 +10,7 @@ import { UserService } from "./user.service.js";
 import { IdentityLifecycleController } from "./identity-lifecycle.controller.js";
 import { IdentityLifecycleService } from "./identity-lifecycle.service.js";
 import { SessionAuthorizationService } from "./session-authorization.service.js";
+import { AuthContextService } from "./auth-context.service.js";
 @Module({
   controllers: [AuthController, UserController, IdentityLifecycleController],
   providers: [
@@ -21,6 +22,7 @@ import { SessionAuthorizationService } from "./session-authorization.service.js"
     UserService,
     IdentityLifecycleService,
     SessionAuthorizationService,
+    AuthContextService,
   ],
   exports: [
     AuthGuard,

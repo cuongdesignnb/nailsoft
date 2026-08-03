@@ -57,6 +57,25 @@ export interface ApiSuccess<T> {
   data: T;
   meta: { requestId: string; timestamp: string };
 }
+
+export interface AuthContext {
+  user: { id: string; displayName: string; locale: Locale };
+  workspace: {
+    tenantId: string;
+    tenantName: string;
+    tenantSlug: string;
+    membershipId: string;
+    accessMode: string;
+  };
+  authorization: {
+    roles: Role[];
+    permissions: string[];
+    branchIds: string[];
+    ownStaffId?: string;
+  };
+  branches: Array<{ id: string; name: string; status: string }>;
+  supportAccess?: { grantId: string; permissions: string[]; branchIds: string[] };
+}
 export interface ApiFailure {
   success: false;
   error: { code: string; message: string; details?: unknown };

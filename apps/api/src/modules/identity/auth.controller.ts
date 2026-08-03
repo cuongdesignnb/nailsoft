@@ -20,12 +20,14 @@ import { DatabaseService } from "../../infrastructure/database.service.js";
 import { AuthGuard } from "./auth.guard.js";
 import { AuthService } from "./auth.service.js";
 import type { AuthenticatedRequest } from "./auth.types.js";
+import { AuthContextService } from "./auth-context.service.js";
 @ApiTags("authentication")
 @Controller("auth")
 export class AuthController {
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(AuthContextService) private readonly contexts: AuthContextService,
   ) {}
   @Post("login")
   @HttpCode(200)
@@ -105,6 +107,13 @@ export class AuthController {
       [req.auth.membershipId, req.auth.userId, req.auth.sessionId],
     );
     return this.ok(result.rows, req.raw.requestId);
+  }
+  @Get("context")
+  @UseGuards(AuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Return the authenticated UI context and effective permissions" })
+  async context(@Req() req: AuthenticatedRequest) {
+    return this.ok(await this.contexts.get(req.auth), req.raw.requestId);
   }
   @Post("sessions/:id/revoke")
   @UseGuards(AuthGuard)

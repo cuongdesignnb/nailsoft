@@ -1175,6 +1175,25 @@ paths:
         summary: List own active device sessions,
         responses: { "200": { description: Sessions } },
       }
+  /auth/context:
+    get:
+      {
+        tags: [authentication],
+        summary: Read authenticated UI context and effective permissions,
+        responses:
+          {
+            "200":
+              {
+                description: Tenant-scoped UI context,
+                content:
+                  {
+                    application/json:
+                      { schema: { $ref: "#/components/schemas/AuthContextResponse" } },
+                  },
+              },
+            "401": { description: Authentication required },
+          },
+      }
   /auth/select-workspace:
     post:
       {
@@ -5904,6 +5923,56 @@ components:
         startAt: { type: string, format: date-time }
         endAt: { type: string, format: date-time }
         reason: { type: string, nullable: true }
+    AuthContextResponse:
+      type: object
+      required: [success, data, meta]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [user, workspace, authorization, branches]
+          properties:
+            user:
+              type: object
+              required: [id, displayName, locale]
+              properties:
+                id: { type: string, format: uuid }
+                displayName: { type: string }
+                locale: { enum: [vi-VN, en-US] }
+            workspace:
+              type: object
+              required: [tenantId, tenantName, tenantSlug, membershipId, accessMode]
+              properties:
+                tenantId: { type: string, format: uuid }
+                tenantName: { type: string }
+                tenantSlug: { type: string }
+                membershipId: { type: string, format: uuid }
+                accessMode: { type: string }
+            authorization:
+              type: object
+              required: [roles, permissions, branchIds]
+              properties:
+                roles: { type: array, items: { type: string } }
+                permissions: { type: array, items: { type: string } }
+                branchIds: { type: array, items: { type: string, format: uuid } }
+                ownStaffId: { type: string, format: uuid }
+            branches:
+              type: array
+              items:
+                type: object
+                required: [id, name, status]
+                properties:
+                  id: { type: string, format: uuid }
+                  name: { type: string }
+                  status: { type: string }
+            supportAccess:
+              type: object
+              required: [grantId, permissions, branchIds]
+              properties:
+                grantId: { type: string, format: uuid }
+                permissions: { type: array, items: { type: string } }
+                branchIds: { type: array, items: { type: string, format: uuid } }
+        meta: { $ref: "#/components/schemas/Meta" }
     HealthResponse:
       type: object
       required: [success, data, meta]

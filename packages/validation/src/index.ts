@@ -1,4 +1,16 @@
 import { z } from "zod";
+export const authContextSchema = z.object({
+  user: z.object({ id: z.string().uuid(), displayName: z.string(), locale: z.enum(["vi-VN", "en-US"]) }),
+  workspace: z.object({ tenantId: z.string().uuid(), tenantName: z.string(), tenantSlug: z.string(), membershipId: z.string().uuid(), accessMode: z.string() }),
+  authorization: z.object({
+    roles: z.array(z.enum(["PLATFORM_SUPER_ADMIN", "SALON_OWNER", "BRANCH_MANAGER", "RECEPTIONIST", "NAIL_TECHNICIAN", "CASHIER", "ACCOUNTANT", "MARKETING", "CUSTOMER"])),
+    permissions: z.array(z.string()),
+    branchIds: z.array(z.string().uuid()),
+    ownStaffId: z.string().uuid().optional(),
+  }),
+  branches: z.array(z.object({ id: z.string().uuid(), name: z.string(), status: z.string() })),
+  supportAccess: z.object({ grantId: z.string().uuid(), permissions: z.array(z.string()), branchIds: z.array(z.string().uuid()) }).optional(),
+});
 export const workforceMoneyMinorSchema = z.string().regex(/^\d+$/);
 export const timeClockCommandSchema = z
   .object({

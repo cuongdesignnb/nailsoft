@@ -1,6 +1,12 @@
 let accessToken: string | undefined;
 let tenantId: string | undefined;
-const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+let activeBranchId: string | undefined;
+import type { AuthContext } from "@nailsoft/domain-types";
+const api =
+  process.env.NEXT_PUBLIC_API_URL ??
+  (typeof window !== "undefined" && window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:3001"
+    : "http://localhost:3001");
 const csrf = () =>
   document.cookie
     .split("; ")
@@ -49,6 +55,28 @@ export async function selectWorkspace(
   tenantId = body.data.tenantId;
   return body.data;
 }
+
+export async function getAuthContext(): Promise<AuthContext> {
+  const response = await authorizedFetch("/v1/auth/context");
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok)
+    throw new Error(body.error?.message ?? "Unable to load the authenticated workspace.");
+  return body.data as AuthContext;
+}
+
+export function setActiveBranchId(branchId: string | undefined) {
+  activeBranchId = branchId;
+  if (typeof window !== "undefined") {
+    if (branchId) window.localStorage.setItem("nailsoft.activeBranchId", branchId);
+    else window.localStorage.removeItem("nailsoft.activeBranchId");
+  }
+}
+
+export function getActiveBranchId() {
+  if (!activeBranchId && typeof window !== "undefined")
+    activeBranchId = window.localStorage.getItem("nailsoft.activeBranchId") ?? undefined;
+  return activeBranchId;
+}
 async function performRestore() {
   const response = await fetch(`${api}/v1/auth/refresh`, {
     method: "POST",
@@ -94,6 +122,7 @@ export async function authorizedFetch(path: string, init: RequestInit = {}) {
 export function clearMemory() {
   accessToken = undefined;
   tenantId = undefined;
+  activeBranchId = undefined;
 }
 export function activeSession() {
   return { accessToken, tenantId, api };

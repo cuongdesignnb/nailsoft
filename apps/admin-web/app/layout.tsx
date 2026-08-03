@@ -1,9 +1,15 @@
 import type { ReactNode } from "react";
+import { cssVariables } from "@nailsoft/design-tokens";
 import "./styles.css";
+export const metadata = {
+  title: "Nailsoft Admin",
+  description: "Tenant and branch-scoped nail salon operations.",
+};
 export default function Layout({ children }: { children: ReactNode }) {
+  const variables = cssVariables.map(([key, value]) => `${key}:${value}`).join(";");
   return (
     <html lang="vi">
-      <body>{children}</body>
+      <body><style>{`:root{${variables}}`}</style>{children}</body>
     </html>
   );
 }

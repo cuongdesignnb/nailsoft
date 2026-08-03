@@ -1,4 +1,4 @@
-import type { ApiResponse } from '@nailsoft/domain-types';
+import type { ApiResponse, AuthContext } from '@nailsoft/domain-types';
 export interface ClientOptions { baseUrl: string; getAccessToken?: () => string | undefined; getTenantId?: () => string | undefined }
 /** Coalesces concurrent refresh attempts for one in-memory client session. */
 export function createRefreshSingleFlight(
@@ -24,5 +24,6 @@ export const createApiClient = (options: ClientOptions) => ({
     const response = await fetch(`${options.baseUrl}${path}`, { ...init, headers });
     return response.json() as Promise<ApiResponse<T>>;
   }
+  ,authContext() { return this.request<AuthContext>("/v1/auth/context"); }
 });
 export function availabilityPath(query:import('@nailsoft/domain-types').AvailabilityQuery){const p=new URLSearchParams({branchId:query.branchId,serviceId:query.serviceId,dateFrom:query.dateFrom,dateTo:query.dateTo,slotIntervalMin:String(query.slotIntervalMin??15)});if(query.staffId)p.set('staffId',query.staffId);return`/v1/availability?${p}`;}

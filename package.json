@@ -32,7 +32,10 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.29.0",
+    "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.53.2",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/react-native": "^13.3.3",
     "@types/node": "^20.19.1",
     "@types/pg": "^8.15.4",
     "eslint": "^9.29.0",
