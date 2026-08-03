@@ -724,7 +724,7 @@ const scenarios = [
   {
     name: "analytics-export-create",
     setup: async (worker) => auth(`load-analytics-export-${worker}`),
-    run: (state) => request("/v1/analytics/exports", { method: "POST", headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId, "idempotency-key": `load-analytics-export-${worker}` }, body: JSON.stringify({ exportType: "COMMAND_CENTER", filters: { from: "2026-08-01", to: "2026-08-31" } }) }),
+    run: (state, worker) => request("/v1/analytics/exports", { method: "POST", headers: { authorization: `Bearer ${state.accessToken}`, "x-tenant-id": state.tenantId, "idempotency-key": `load-analytics-export-${worker}` }, body: JSON.stringify({ exportType: "COMMAND_CENTER", filters: { from: "2026-08-01", to: "2026-08-31" } }) }),
   },
 ];
 
