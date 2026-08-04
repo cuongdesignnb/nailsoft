@@ -351,7 +351,17 @@ jobs:
           tests/e2e/sprint3-closure-websocket-security.spec.ts
           tests/e2e/sprint4-booking-ui.spec.ts
       - name: Sprint 19 Wave 0 authenticated gallery, responsive and accessibility E2E
+        id: sprint19_wave0_visual
         run: pnpm exec playwright test tests/e2e/sprint19-wave0-shell.spec.ts
+      - name: Upload Sprint 19 Wave 0 visual failure evidence
+        if: ${{ failure() && steps.sprint19_wave0_visual.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint19-wave0-visual-failure-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/**/*.png
+          if-no-files-found: warn
+          retention-days: 5
       - name: Sprint 4 Booking Web policy and multi-service E2E
         run: pnpm exec playwright test tests/e2e/sprint4-booking-ui.spec.ts
       - name: Sprint 3 closure authenticated E2E
