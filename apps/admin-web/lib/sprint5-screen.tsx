@@ -726,10 +726,12 @@ function Session({ id }: { id: string }) {
     <Shell title="Service session">
       <States v={v} label="service session" />
       {msg && (
-        <p className={msg.includes("completed") ? "success" : "error"}>{msg}</p>
+        <p className={msg.includes("completed") ? "success" : "error"} role="status" aria-live="polite">
+          {msg}
+        </p>
       )}
       {v.state === "ready" && (
-        <div className="detail-grid">
+        <div className="detail-grid service-session-workspace">
           <section>
             <h2>{v.data.status}</h2>
             <p>

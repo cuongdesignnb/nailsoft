@@ -597,4 +597,7 @@ textarea:focus-visible {
 .wave1-legacy-card button, .wave1-legacy-card a[role="button"] { border-radius: 9px; }
 .wave1-legacy-card .operations-board { gap: 14px; }
 .wave1-legacy-card .board-column { min-width: 190px; border: 1px solid var(--ns-color-border-default, #d9e2ec); border-radius: 12px; background: #f8fafc; }
+.wave1-legacy-card .service-session-workspace > section { min-width: 0; padding: 18px; border: 1px solid var(--ns-color-border-default, #d9e2ec); border-radius: 14px; background: #fff; }
+.wave1-legacy-card .service-session-workspace h2 { margin-top: 0; }
+.wave1-legacy-card .service-session-workspace textarea { min-height: 96px; resize: vertical; }
 @media (max-width: 767px) { .wave1-legacy-shell { padding: 14px 10px 40px; }.wave1-legacy-nav { overflow-x: auto; flex-wrap: nowrap; white-space: nowrap; }.wave1-legacy-card { padding: 18px 14px; border-radius: 14px; }.wave1-legacy-nav a:first-child { margin-right: 8px; } }
