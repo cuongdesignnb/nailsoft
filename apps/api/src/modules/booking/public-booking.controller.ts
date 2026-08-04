@@ -72,11 +72,17 @@ export class PublicSalonBookingController {
   @Get("availability") async availability(
     @Param("salonSlug") slug: string,
     @Query() query: any,
+    @Headers("authorization") authorization: string | undefined,
     @Req() req: any,
   ) {
     return {
       success: true,
-      data: await this.service.search(slug, query, req.ip ?? "unknown"),
+      data: await this.service.search(
+        slug,
+        query,
+        req.ip ?? "unknown",
+        authorization,
+      ),
       meta: context(req),
     };
   }

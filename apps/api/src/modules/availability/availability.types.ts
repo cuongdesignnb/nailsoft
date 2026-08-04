@@ -38,6 +38,7 @@ export interface AvailabilityInput {
   dateFrom: string;
   dateTo: string;
   staffId?: string;
+  excludeAppointmentId?: string;
   slotIntervalMin: 5 | 10 | 15 | 30;
 }
 

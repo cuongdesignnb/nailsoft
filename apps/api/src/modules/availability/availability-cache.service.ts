@@ -6,7 +6,7 @@ export function availabilityCacheKey(
   q: AvailabilityInput,
   version: number,
 ) {
-  return `availability:tenant:${tenantId}:branch:${q.branchId}:service:${q.serviceId}:staff:${q.staffId ?? "ANY"}:from:${q.dateFrom}:to:${q.dateTo}:interval:${q.slotIntervalMin}:version:${version}`;
+  return `availability:tenant:${tenantId}:branch:${q.branchId}:service:${q.serviceId}:staff:${q.staffId ?? "ANY"}:exclude:${q.excludeAppointmentId ?? "NONE"}:from:${q.dateFrom}:to:${q.dateTo}:interval:${q.slotIntervalMin}:version:${version}`;
 }
 @Injectable()
 export class AvailabilityCacheService implements OnModuleDestroy {

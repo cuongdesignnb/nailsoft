@@ -30,6 +30,7 @@ const querySchema = z.object({
   dateFrom: z.string().date(),
   dateTo: z.string().date(),
   staffId: z.string().uuid().optional(),
+  excludeAppointmentId: z.string().uuid().optional(),
   slotIntervalMin: z.coerce
     .number()
     .int()
@@ -222,12 +223,12 @@ export class AvailabilityService {
         [auth.tenantId, q.serviceId, q.branchId],
       ),
       this.db.query<any>(
-        "SELECT * FROM staff_schedule_reservations WHERE tenant_id=$1 AND branch_id=$2 AND status='ACTIVE' AND start_at<$4 AND end_at>$3 AND (reservation_type='APPOINTMENT' OR expires_at>now())",
-        [auth.tenantId, q.branchId, padFrom, padTo],
+        "SELECT * FROM staff_schedule_reservations WHERE tenant_id=$1 AND branch_id=$2 AND status='ACTIVE' AND start_at<$4 AND end_at>$3 AND (reservation_type='APPOINTMENT' OR expires_at>now()) AND ($5::uuid IS NULL OR appointment_item_id IS NULL OR appointment_item_id NOT IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$5))",
+        [auth.tenantId, q.branchId, padFrom, padTo, q.excludeAppointmentId ?? null],
       ),
       this.db.query<any>(
-        "SELECT * FROM resource_schedule_reservations WHERE tenant_id=$1 AND branch_id=$2 AND status='ACTIVE' AND start_at<$4 AND end_at>$3 AND (reservation_type='APPOINTMENT' OR expires_at>now())",
-        [auth.tenantId, q.branchId, padFrom, padTo],
+        "SELECT * FROM resource_schedule_reservations WHERE tenant_id=$1 AND branch_id=$2 AND status='ACTIVE' AND start_at<$4 AND end_at>$3 AND (reservation_type='APPOINTMENT' OR expires_at>now()) AND ($5::uuid IS NULL OR appointment_item_id IS NULL OR appointment_item_id NOT IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$5))",
+        [auth.tenantId, q.branchId, padFrom, padTo, q.excludeAppointmentId ?? null],
       ),
       this.db.query<any>(
         "SELECT version FROM availability_versions WHERE tenant_id=$1 AND branch_id=$2",

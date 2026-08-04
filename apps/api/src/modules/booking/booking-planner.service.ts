@@ -29,7 +29,7 @@ export class BookingPlannerService {
   async plan(
     auth: AccessClaims,
     input: unknown,
-    options: { channel?: "PUBLIC" | "INTERNAL" } = {},
+    options: { channel?: "PUBLIC" | "INTERNAL"; excludeAppointmentId?: string } = {},
   ): Promise<BookingPlan> {
     const body = bookingPlanSchema.parse(input) as BookingPlanInput;
     const branch = (
@@ -112,6 +112,9 @@ export class BookingPlannerService {
         serviceId: request.serviceId,
         dateFrom: localDate,
         dateTo: localDate,
+        ...(options.excludeAppointmentId
+          ? { excludeAppointmentId: options.excludeAppointmentId }
+          : {}),
         ...(request.staffPreference.type === "SPECIFIC"
           ? { staffId: request.staffPreference.staffId }
           : {}),
@@ -148,6 +151,7 @@ export class BookingPlannerService {
         request.staffPreference,
         cursor,
         branch.timezone,
+        options.excludeAppointmentId,
       );
       const serviceEnd = cursor.plus({ minutes: service.default_duration_min });
       const staffStart = cursor.minus({
@@ -166,6 +170,7 @@ export class BookingPlannerService {
         service.id,
         resourceStart.toUTC().toISO()!,
         resourceEnd.toUTC().toISO()!,
+        options.excludeAppointmentId,
       );
       const fractionDigits = currencyMinorUnit(slot.priceReference.currency);
       const amountMinor = Math.round(
@@ -238,6 +243,7 @@ export class BookingPlannerService {
     preference: BookingPlanInput["items"][number]["staffPreference"],
     start: DateTime,
     timezone: string,
+    excludeAppointmentId?: string,
   ) {
     if (!candidates.length)
       throw new ConflictException({
@@ -261,8 +267,8 @@ export class BookingPlannerService {
       .toISO();
     const ids = candidates.map((x) => x.staffId);
     const counts = await this.db.query<{ staff_id: string; count: number }>(
-      "SELECT staff_id,count(*)::int count FROM staff_schedule_reservations WHERE tenant_id=$1 AND branch_id=$2 AND staff_id=ANY($3::uuid[]) AND status='ACTIVE' AND start_at<$5 AND end_at>$4 AND (reservation_type='APPOINTMENT' OR expires_at>now()) GROUP BY staff_id",
-      [tenantId, branchId, ids, dayStart, dayEnd],
+      "SELECT staff_id,count(*)::int count FROM staff_schedule_reservations WHERE tenant_id=$1 AND branch_id=$2 AND staff_id=ANY($3::uuid[]) AND status='ACTIVE' AND start_at<$5 AND end_at>$4 AND (reservation_type='APPOINTMENT' OR expires_at>now()) AND ($6::uuid IS NULL OR appointment_item_id IS NULL OR appointment_item_id NOT IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$6)) GROUP BY staff_id",
+      [tenantId, branchId, ids, dayStart, dayEnd, excludeAppointmentId ?? null],
     );
     const map = new Map(counts.rows.map((x) => [x.staff_id, x.count]));
     return [...candidates].sort(
@@ -279,6 +285,7 @@ export class BookingPlannerService {
     serviceId: string,
     startAt: string,
     endAt: string,
+    excludeAppointmentId?: string,
   ) {
     const requirements = (
       await this.db.query<any>(
@@ -294,8 +301,8 @@ export class BookingPlannerService {
     for (const requirement of requirements) {
       const candidates = (
         await this.db.query<any>(
-          `SELECT r.id,r.capacity,COALESCE(sum(rr.quantity) FILTER (WHERE rr.status='ACTIVE' AND rr.start_at<$5 AND rr.end_at>$4 AND (rr.reservation_type='APPOINTMENT' OR rr.expires_at>now())),0)::int used,COALESCE(bool_or(rr.is_exclusive) FILTER (WHERE rr.status='ACTIVE' AND rr.start_at<$5 AND rr.end_at>$4 AND (rr.reservation_type='APPOINTMENT' OR rr.expires_at>now())),false) exclusive_used FROM resources r LEFT JOIN resource_schedule_reservations rr ON rr.tenant_id=r.tenant_id AND rr.resource_id=r.id WHERE r.tenant_id=$1 AND r.branch_id=$2 AND r.resource_type_id=$3 AND r.status='ACTIVE' AND NOT EXISTS(SELECT 1 FROM availability_blocks b WHERE b.tenant_id=r.tenant_id AND b.branch_id=r.branch_id AND b.resource_id=r.id AND b.status='ACTIVE' AND b.start_at<$5 AND b.end_at>$4) GROUP BY r.id,r.capacity ORDER BY (r.capacity-COALESCE(sum(rr.quantity) FILTER (WHERE rr.status='ACTIVE' AND rr.start_at<$5 AND rr.end_at>$4 AND (rr.reservation_type='APPOINTMENT' OR rr.expires_at>now())),0)) DESC,r.id`,
-          [tenantId, branchId, requirement.resource_type_id, startAt, endAt],
+          `SELECT r.id,r.capacity,COALESCE(sum(rr.quantity) FILTER (WHERE rr.status='ACTIVE' AND rr.start_at<$5 AND rr.end_at>$4 AND (rr.reservation_type='APPOINTMENT' OR rr.expires_at>now()) AND ($6::uuid IS NULL OR rr.appointment_item_id IS NULL OR rr.appointment_item_id NOT IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$6))),0)::int used,COALESCE(bool_or(rr.is_exclusive) FILTER (WHERE rr.status='ACTIVE' AND rr.start_at<$5 AND rr.end_at>$4 AND (rr.reservation_type='APPOINTMENT' OR rr.expires_at>now()) AND ($6::uuid IS NULL OR rr.appointment_item_id IS NULL OR rr.appointment_item_id NOT IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$6))),false) exclusive_used FROM resources r LEFT JOIN resource_schedule_reservations rr ON rr.tenant_id=r.tenant_id AND rr.resource_id=r.id WHERE r.tenant_id=$1 AND r.branch_id=$2 AND r.resource_type_id=$3 AND r.status='ACTIVE' AND NOT EXISTS(SELECT 1 FROM availability_blocks b WHERE b.tenant_id=r.tenant_id AND b.branch_id=r.branch_id AND b.resource_id=r.id AND b.status='ACTIVE' AND b.start_at<$5 AND b.end_at>$4) GROUP BY r.id,r.capacity ORDER BY (r.capacity-COALESCE(sum(rr.quantity) FILTER (WHERE rr.status='ACTIVE' AND rr.start_at<$5 AND rr.end_at>$4 AND (rr.reservation_type='APPOINTMENT' OR rr.expires_at>now()) AND ($6::uuid IS NULL OR rr.appointment_item_id IS NULL OR rr.appointment_item_id NOT IN (SELECT id FROM appointment_items WHERE tenant_id=$1 AND appointment_id=$6))),0)) DESC,r.id`,
+          [tenantId, branchId, requirement.resource_type_id, startAt, endAt, excludeAppointmentId ?? null],
         )
       ).rows;
       let needed = Number(requirement.quantity);

@@ -155,7 +155,12 @@ export class PublicBookingService {
       )
     ).rows.map((row) => ({ id: row.id, displayName: row.display_name }));
   }
-  async search(slug: string, input: any, ip: string) {
+  async search(
+    slug: string,
+    input: any,
+    ip: string,
+    authorization?: string,
+  ) {
     this.assertEnabled();
     const t = await this.tenant(slug);
     await this.rate(`availability:${t.id}:${ip}`, 120);
@@ -178,9 +183,25 @@ export class PublicBookingService {
       t.id,
       input.serviceId ? [input.serviceId] : [],
     );
+    let availabilityInput = input;
+    if (authorization && input.bookingReference) {
+      const token = authorization.replace(/^Bearer\s+/i, "").trim();
+      const context = await this.management(
+        slug,
+        String(input.bookingReference),
+        token,
+        ip,
+        "reschedule-availability",
+      );
+      availabilityInput = {
+        ...input,
+        branchId: context.root.branch_id,
+        excludeAppointmentId: context.root.id,
+      };
+    }
     const result = await this.availability.search(
-      this.auth(t.id, input.branchId),
-      input,
+      this.auth(t.id, availabilityInput.branchId),
+      availabilityInput,
     );
     if (branch.hideStaffNamesOnPublicBooking === true)
       return {
@@ -481,6 +502,7 @@ export class PublicBookingService {
       requestId,
       this.managementScope(context),
       true,
+      { excludeAppointmentId: context.root.id },
     );
   }
   async reschedule(

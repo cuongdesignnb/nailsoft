@@ -126,9 +126,11 @@ export default function ManageBooking() {
         dateFrom: date,
         dateTo: date,
         slotIntervalMin: "15",
+        bookingReference: reference,
       });
       const data = await call(
         `/v1/public/salons/${encodeURIComponent(salonSlug)}/availability?${params}`,
+        { headers: { authorization: `Bearer ${token}` } },
       );
       setAvailability(data);
       setSelectedSlot(undefined);

@@ -76,6 +76,7 @@ export class ReservationService {
     holdId: string,
     plan: BookingPlan,
     expiresAt: Date,
+    options: { excludeAppointmentId?: string } = {},
   ) {
     const itemIds: string[] = [];
     for (const item of plan.items) {
@@ -103,26 +104,40 @@ export class ReservationService {
           item.availabilityFingerprint,
         ],
       );
-      try {
-        await client.query(
-          "INSERT INTO staff_schedule_reservations(tenant_id,branch_id,staff_id,slot_hold_item_id,reservation_type,status,start_at,end_at,expires_at) VALUES($1,$2,$3,$4,'HOLD','ACTIVE',$5,$6,$7)",
-          [
-            tenantId,
-            plan.branchId,
-            item.staffId,
-            itemId,
-            item.staffOccupancyStartAt,
-            item.staffOccupancyEndAt,
-            expiresAt,
-          ],
-        );
-      } catch (error) {
-        if (dbCode(error) === "23P01")
-          throw new ConflictException({
-            code: "STAFF_RESERVED",
-            message: "Technician was reserved by another request",
-          });
-        throw error;
+      const ownStaffReservation = options.excludeAppointmentId
+        ? (((await client.query(
+              "SELECT 1 FROM staff_schedule_reservations r JOIN appointment_items ai ON ai.tenant_id=r.tenant_id AND ai.id=r.appointment_item_id WHERE r.tenant_id=$1 AND r.staff_id=$2 AND r.status='ACTIVE' AND r.start_at<$4 AND r.end_at>$3 AND ai.appointment_id=$5 LIMIT 1",
+              [
+                tenantId,
+                item.staffId,
+                item.staffOccupancyStartAt,
+                item.staffOccupancyEndAt,
+                options.excludeAppointmentId,
+              ],
+            ))?.rowCount ?? 0) > 0)
+        : false;
+      if (!ownStaffReservation) {
+        try {
+          await client.query(
+            "INSERT INTO staff_schedule_reservations(tenant_id,branch_id,staff_id,slot_hold_item_id,reservation_type,status,start_at,end_at,expires_at) VALUES($1,$2,$3,$4,'HOLD','ACTIVE',$5,$6,$7)",
+            [
+              tenantId,
+              plan.branchId,
+              item.staffId,
+              itemId,
+              item.staffOccupancyStartAt,
+              item.staffOccupancyEndAt,
+              expiresAt,
+            ],
+          );
+        } catch (error) {
+          if (dbCode(error) === "23P01")
+            throw new ConflictException({
+              code: "STAFF_RESERVED",
+              message: "Technician was reserved by another request",
+            });
+          throw error;
+        }
       }
       for (const resource of item.resourceAllocations) {
         const current = (
@@ -137,30 +152,44 @@ export class ReservationService {
             ],
           )
         ).rows[0];
+        const ownResourceReservation = options.excludeAppointmentId
+          ? (((await client.query(
+                "SELECT 1 FROM resource_schedule_reservations r JOIN appointment_items ai ON ai.tenant_id=r.tenant_id AND ai.id=r.appointment_item_id WHERE r.tenant_id=$1 AND r.resource_id=$2 AND r.status='ACTIVE' AND r.start_at<$4 AND r.end_at>$3 AND ai.appointment_id=$5 LIMIT 1",
+                [
+                  tenantId,
+                  resource.resourceId,
+                  item.resourceOccupancyStartAt,
+                  item.resourceOccupancyEndAt,
+                  options.excludeAppointmentId,
+                ],
+              ))?.rowCount ?? 0) > 0)
+          : false;
         if (
-          !current ||
-          current.exclusive_used ||
-          Number(current.used) + resource.quantity > Number(current.capacity) ||
-          (resource.isExclusive && Number(current.used) > 0)
+          !ownResourceReservation &&
+          (!current ||
+            current.exclusive_used ||
+            Number(current.used) + resource.quantity > Number(current.capacity) ||
+            (resource.isExclusive && Number(current.used) > 0))
         )
           throw new ConflictException({
             code: "RESOURCE_CAPACITY_INSUFFICIENT",
             message: "Resource capacity was reserved by another request",
           });
-        await client.query(
-          "INSERT INTO resource_schedule_reservations(tenant_id,branch_id,resource_id,slot_hold_item_id,reservation_type,status,quantity,is_exclusive,start_at,end_at,expires_at) VALUES($1,$2,$3,$4,'HOLD','ACTIVE',$5,$6,$7,$8,$9)",
-          [
-            tenantId,
-            plan.branchId,
-            resource.resourceId,
-            itemId,
-            resource.quantity,
-            resource.isExclusive,
-            item.resourceOccupancyStartAt,
-            item.resourceOccupancyEndAt,
-            expiresAt,
-          ],
-        );
+        if (!ownResourceReservation)
+          await client.query(
+            "INSERT INTO resource_schedule_reservations(tenant_id,branch_id,resource_id,slot_hold_item_id,reservation_type,status,quantity,is_exclusive,start_at,end_at,expires_at) VALUES($1,$2,$3,$4,'HOLD','ACTIVE',$5,$6,$7,$8,$9)",
+            [
+              tenantId,
+              plan.branchId,
+              resource.resourceId,
+              itemId,
+              resource.quantity,
+              resource.isExclusive,
+              item.resourceOccupancyStartAt,
+              item.resourceOccupancyEndAt,
+              expiresAt,
+            ],
+          );
       }
     }
     return itemIds;

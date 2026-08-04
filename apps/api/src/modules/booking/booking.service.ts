@@ -139,6 +139,7 @@ export class BookingService {
     requestId: string,
     actorScope = `user:${auth.userId}`,
     publicActor = false,
+    options: { excludeAppointmentId?: string } = {},
   ) {
     this.denyPlatform(auth);
     const body = createSlotHoldSchema.parse(input);
@@ -153,6 +154,9 @@ export class BookingService {
         work: async () => {
           const plan = await this.planner.plan(auth, body, {
             channel: publicActor ? "PUBLIC" : "INTERNAL",
+            ...(options.excludeAppointmentId
+              ? { excludeAppointmentId: options.excludeAppointmentId }
+              : {}),
           });
           await this.reservations.lockPlan(client, auth.tenantId, plan);
           await this.reservations.expireStale(
@@ -220,6 +224,7 @@ export class BookingService {
             holdId,
             plan,
             expiresAt,
+            options,
           );
           await this.reservations.record(client, {
             tenantId: auth.tenantId,
@@ -1466,14 +1471,41 @@ export class BookingService {
                   allocation.isExclusive,
                 ],
               );
-            await client.query(
+            const staffReservation = await client.query(
               "UPDATE staff_schedule_reservations SET appointment_item_id=$3,slot_hold_item_id=NULL,reservation_type='APPOINTMENT',expires_at=NULL WHERE tenant_id=$1 AND slot_hold_item_id=$2 AND status='ACTIVE'",
               [auth.tenantId, source.id, target.id],
             );
-            await client.query(
+            if (!staffReservation.rowCount)
+              await client.query(
+                "INSERT INTO staff_schedule_reservations(tenant_id,branch_id,staff_id,appointment_item_id,reservation_type,status,start_at,end_at,expires_at) VALUES($1,$2,$3,$4,'APPOINTMENT','ACTIVE',$5,$6,NULL)",
+                [
+                  auth.tenantId,
+                  root.branch_id,
+                  source.selected_staff_id,
+                  target.id,
+                  source.staff_occupancy_start_at,
+                  source.staff_occupancy_end_at,
+                ],
+              );
+            const resourceReservation = await client.query(
               "UPDATE resource_schedule_reservations SET appointment_item_id=$3,slot_hold_item_id=NULL,reservation_type='APPOINTMENT',expires_at=NULL WHERE tenant_id=$1 AND slot_hold_item_id=$2 AND status='ACTIVE'",
               [auth.tenantId, source.id, target.id],
             );
+            if (!resourceReservation.rowCount)
+              for (const allocation of source.resource_plan_json)
+                await client.query(
+                  "INSERT INTO resource_schedule_reservations(tenant_id,branch_id,resource_id,appointment_item_id,reservation_type,status,quantity,is_exclusive,start_at,end_at,expires_at) VALUES($1,$2,$3,$4,'APPOINTMENT','ACTIVE',$5,$6,$7,$8,NULL)",
+                  [
+                    auth.tenantId,
+                    root.branch_id,
+                    allocation.resourceId,
+                    target.id,
+                    allocation.quantity,
+                    allocation.isExclusive,
+                    source.resource_occupancy_start_at,
+                    source.resource_occupancy_end_at,
+                  ],
+                );
             newSchedule.push({
               itemId: target.id,
               serviceId: target.service_id,
