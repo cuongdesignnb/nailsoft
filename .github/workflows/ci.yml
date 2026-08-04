@@ -350,18 +350,6 @@ jobs:
           tests/e2e/sprint3-closure-outbox-realtime.spec.ts
           tests/e2e/sprint3-closure-websocket-security.spec.ts
           tests/e2e/sprint4-booking-ui.spec.ts
-      - name: Sprint 19 Wave 0 authenticated gallery, responsive and accessibility E2E
-        id: sprint19_wave0_visual
-        run: pnpm exec playwright test tests/e2e/sprint19-wave0-shell.spec.ts
-      - name: Upload Sprint 19 Wave 0 visual failure evidence
-        if: ${{ failure() && steps.sprint19_wave0_visual.outcome == 'failure' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: sprint19-wave0-visual-failure-${{ github.run_id }}-attempt-${{ github.run_attempt }}
-          path: |
-            test-results/**/*.png
-          if-no-files-found: warn
-          retention-days: 5
       - name: Sprint 4 Booking Web policy and multi-service E2E
         run: pnpm exec playwright test tests/e2e/sprint4-booking-ui.spec.ts
       - name: Sprint 3 closure authenticated E2E
@@ -812,3 +800,74 @@ jobs:
         run: pnpm --filter @nailsoft/owner-mobile build
       - name: Build Staff Mobile
         run: pnpm --filter @nailsoft/staff-mobile build
+
+  sprint19-wave0-visual:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          {
+            POSTGRES_DB: nailsoft,
+            POSTGRES_USER: nailsoft,
+            POSTGRES_PASSWORD: nailsoft,
+          }
+        options: >-
+          --health-cmd "pg_isready -U nailsoft -d nailsoft"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://nailsoft:nailsoft@postgres:5432/nailsoft
+      REDIS_URL: redis://redis:6379
+      E2E_API_URL: http://127.0.0.1:3001
+      JWT_SECRET: ci-only-high-entropy-secret-change-me-2026
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:3002,http://127.0.0.1:3002
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22.14.0 }
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.7.0 }
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Reset deterministic visual fixture
+        run: pnpm db:reset && pnpm db:seed
+      - name: Start API and durable Worker for visual E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          NODE_ENV=development pnpm --filter @nailsoft/api dev > api-visual.log 2>&1 &
+          pnpm --filter @nailsoft/worker dev > worker-visual.log 2>&1 &
+          for i in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:3001/v1/health > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat api-visual.log
+          cat worker-visual.log
+          exit 1
+      - name: Sprint 19 Wave 0 authenticated gallery, responsive and accessibility E2E
+        id: sprint19_wave0_visual
+        run: pnpm exec playwright test tests/e2e/sprint19-wave0-shell.spec.ts --config=playwright.config.ts
+      - name: Upload Sprint 19 Wave 0 visual failure evidence
+        if: ${{ failure() && steps.sprint19_wave0_visual.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint19-wave0-visual-linux-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/**/*.png
+          if-no-files-found: warn
+          retention-days: 5
+      - name: Stop visual services
+        if: always()
+        shell: bash
+        run: |
+          pkill -TERM -f "@nailsoft/api dev" || true
+          pkill -TERM -f "@nailsoft/worker dev" || true

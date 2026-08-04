@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import "@fontsource-variable/inter/wght.css";
 import { cssVariables } from "@nailsoft/design-tokens";
 import "./styles.css";
 export const metadata = {
