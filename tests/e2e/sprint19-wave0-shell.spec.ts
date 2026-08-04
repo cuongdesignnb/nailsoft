@@ -24,7 +24,7 @@ test.describe("Sprint 19 Wave 0 shells", () => {
     const skipLink = page.locator(".ns-skip-link");
     expect(await skipLink.evaluate((element) => { const style = getComputedStyle(element); const rect = element.getBoundingClientRect(); return style.top.startsWith("-") && rect.bottom < 0; })).toBeTruthy();
     await page.screenshot({ path: resolve(evidence, "gallery-desktop-ready.png"), fullPage: true, animations: "disabled" });
-    await expect(page).toHaveScreenshot("sprint19-wave0-gallery-ready.png", { fullPage: true, animations: "disabled" });
+    await expect(page).toHaveScreenshot("sprint19-wave0-gallery-ready.png", { fullPage: false, animations: "disabled" });
     await skipLink.focus();
     await expect(skipLink).toBeFocused();
     await page.screenshot({ path: resolve(evidence, "gallery-skip-link-focus.png"), fullPage: true, animations: "disabled" });
