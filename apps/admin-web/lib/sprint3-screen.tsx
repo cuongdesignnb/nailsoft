@@ -23,8 +23,8 @@ function Shell({
   children: React.ReactNode;
 }) {
   return (
-    <main className="shell">
-      <nav className="topbar">
+    <main className="wave1-legacy-shell">
+      <nav className="wave1-legacy-nav">
         <a href="/admin/dashboard">Nailsoft</a>
         <a href="/admin/calendar/day">Calendar day</a>
         <a href="/admin/calendar/week">Calendar week</a>
@@ -34,7 +34,7 @@ function Shell({
         <a href="/admin/availability/explain">Explain</a>
         <a href="/admin/scheduling/blocks">Busy blocks</a>
       </nav>
-      <section className="card">
+      <section className="wave1-legacy-card">
         <p className="eyebrow">SPRINT 3 · SCHEDULING READ</p>
         <div className="title-row">
           <div>

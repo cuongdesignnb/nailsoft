@@ -126,14 +126,14 @@ function Shell({
   children: React.ReactNode;
 }) {
   return (
-    <main className="shell">
-      <nav className="topbar">
+    <main className="wave1-legacy-shell">
+      <nav className="wave1-legacy-nav">
         <a href="/admin/dashboard">Nailsoft</a>
         <a href="/admin/appointments">Appointments</a>
         <a href="/admin/appointments/new">Quick create</a>
         <a href="/admin/calendar/day">Calendar</a>
       </nav>
-      <section className="card">
+      <section className="wave1-legacy-card">
         <p className="eyebrow">SPRINT 4 · BOOKING OPERATIONS</p>
         <div className="title-row">
           <div>
