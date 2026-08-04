@@ -327,8 +327,10 @@ jobs:
       - name: Start API and durable Worker for authenticated E2E
         shell: bash
         run: |
+          set -euo pipefail
           NODE_ENV=development pnpm --filter @nailsoft/api dev > api-e2e.log 2>&1 &
-          pnpm --filter @nailsoft/worker dev > worker-e2e.log 2>&1 &
+          setsid pnpm --filter @nailsoft/worker dev > worker-e2e.log 2>&1 &
+          echo $! > worker-e2e.pid
           for i in {1..60}; do
             if curl --fail --silent http://127.0.0.1:3001/v1/health > /dev/null; then exit 0; fi
             sleep 2
@@ -531,8 +533,22 @@ jobs:
           pnpm db:reset
           pnpm db:seed
           pnpm exec vitest run tests/integration/sprint13-credit-ledger-issue-and-application.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Pause durable Worker for provider lease boundary integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f worker-e2e.pid ]]; then
+            kill -- -"$(cat worker-e2e.pid)" || true
+            rm -f worker-e2e.pid
+          fi
       - name: Sprint 13 payment external-call boundary
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-payment-provider-lease-boundary.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Resume durable Worker after provider lease boundary integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          setsid pnpm --filter @nailsoft/worker dev > worker-e2e.log 2>&1 &
+          echo $! > worker-e2e.pid
       - name: Sprint 13 usage semantic deduplication
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-usage-replay-semantic-dedupe.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 13 closure authenticated E2E
