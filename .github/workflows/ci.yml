@@ -377,6 +377,8 @@ jobs:
           done
       - name: Sprint 6 authenticated POS and mobile E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint6-pos-ui.spec.ts
+      - name: Sprint 19 Wave 2 POS payment and cash authenticated E2E
+        run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint19-wave2-pos-cash.spec.ts --config=playwright.config.ts
       - name: Sprint 6 closure authenticated E2E
         shell: bash
         run: |
@@ -891,6 +893,19 @@ jobs:
           name: sprint19-wave1-remediation-visual-linux-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: |
             test-results/**/*.png
+          if-no-files-found: warn
+          retention-days: 5
+      - name: Sprint 19 Wave 2 POS payment and cash visual E2E
+        id: sprint19_wave2_visual
+        run: pnpm exec playwright test tests/e2e/sprint19-wave2-pos-cash.spec.ts --config=playwright.config.ts
+      - name: Upload Sprint 19 Wave 2 visual failure evidence
+        if: ${{ failure() && steps.sprint19_wave2_visual.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint19-wave2-visual-linux-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/**/*.png
+            test-results/**/*.md
           if-no-files-found: warn
           retention-days: 5
       - name: Stop visual services
