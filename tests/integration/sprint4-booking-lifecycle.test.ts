@@ -220,7 +220,7 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
 
     const availability = await app.inject({
       method: "GET",
-      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&staffId=${staffId}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
+      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&staffId=${staffId}&excludeAppointmentId=${appointmentId}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
       headers: headers(),
     });
     expect(availability.statusCode).toBe(200);
