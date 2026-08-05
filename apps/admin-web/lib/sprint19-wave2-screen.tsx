@@ -97,7 +97,7 @@ function Status({ value }: { value: any }) {
 function AsyncPanel({ value, label: title }: { value: RemoteValue; label: string }) {
   if (value.state === "ready") return null;
   if (value.state === "loading") return <div className="w2-state" role="status" aria-live="polite"><span className="w2-spinner" /> Loading {title}…</div>;
-  if (value.state === "forbidden") return <div className="w2-state w2-state-danger" role="alert"><strong>Permission denied</strong><span>This view is outside your current role or branch scope.</span></div>;
+  if (value.state === "forbidden") return <div className="w2-state w2-state-danger" role="alert"><h2 className="w2-state-heading">Permission denied</h2><span>This view is outside your current role or branch scope.</span></div>;
   if (value.state === "offline") return <div className="w2-state w2-state-warning" role="alert"><strong>Internet connection required</strong><span>Financial commands stay online-only. Retry when connected.</span><button className="w2-button w2-button-secondary" onClick={() => void value.load()}>Retry</button></div>;
   if (value.state === "empty") return <div className="w2-state" role="status"><strong>No {title}</strong><span>There is nothing to show for this branch yet.</span><button className="w2-button w2-button-secondary" onClick={() => void value.load()}>Refresh</button></div>;
   return <div className="w2-state w2-state-danger" role="alert"><strong>{value.code === "VERSION_CONFLICT" ? "Version conflict" : "Unable to load"}</strong><span>{value.error}</span><button className="w2-button w2-button-secondary" onClick={() => void value.load()}>Retry</button></div>;
