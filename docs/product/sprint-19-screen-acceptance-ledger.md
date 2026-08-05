@@ -143,4 +143,37 @@ BOOKING_STATE_CORRECTNESS=PASS
 TENANT_ISOLATION=PASS
 BRANCH_AUTHORIZATION=PASS
 ROLE_AUTHORIZATION=PASS
+
+## Wave 2 implementation ledger (QA pending)
+
+The following rows are implementation evidence only. They are not marked
+`ACCEPTED` until the deterministic Docker QA, targeted E2E/accessibility
+checks and the exact Wave 2 source CI run are complete. The renderer uses the
+existing Sprint 6–7 API contracts and idempotency headers; no business logic
+or migration was changed.
+
+| ID | Route / surface | Primary permission | API contract | State coverage | Evidence | Acceptance |
+| --- | --- | --- | --- | --- | --- | --- |
+| 19.2.1 | `/admin/pos` POS home/register context | `financial.summary.read`, `cash_session.read` | summary, orders, sessions | loading, empty, error/retry, forbidden, offline | `tests/e2e/sprint19-wave2-pos-cash.spec.ts` | IMPLEMENTED_PENDING_QA |
+| 19.2.2 | `/admin/pos/orders` open/held orders | `pos.order.read` | `/v1/pos-orders` | loading, empty, retry, forbidden, stale | `tests/e2e/sprint19-wave2-pos-cash.spec.ts` | IMPLEMENTED_PENDING_QA |
+| 19.2.3 | `/admin/pos/new` new sale workspace | `pos.order.create` | appointment POS order command | validation, conflict, success | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.4 | `/admin/pos/new`, `/admin/pos/checkout/:id` customer/appointment link | appointment/POS scope | appointment detail/create | loading, not found, forbidden, retry | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.5 | `/admin/pos/orders/:id` cart lines | `pos.order.update` | order detail/line/recalculate | empty, validation, version conflict | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.6 | `/admin/pos/orders/:id` discount/tax/tip | `pos.discount.*`, `pos.tip.set` | discount, tip, server totals | approval, success, error, conflict | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.7 | `/admin/pos/orders/:id/payment` checkout summary | payment capture permission | order/payment detail | review, invalid, conflict | `tests/e2e/sprint19-wave2-pos-cash.spec.ts` | IMPLEMENTED_PENDING_QA |
+| 19.2.8 | `/admin/pos/orders/:id/payment` split tender | payment capture permission | POS payment command | submitting, success, failed, unknown | `tests/e2e/sprint19-wave2-pos-cash.spec.ts` | IMPLEMENTED_PENDING_QA |
+| 19.2.9 | `/admin/pos/orders/:id/payment` result/recovery | payment read/command scope | order/payment detail | processing, unknown, requires action | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.10 | `/admin/pos/orders/:id/receipt`, invoices | `invoice.read`, `invoice.print` | invoice print/detail | immutable ready, forbidden, retry | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.11 | `/admin/pos/registers`, open session | `cash_session.read/open` | registers/open | validation, device/branch conflict | `tests/e2e/sprint19-wave2-pos-cash.spec.ts` | IMPLEMENTED_PENDING_QA |
+| 19.2.12 | `/admin/pos/cash-sessions/:id` drawer/movements | `cash_session.read/move_cash` | session/movements/move | empty, validation, conflict | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.13 | `/admin/pos/cash-sessions/:id/close` blind count/close | `cash_session.declare/close` | review/declare/close | blind, pending, conflict, success | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.14 | closing review/reconciliation | `cash_session.approve_variance` | closing review/reconciliation | variance, approval, forbidden | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.15 | `/admin/refunds/new` refund initiation | `refund.request` | refund plan/create | validation, policy, success/error | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.16 | `/admin/refunds`, `/:id` allocation/review | `refund.read/approve` | refund list/detail/commands | empty, approval, conflict, retry | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.17 | `/admin/credit-notes`, `/:id` credit note | `credit_note.read/print` | credit note detail/delivery | immutable ready, forbidden, retry | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+| 19.2.18 | `/admin/commission` reversal evidence | commission read/adjustment | entries/adjustments | empty, approval, forbidden | `apps/admin-web/lib/sprint19-wave2-screen.tsx` | IMPLEMENTED_PENDING_QA |
+
+Source validation for these rows is intentionally left blank until Wave 2
+cluster QA and the exact full CI run complete. No documentation-only commit
+may be described as the source of that CI run.
 ```
