@@ -11,7 +11,7 @@ accessibility record, locale record, evidence paths and exact source/CI result
 are present. A screenshot is not evidence until it has a deterministic
 viewport, data seed and SHA-256 path record.
 
-All rows below were accepted against source commit
+All Wave 0 rows below were accepted against source commit
 `0a6afb5df93a162ffdf1ff864f07a3b44f696f02` and full CI run
 `30892119845` (`SUCCESS`).
 
@@ -81,42 +81,66 @@ later business waves remain unauthorized by this ledger.
 
 ## Wave 1 rows
 
-Wave 1 source validation is the hotfix commit
-`0d470031caacbd4e244854dae8d71cb7e9468414`, validated by full CI run
-`30920412831` (`SUCCESS`). The documentation commit that may follow is not a
+Wave 1 final source validation is commit
+`5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`, validated by full CI run
+`30985009361` (`SUCCESS`). The documentation commit that follows is not the
 source commit for that CI run.
 
 | ID | Route / surface | Persona | Permission and scope | API / evidence | Required states and QA | Locale | Source commit | CI | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19.1.1 | `/admin/dashboard` Today dashboard | Owner, Manager, Receptionist | `operations.board.read`, branch scope | `/v1/operations/summary`, `/v1/operations/board`; `tests/e2e/sprint19-wave1-booking-operations.spec.ts` | Loading, ready, empty, error/retry, forbidden, offline, responsive overflow check | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.2 | `/admin/calendar/day`, `/admin/calendar/week` | Owner, Manager, Receptionist | `calendar.*`, branch scope | `/v1/calendar/events`; targeted Wave 1 + Sprint 3 E2E | Loading, ready, empty, error/retry, forbidden, responsive overflow check | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.3 | `/admin/appointments` booking list | Owner, Manager, Receptionist | `appointment.read`, branch scope | `/v1/appointments`; targeted Wave 1 + Sprint 4 E2E | Loading, ready, empty, error/retry, forbidden, filters, responsive overflow check | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.4 | `/admin/appointments/new` create booking | Receptionist, Manager | `appointment.create`, branch scope | Existing Sprint 4 booking flow; Wave 1 route smoke | Validation, loading, conflict, forbidden, success/error | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.5 | `/admin/appointments/:id/overview` booking detail | Owner, Manager, Receptionist, Technician | Appointment branch/own-staff scope | Existing appointment detail surface; Wave 1 route smoke | Loading, ready, not found, forbidden, retry | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.6 | `/manage-booking` reschedule | Customer, Receptionist | Public token or appointment scope | Public search/availability/hold; authenticated public-booking E2E | Loading, no-slot, validation, conflict, retry, success | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.7 | `/admin/appointments/:id/cancel` cancel/no-show surface | Manager, Receptionist | `appointment.cancel`, branch scope | Existing command surface; Wave 1 route smoke | Reason validation, forbidden, conflict, success/error; no-show policy unchanged | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.8 | `/admin/availability/search` availability | Receptionist, Manager | `availability.read`, branch scope | `/v1/availability`; targeted Wave 1 + Sprint 3 E2E | Loading, ready, empty, error/retry, forbidden, offline | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.9 | `/admin/scheduling/blocks` busy block | Manager, Owner | `availability.block.manage`, branch scope | `/v1/availability-blocks`; Wave 1 route smoke | Validation, conflict, forbidden, success/error | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.10 | `/admin/operations/walk-ins/new` walk-in creation | Receptionist, Manager | `walkin.create`, branch scope | `/v1/walk-ins`; Wave 1 route smoke | Validation, ETA empty/error, forbidden, success | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.11 | `/admin/operations/board`, `/admin/operations/walk-ins` queue board | Receptionist, Manager | `operations.board.read`, `walkin.read`, branch scope | Sprint 5 operational APIs; Wave 1 route smoke | Loading, empty, error/retry, forbidden, stale/offline, realtime refetch | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.12 | `/admin/appointments/:id/check-in` check-in | Receptionist, Manager | `appointment.check_in`, branch scope | Sprint 5 arrival/check-in APIs; Wave 1 route smoke | Early/late warning, validation, conflict, forbidden, success/error | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.13 | `/admin/appointments/:id/execution`, `/admin/service-sessions/:id` | Technician, Manager | `service_session.read_own`/`read_branch` | Sprint 5 session APIs; Wave 1 route smoke | Loading, ready, forbidden, offline, version conflict, retry | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.14 | `/admin/appointments/:id/add-service` add-service approval | Receptionist, Technician, Manager | `service_session.add_service`, branch scope | Sprint 5 plan/hold/commit APIs; Wave 1 route smoke | Validation, availability conflict, approval, forbidden, retry | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.15 | Staff assignment detail | Manager, Receptionist, Technician | Existing assignment scope | Documentation-only split of duplicated handoff ID; route smoke | Loading, conflict, forbidden, retry | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
-| 19.1.16 | Staff transfer and segment assignment | Manager, Technician | `service_session.transfer_staff`, branch/own-staff scope | Existing transfer command surface; route smoke | Busy/skill conflict, version conflict, forbidden, success/error | vi-VN/en-US | `0d470031` | `30920412831 / SUCCESS` | ACCEPTED |
+| 19.1.1 | `/admin/dashboard` Today dashboard | Owner, Manager, Receptionist | `operations.board.read`, branch scope | `/v1/operations/summary`, `/v1/operations/board`; `tests/e2e/sprint19-wave1-booking-operations.spec.ts` | Loading, ready, empty, error/retry, forbidden, offline, responsive overflow check | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.2 | `/admin/calendar/day`, `/admin/calendar/week` | Owner, Manager, Receptionist | `calendar.*`, branch scope | `/v1/calendar/events`; targeted Wave 1 + Sprint 3 E2E | Loading, ready, empty, error/retry, forbidden, responsive overflow check | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.3 | `/admin/appointments` booking list | Owner, Manager, Receptionist | `appointment.read`, branch scope | `/v1/appointments`; targeted Wave 1 + Sprint 4 E2E | Loading, ready, empty, error/retry, forbidden, filters, responsive overflow check | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.4 | `/admin/appointments/new` create booking | Receptionist, Manager | `appointment.create`, branch scope | Existing Sprint 4 booking flow; Wave 1 route smoke | Validation, loading, conflict, forbidden, success/error | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.5 | `/admin/appointments/:id/overview` booking detail | Owner, Manager, Receptionist, Technician | Appointment branch/own-staff scope | Existing appointment detail surface; Wave 1 route smoke | Loading, ready, not found, forbidden, retry | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.6 | `/manage-booking` reschedule | Customer, Receptionist | Public token or appointment scope | Public search/availability/hold; authenticated public-booking E2E | Loading, no-slot, validation, conflict, retry, success | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.7 | `/admin/appointments/:id/cancel` cancel/no-show surface | Manager, Receptionist | `appointment.cancel`, branch scope | Existing command surface; Wave 1 route smoke | Reason validation, forbidden, conflict, success/error; no-show policy unchanged | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.8 | `/admin/availability/search` availability | Receptionist, Manager | `availability.read`, branch scope | `/v1/availability`; targeted Wave 1 + Sprint 3 E2E | Loading, ready, empty, error/retry, forbidden, offline | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.9 | `/admin/scheduling/blocks` busy block | Manager, Owner | `availability.block.manage`, branch scope | `/v1/availability-blocks`; Wave 1 route smoke | Validation, conflict, forbidden, success/error | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.10 | `/admin/operations/walk-ins/new` walk-in creation | Receptionist, Manager | `walkin.create`, branch scope | `/v1/walk-ins`; Wave 1 route smoke | Validation, ETA empty/error, forbidden, success | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.11 | `/admin/operations/board`, `/admin/operations/walk-ins` queue board | Receptionist, Manager | `operations.board.read`, `walkin.read`, branch scope | Sprint 5 operational APIs; Wave 1 route smoke | Loading, empty, error/retry, forbidden, stale/offline, realtime refetch | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.12 | `/admin/appointments/:id/check-in` check-in | Receptionist, Manager | `appointment.check_in`, branch scope | Sprint 5 arrival/check-in APIs; Wave 1 route smoke | Early/late warning, validation, conflict, forbidden, success/error | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.13 | `/admin/appointments/:id/execution`, `/admin/service-sessions/:id` | Technician, Manager | `service_session.read_own`/`read_branch` | Sprint 5 session APIs; Wave 1 route smoke | Loading, ready, forbidden, offline, version conflict, retry | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.14 | `/admin/appointments/:id/add-service` add-service approval | Receptionist, Technician, Manager | `service_session.add_service`, branch scope | Sprint 5 plan/hold/commit APIs; Wave 1 route smoke | Validation, availability conflict, approval, forbidden, retry | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.15 | Staff assignment detail | Manager, Receptionist, Technician | Existing assignment scope | Assignment API, staff availability and authorization evidence | Loading, conflict, forbidden, retry | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
+| 19.1.16 | Staff transfer and segment assignment | Manager, Technician | `service_session.transfer_staff`, branch/own-staff scope | Transfer command, segment history and authorization evidence | Busy/skill conflict, version conflict, forbidden, success/error | vi-VN/en-US | `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e` | `30985009361 / SUCCESS` | ACCEPTED |
 
 ## Wave 1 evidence and scope
 
-- Targeted local QA before the full run: Wave 1 operations + legacy Sprint 3/4
-  E2E `4 passed`; public booking reschedule `1 passed` after the
-  appointment-exclusion correctness fix.
-- Full CI source SHA: `0d470031caacbd4e244854dae8d71cb7e9468414`; run
-  `30920412831`; visual lane, quality lane, builds and stop-containers all
-  SUCCESS.
+- Targeted local QA before the full run: legacy Sprint 3/4 E2E `11 passed`;
+   Wave 1 remediation visual/accessibility E2E `2 passed`; Sprint 12
+   clock-to-overtime E2E with Worker `1 passed`; public booking reschedule
+   `1 passed` after the appointment-exclusion correctness fix.
+- Final source SHA: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`; full CI run
+  `30985009361`; Wave 1 remediation visual/accessibility lane, quality lane,
+  builds and stop-containers all SUCCESS.
+- Remediation component: `apps/admin-web/lib/sprint19-wave1-remediation.tsx`.
+- Remediation E2E: `tests/e2e/sprint19-wave1-remediation.spec.ts`; targeted
+  visual/accessibility result `2 passed`, AXE critical/serious `0`.
+- Deterministic screenshot evidence was generated by targeted Playwright.
+  Pixel-baseline regression is not claimed unless a `toHaveScreenshot`
+  assertion is present.
 - No screenshot is claimed for rows without a deterministic committed baseline;
   the evidence is route/API/E2E evidence recorded above.
 - `MIGRATION_CHANGED=NO`; business state machines, tenant isolation, branch
-  scope, permission guards, idempotency and realtime refetch semantics were
-  preserved. The only additive correctness change is excluding the current
-  appointment when calculating its public reschedule availability, with
-  reservation rehydration on commit.
+  scope, permission guards, idempotency, audit/outbox and realtime refetch
+  semantics were preserved.
+
+## Wave 1 acceptance summary
+
+```text
+SCREEN_ROWS_19_1_1_TO_19_1_16=ALL_ACCEPTED
+CLUSTER_1=ACCEPTED
+CLUSTER_2=ACCEPTED
+CLUSTER_3=ACCEPTED
+CLUSTER_4=ACCEPTED
+RESPONSIVE=PASS
+ACCESSIBILITY=PASS
+VI_VN=PASS
+EN_US=PASS
+MOJIBAKE=0
+BOOKING_STATE_CORRECTNESS=PASS
+TENANT_ISOLATION=PASS
+BRANCH_AUTHORIZATION=PASS
+ROLE_AUTHORIZATION=PASS
+```

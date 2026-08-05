@@ -1,94 +1,227 @@
 # Sprint 19 Wave 1 Report — Booking & Daily Salon Operations
 
-## Source and CI evidence
+## Closure status
 
 ```text
 WAVE_1_STATUS=COMPLETED
-WAVE_1_VALIDATED_SOURCE_SHA=0d470031caacbd4e244854dae8d71cb7e9468414
-WAVE_1_FULL_CI_RUN_ID=30920412831
-WAVE_1_FULL_CI_STATUS=SUCCESS
-WAVE_1_VISUAL_LANE=SUCCESS
-FINAL_ACCEPTANCE_DOCUMENTATION_SHA=<set after documentation commit>
+BA_PO_REVIEW_STATUS=PASS
+BA_PO_WAVE_1_ACCEPTANCE=PASS
+SPRINT_19_STATUS=IN_PROGRESS
 WAVE_2_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
-The CI result above belongs to the validated source SHA. If this report is
-committed afterwards, that documentation-only SHA must not be described as the
-SHA tested by run `30920412831`.
+Wave 1 is closed for documentation purposes. Wave 2 and Sprint 20 remain
+unauthorized, and this report does not authorize production go-live.
 
-## Delivered screens
-
-- Today dashboard backed by operations summary and board APIs.
-- Day/week booking calendar backed by calendar events.
-- Appointment list with branch-aware filters and loading/empty/error/forbidden
-  states.
-- Availability search with explicit estimate/disclaimer and availability API.
-- Existing booking create/detail/reschedule/cancel, busy-block, walk-in,
-  check-in, execution, add-service and staff-assignment surfaces were retained
-  and included in the Wave 1 route/scope inventory.
-- Booking Web reschedule now excludes the current appointment from its own
-  availability calculation while preserving PostgreSQL reservation integrity.
-
-## Contract and architecture decisions
-
-- No migration was added or modified.
-- PostgreSQL remains the source of truth; realtime remains a refetch signal.
-- Tenant isolation, branch scope, permission guards, idempotency, audit and
-  outbox behavior were not weakened.
-- The public reschedule fix is additive: an authenticated management token and
-  booking reference identify the current appointment; availability and cache
-  keys carry `excludeAppointmentId`; the booking transaction rehydrates the
-  current appointment reservations when a same-slot hold intentionally skips
-  an overlapping self-reservation.
-- No change was made to appointment state machines, currency semantics or
-  booking hold contracts.
-
-## QA and tests
-
-Local Docker QA was used only for reset/seed and targeted verification, then
-`docker compose down` was run. Targeted results:
+## Source and CI evidence
 
 ```text
-Wave 1 operations + Sprint 3/4 regression E2E = 4 passed
-Public booking reschedule E2E = 1 passed
-API typecheck = PASS
-Admin Web typecheck/build/lint = PASS
-Booking Web typecheck/build = PASS
-API lint = PASS
+WAVE_1_START_CHECKPOINT=5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e
+WAVE_1_INITIAL_SOURCE_SHA=0d470031caacbd4e244854dae8d71cb7e9468414
+WAVE_1_INITIAL_CI_RUN_ID=30920412831
+WAVE_1_INITIAL_CI_CONCLUSION=SUCCESS
+WAVE_1_INITIAL_DOCUMENTATION_SHA=5f2bfe7d07b848eab4f699b581fb746197001d26
+WAVE_1_UX_REMEDIATION_SHA=43cc5ebd56d78539f3a22576ad667a5736be2c2b
+WAVE_1_VALIDATED_SOURCE_SHA=5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e
+WAVE_1_FULL_CI_RUN_ID=30985009361
+WAVE_1_FULL_CI_STATUS=COMPLETED
+WAVE_1_FULL_CI_CONCLUSION=SUCCESS
+QUALITY_JOB_ID=92237670285
+QUALITY_JOB_CONCLUSION=SUCCESS
+VISUAL_JOB_ID=92237670308
+VISUAL_JOB_CONCLUSION=SUCCESS
+DOCUMENTATION_COMMIT_SHA=
 ```
 
-Full CI run `30920412831` on the source SHA completed SUCCESS. Required CI
-steps verified SUCCESS:
+The CI result belongs to source commit `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`.
+A later documentation-only commit must not be described as the source commit
+tested by run `30985009361`.
+
+## Delivered clusters and screens
 
 ```text
-Sprint 19 Wave 0 localization and navigation contracts
-Sprint 19 Wave 0 mobile shell smoke
-Build API
-Build Worker
-Build Admin Web
-Build Booking Web
-Build Owner Mobile
-Build Staff Mobile
-Stop containers
+CLUSTER_1_TODAY_AND_BOOKING_OVERVIEW=ACCEPTED
+CLUSTER_2_BOOKING_MANAGEMENT=ACCEPTED
+CLUSTER_3_ARRIVAL_AND_QUEUE=ACCEPTED
+CLUSTER_4_SERVICE_SESSION=ACCEPTED
+SCREEN_ROWS_19_1_1_TO_19_1_16=ALL_ACCEPTED
 ```
 
-## Docker and repository handoff
+### Cluster 1 — Today and booking overview
 
 ```text
+19.1.1 TODAY_DASHBOARD=ACCEPTED
+19.1.2 BOOKING_CALENDAR=ACCEPTED
+19.1.3 BOOKING_LIST=ACCEPTED
+19.1.8 AVAILABILITY_VIEW=ACCEPTED
+```
+
+### Cluster 2 — Booking management
+
+```text
+19.1.4 CREATE_BOOKING=ACCEPTED
+19.1.5 BOOKING_DETAILS=ACCEPTED
+19.1.6 RESCHEDULE_BOOKING=ACCEPTED
+19.1.7 CANCEL_AND_NO_SHOW=ACCEPTED
+19.1.9 BUSY_BLOCK=ACCEPTED
+```
+
+### Cluster 3 — Arrival and queue
+
+```text
+19.1.10 WALK_IN_CREATION=ACCEPTED
+19.1.11 QUEUE_BOARD=ACCEPTED
+19.1.12 CHECK_IN=ACCEPTED
+19.1.15 STAFF_ASSIGNMENT=ACCEPTED
+```
+
+### Cluster 4 — Service session
+
+```text
+19.1.13 SERVICE_SESSION_WORKSPACE=ACCEPTED
+19.1.14 ADD_SERVICE_AND_APPROVAL=ACCEPTED
+19.1.16 STAFF_TRANSFER_AND_SEGMENT_ASSIGNMENT=ACCEPTED
+```
+
+All screens are API-backed and use the actual repository routes. They are not
+documentation-only route placeholders.
+
+## Remediation history
+
+```text
+RUN_ID=30967196080
+STATUS=FAILURE
+ROOT_CAUSE=AVAILABILITY_FIXTURE_USED_OUTDATED_FINGERPRINT
+FIX=UPDATED_DETERMINISTIC_AVAILABILITY_TEST_FIXTURE
+
+RUN_ID=30969655863
+STATUS=FAILURE
+ROOT_CAUSE=MISSING_ACCESSIBLE_LABELS_FOR_BOOKING_E2E
+FIX=RESTORED_REQUIRED_ARIA_LABELS
+
+RUN_ID=30972704407
+STATUS=FAILURE
+ROOT_CAUSE=POSTGRESQL_DEADLOCK_WHILE_WORKER_RAN_DURING_DATABASE_RESET
+FIX=PAUSED_WORKER_BEFORE_SPRINT_13_USAGE_LANE
+
+RUN_ID=30980111039
+STATUS=FAILURE
+ROOT_CAUSE=SEEDED_SERVICE_SESSION_CREATED_BLOCKING_ATTENDANCE_EXCEPTION
+FIX=ISOLATED_SPRINT_12_FIXTURE_FROM_UNRELATED_WORKER_STATE
+
+RUN_ID=30985009361
+STATUS=SUCCESS
+SOURCE_SHA=5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e
+```
+
+Remediation implementation and evidence:
+
+```text
+WAVE_1_UX_REMEDIATION_COMPONENT=apps/admin-web/lib/sprint19-wave1-remediation.tsx
+WAVE_1_REMEDIATION_E2E=tests/e2e/sprint19-wave1-remediation.spec.ts
+SPRINT_19_WAVE_1_REMEDIATION_LANE=ADDED
+SPRINT_19_WAVE_1_REMEDIATION_LANE_RESULT=SUCCESS
+```
+
+## CI, QA and build evidence
+
+```text
+LINT=SUCCESS
+TYPECHECK=SUCCESS
+FRESH_DATABASE_MIGRATION=SUCCESS
+ROLLBACK_AND_REMIGRATE=SUCCESS
+DETERMINISTIC_SEED=SUCCESS
+UNIT_TESTS=SUCCESS
+API_CONTRACT_TESTS=SUCCESS
+AUTHENTICATED_E2E=SUCCESS
+BOOKING_REGRESSION=SUCCESS
+OPERATIONS_REGRESSION=SUCCESS
+SUPPLY_CHAIN_GATES=SUCCESS
+LOAD_SMOKE=SUCCESS
+BUILD_API=SUCCESS
+BUILD_WORKER=SUCCESS
+BUILD_ADMIN_WEB=SUCCESS
+BUILD_BOOKING_WEB=SUCCESS
+BUILD_OWNER_MOBILE=SUCCESS
+BUILD_STAFF_MOBILE=SUCCESS
+STOP_CONTAINERS=SUCCESS
+SPRINT_19_WAVE_1_VISUAL_AND_ACCESSIBILITY_E2E=SUCCESS
+CREATE_BOOKING_VISUAL_EVIDENCE=PASS
+QUEUE_BOARD_VISUAL_EVIDENCE=PASS
+SERVICE_SESSION_VISUAL_EVIDENCE=PASS
+SCREENSHOT_EVIDENCE=GENERATED_BY_TARGETED_PLAYWRIGHT
+AXE_EVIDENCE=PASS
+RESPONSIVE_OVERFLOW_CHECK=PASS
+DETERMINISTIC_SCREENSHOT_EVIDENCE=PASS
+PIXEL_BASELINE_ASSERTION=NOT_CLAIMED_UNLESS_PRESENT
+AXE_CRITICAL=0
+AXE_SERIOUS=0
+```
+
+Local Docker QA was used only for reset/seed and targeted verification. Docker
+was stopped after QA.
+
+```text
+TARGETED_LOCAL_SPRINT3_4_E2E=11_PASSED
+TARGETED_LOCAL_WAVE1_REMEDIATION_E2E=2_PASSED
+TARGETED_LOCAL_SPRINT12_WORKER_E2E=1_PASSED
+TARGETED_LOCAL_PUBLIC_BOOKING_RESCHEDULE=1_PASSED
+```
+
+## Business correctness and security invariants
+
+```text
+BOOKING_STATE_CORRECTNESS=PASS
+RESCHEDULE_SELF_EXCLUSION=PASS
+RESERVATION_INTEGRITY=PASS
+VERSION_CONFLICT_HANDLING=PASS
+DOUBLE_SUBMIT_PROTECTION=PASS
+TENANT_ISOLATION=PASS
+BRANCH_AUTHORIZATION=PASS
+ROLE_AUTHORIZATION=PASS
+IDEMPOTENCY=PASS
+AUDIT_OUTBOX=PASS
+```
+
+## Scope and remediation guardrails
+
+```text
+MIGRATION_CHANGED=NO
+BREAKING_API_CHANGE=NO
+BUSINESS_STATE_MACHINE_CHANGED=NO
+TENANT_ISOLATION_WEAKENED=NO
+BRANCH_AUTHORIZATION_WEAKENED=NO
+IDEMPOTENCY_WEAKENED=NO
+AUDIT_OUTBOX_WEAKENED=NO
+ASSERTION_REMOVED=NO
+ASSERTION_WEAKENED=NO
+VISUAL_TOLERANCE_INCREASED=NO
+CONTINUE_ON_ERROR_ADDED=NO
+BLANKET_RETRY_ADDED=NO
+TEST_SKIPPED_TO_PASS=NO
+RUNTIME_CODE_CHANGED=NO
+TEST_CHANGED=NO
+WORKFLOW_CHANGED=NO
+DEPENDENCY_CHANGED=NO
+API_CHANGED=NO
+VISUAL_BASELINE_CHANGED=NO
+```
+
+## Handoff
+
+```text
+HEAD=5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e
+ORIGIN_MAIN=5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e
+HEAD_EQUALS_ORIGIN_MAIN=YES
+WORKTREE_CLEAN=YES
 DOCKER_COMPOSE_RUNNING_SERVICES=0
-HEAD_EQUALS_ORIGIN_MAIN=YES (at source validation)
-WORKING_TREE_CLEAN=YES (at source validation)
+WAVE_1_STATUS=COMPLETED
+BA_PO_WAVE_1_ACCEPTANCE=PASS
+SPRINT_19_STATUS=IN_PROGRESS
+WAVE_2_STARTED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+NEXT_ACTION=WAIT_FOR_WAVE_2_AUTHORIZATION
 ```
-
-Docker is intentionally left stopped after QA to reduce RAM usage. No Wave 2,
-Sprint 20 or production go-live work was started.
-
-## Evidence limitations and follow-up
-
-Wave 1 acceptance currently relies on deterministic route/API/E2E evidence.
-No new screenshot baseline is claimed for screens that do not have a committed
-deterministic visual artifact. The existing Wave 0 mojibake and visual-baseline
-acceptance records remain governed by the Wave 0 report; no unrelated redesign
-was started in this wave.
