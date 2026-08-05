@@ -543,14 +543,14 @@ jobs:
           fi
       - name: Sprint 13 payment external-call boundary
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-payment-provider-lease-boundary.test.ts --maxWorkers=1 --minWorkers=1
-      - name: Resume durable Worker after provider lease boundary integration
+      - name: Sprint 13 usage semantic deduplication
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-usage-replay-semantic-dedupe.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Resume durable Worker after provider and usage integrations
         shell: bash
         run: |
           set -euo pipefail
           setsid pnpm --filter @nailsoft/worker dev > worker-e2e.log 2>&1 &
           echo $! > worker-e2e.pid
-      - name: Sprint 13 usage semantic deduplication
-        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-usage-replay-semantic-dedupe.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 13 closure authenticated E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-authenticated-platform-billing-e2e.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 13 Owner Mobile smoke
