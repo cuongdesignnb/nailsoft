@@ -19,6 +19,7 @@ import Sprint14Screen from "./sprint14-screen";
 import Sprint15Screen from "./sprint15-screen";
 import Sprint16Screen from "./sprint16-screen";
 import Sprint19Wave1Screen from "./sprint19-wave1-screen";
+import Sprint19Wave1Remediation, { isWave1RemediationPath } from "./sprint19-wave1-remediation";
 
 type Resource = {
   title: string;
@@ -194,6 +195,9 @@ function unwrap(body: any): any[] {
 
 export default function Sprint1Screen() {
   const pathname = usePathname();
+  if (isWave1RemediationPath(pathname)) {
+    return <Sprint19Wave1Remediation pathname={pathname} />;
+  }
   if (
     pathname === "/admin/dashboard" ||
     pathname.startsWith("/admin/calendar") ||

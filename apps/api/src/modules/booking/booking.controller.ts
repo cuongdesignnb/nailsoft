@@ -251,7 +251,7 @@ export class AppointmentController {
   @Post(":appointmentId/reschedule-hold")
   @RequirePermission("appointment.reschedule")
   async rescheduleHold(
-    @Param("appointmentId") _id: string,
+    @Param("appointmentId") id: string,
     @Body() body: unknown,
     @Headers("idempotency-key") key: string | undefined,
     @Req() req: AuthenticatedRequest,
@@ -263,6 +263,9 @@ export class AppointmentController {
         { ...(body as object), source: "RECEPTION" },
         idempotency(key),
         req.raw.requestId ?? "unknown",
+        undefined,
+        false,
+        { excludeAppointmentId: id },
       ),
       meta: meta(req),
     };
