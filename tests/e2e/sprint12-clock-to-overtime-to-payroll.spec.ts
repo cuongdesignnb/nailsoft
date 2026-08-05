@@ -19,6 +19,12 @@ test("authenticated clock flow produces overtime classification and payroll earn
       [tenant],
     );
     await db.query(
+      `UPDATE attendance_exceptions SET state='RESOLVED',resolution_reason='E2E fixture reset',resolved_at=now(),version=version+1,updated_at=now()
+       WHERE tenant_id=$1 AND staff_id='47000000-0000-4000-8000-000000000005' AND severity='BLOCKING' AND state IN ('OPEN','ACKNOWLEDGED')
+         AND session_id IN (SELECT id FROM attendance_sessions WHERE tenant_id=$1 AND staff_id='47000000-0000-4000-8000-000000000005' AND state='VOIDED')`,
+      [tenant],
+    );
+    await db.query(
       `DELETE FROM timesheet_day_entries WHERE tenant_id=$1 AND timesheet_id='f1200000-0000-4000-8000-000000000061'`,
       [tenant],
     );
