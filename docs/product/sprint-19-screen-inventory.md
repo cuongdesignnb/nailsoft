@@ -123,6 +123,28 @@ are accepted; Wave 3 and later screens are not authorized by this closure.
 Total planned units: 180 (13 foundations and 167 business screens, including
 separately tracked staff assignment and transfer units).
 
+## Wave 3 Cluster 2 implementation ledger
+
+Cluster 2 implements the Admin Web benefits, loyalty, membership and package
+surfaces with the existing Sprint 8 API contracts. POS benefit routes remain
+owned by the Sprint 8 renderer. These rows are implementation evidence only
+until targeted QA and Wave 3 CI are complete.
+
+| ID | Screen | Route | Permission / scope | API dependency | Required states | Status |
+| --- | --- | --- | --- | --- | --- |
+| 19.3.6 | Customer benefits wallet | `/admin/benefits`, `/admin/benefits/customers/:customerId` | Existing benefits permissions; tenant/customer scope | loyalty, membership, voucher and package read APIs | loading, ready, empty, retry, forbidden, partial | IMPLEMENTED_PENDING_QA; local Cluster 2 |
+| 19.3.7 | Loyalty program, adjustment and ledger | `/admin/loyalty/programs`, `/admin/loyalty/adjustments`, `/admin/loyalty/customers/:customerId` | `loyalty.*`; tenant/customer scope; independent approval | loyalty program/account/ledger/adjustment APIs | validation, submitting, success, error, version conflict, forbidden | IMPLEMENTED_PENDING_QA; local Cluster 2 |
+| 19.3.8 | Membership tiers and customer history | `/admin/membership/tiers`, `/admin/membership/customers/:customerId` | `membership.*`; tenant/customer scope | membership tier and assignment APIs | loading, ready, empty, retry, forbidden | IMPLEMENTED_PENDING_QA; local Cluster 2 |
+| 19.3.9 | Package catalog, entitlements and ledger | `/admin/packages/catalog`, `/admin/packages/catalog/:packageId`, `/admin/packages/entitlements`, `/admin/packages/entitlements/:entitlementId` | `package.*`; tenant/customer scope | package catalog, entitlement and ledger APIs | validation, lifecycle, loading, empty, retry, forbidden | IMPLEMENTED_PENDING_QA; local Cluster 2 |
+
+```text
+WAVE_3_CLUSTER_2_STATUS=IMPLEMENTED_PENDING_QA
+SCREEN_ROWS_19_3_6_TO_19_3_9=IMPLEMENTED_PENDING_QA
+POS_ROUTE_OWNERSHIP_PRESERVED=YES
+CUSTOMER_MUTATION_ADDED=NO
+MIGRATION_CHANGED=NO
+```
+
 ## Wave 3 Cluster 1A implementation ledger
 
 Cluster 1A adds the Admin Web Customer Directory, create-only flow, read-only
