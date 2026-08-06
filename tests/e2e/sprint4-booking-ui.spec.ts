@@ -27,8 +27,12 @@ async function login(page: import("@playwright/test").Page, email: string) {
   await page.goto("http://localhost:3000/auth/login");
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill("DemoPass123!");
-  await page.locator("form button").click();
-  await expect(page.getByRole("status")).toBeVisible();
+  await Promise.all([
+    page.waitForURL("**/admin/dashboard"),
+    page.locator("form button").click(),
+  ]);
+  await expect(page).toHaveURL(/\/admin\/dashboard(?:\?.*)?$/);
+  await expect(page.locator("main")).toBeVisible();
 }
 
 test.describe.serial("authenticated Admin Web booking lifecycle", () => {
