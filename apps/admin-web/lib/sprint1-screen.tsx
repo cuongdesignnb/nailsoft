@@ -21,6 +21,7 @@ import Sprint16Screen from "./sprint16-screen";
 import Sprint19Wave1Screen from "./sprint19-wave1-screen";
 import Sprint19Wave1Remediation, { isWave1RemediationPath } from "./sprint19-wave1-remediation";
 import Sprint19Wave2Screen, { isWave2Path } from "./sprint19-wave2-screen";
+import Sprint19Wave3CustomerScreen, { isWave3CustomerPath } from "./sprint19-wave3-screen";
 
 type Resource = {
   title: string;
@@ -253,6 +254,7 @@ export default function Sprint1Screen() {
   )
     return <Sprint8Screen pathname={pathname} />;
   if (isWave2Path(pathname)) return <Sprint19Wave2Screen pathname={pathname} />;
+  if (isWave3CustomerPath(pathname)) return <Sprint19Wave3CustomerScreen pathname={pathname} />;
   if (
     pathname.startsWith("/admin/refunds") ||
     pathname.startsWith("/admin/credit-notes") ||

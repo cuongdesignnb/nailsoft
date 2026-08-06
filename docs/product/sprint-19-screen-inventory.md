@@ -121,5 +121,19 @@ are accepted; Wave 3 and later screens are not authorized by this closure.
 | 9 | Staff Mobile | 19.9.1-19.9.10 | Technician | Own staff and assigned-session scope |
 
 Total planned units: 180 (13 foundations and 167 business screens, including
-separately tracked staff assignment and transfer units). Wave 3 onward remains
-unauthorized by this document.
+separately tracked staff assignment and transfer units).
+
+## Wave 3 Cluster 1A implementation ledger
+
+Cluster 1A adds the Admin Web Customer Directory, create-only flow, read-only
+Customer 360 profile/history and a link-only handoff to the existing Sprint 11
+engagement renderer. These rows are implementation evidence only and remain
+pending QA acceptance.
+
+| ID | Screen | App | Route | Persona | Permission / scope | API dependency | Required states | Breakpoints | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 19.3.1 | Customer directory and search | Admin Web | `/admin/customers` | Receptionist, Owner | `customer.booking_lookup`, tenant | `GET /v1/customers` cursor search | loading, ready, empty, error/retry, forbidden, offline | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 1A |
+| 19.3.2 | Customer create/edit and duplicate warning | Admin Web | `/admin/customers/new` | Receptionist, Owner | `customer.booking_create`, tenant | `POST /v1/customers`, existing lookup | validation, submitting, error, forbidden, duplicate warning, success | 1280, 390 | PARTIAL_CREATE_ONLY_PENDING_UPDATE_CONTRACT; update/merge not authorized |
+| 19.3.3 | Customer 360 profile | Admin Web | `/admin/customers/:id` | Receptionist, Owner | `customer.booking_lookup`, tenant | `GET /v1/customers/:customerId` | loading, ready, error/retry, forbidden, offline | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 1A |
+| 19.3.4 | Booking, visit and purchase history | Admin Web | `/admin/customers/:id` | Receptionist, Owner | branch-filtered child activity; `invoice.read` optional | Customer detail aggregate | loading, bounded ready/empty, optional denied, retry | 1280, 390 | IMPLEMENTED_PENDING_QA; local Cluster 1A |
+| 19.3.5 | Consent preferences and engagement timeline link | Admin Web | `/admin/customers/:id/engagement` | Receptionist, Owner, Marketing | existing Sprint 11 permission and consent contract | existing engagement timeline API | legacy loading/empty/error/forbidden states | 1280, 390 | IMPLEMENTED_PENDING_QA; Sprint 11 renderer retained |
