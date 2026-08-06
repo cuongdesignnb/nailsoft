@@ -2069,6 +2069,12 @@ paths:
               in: query,
               schema: { type: integer, minimum: 1, maximum: 100, default: 50 },
             },
+            {
+              name: cursor,
+              in: query,
+              description: Opaque base64url cursor returned in the response meta,
+              schema: { type: string, maxLength: 512 },
+            },
           ],
         responses:
           {
@@ -2093,12 +2099,34 @@ paths:
                                         $ref: "#/components/schemas/BookingCustomer",
                                       },
                                   },
+                                meta:
+                                  {
+                                    type: object,
+                                    properties:
+                                      {
+                                        requestId: { type: string },
+                                        timestamp: { type: string, format: date-time },
+                                        pagination:
+                                          {
+                                            $ref: "#/components/schemas/CustomerDirectoryPagination",
+                                          },
+                                      },
+                                  },
                               },
                           },
                       },
                   },
               },
-            "403": { description: Customer lookup permission denied },
+            "400":
+              {
+                description: Invalid customer directory cursor (INVALID_CUSTOMER_CURSOR),
+              },
+            "403":
+              {
+                description: |
+                  PERMISSION_DENIED when customer.booking_lookup is missing;
+                  SUPPORT_CUSTOMER_PII_DENIED for support access.
+              },
           },
       }
     post:
@@ -2145,6 +2173,66 @@ paths:
               },
             "403": { description: Customer creation permission denied },
             "409": { description: Idempotency key reused with different input },
+          },
+      }
+  /customers/{customerId}:
+    get:
+      {
+        tags: [appointments],
+        summary: Read a tenant-scoped Customer 360 profile and bounded activity,
+        description: |
+          Requires customer.booking_lookup. Customer profile data is tenant-wide,
+          while appointment, invoice and refund activity is filtered by the actor's
+          authorized branches. Support access is always denied for this PII endpoint.
+        parameters:
+          [
+            {
+              name: customerId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+          ]
+        responses:
+          {
+            "200":
+              {
+                description: Customer 360 read model,
+                content:
+                  {
+                    application/json:
+                      {
+                        schema:
+                          {
+                            type: object,
+                            required: [success, data, meta],
+                            properties:
+                              {
+                                success: { const: true },
+                                data: { $ref: "#/components/schemas/Customer360Detail" },
+                                meta:
+                                  {
+                                    type: object,
+                                    required: [requestId, timestamp],
+                                    properties:
+                                      {
+                                        requestId: { type: string },
+                                        timestamp: { type: string, format: date-time },
+                                      },
+                                  },
+                              },
+                          },
+                      },
+                  },
+              },
+            "400": { description: Invalid customerId UUID },
+            "403":
+              {
+                description: |
+                  PERMISSION_DENIED when customer.booking_lookup is missing;
+                  SUPPORT_CUSTOMER_PII_DENIED for support access.
+              },
+            "404": { description: CUSTOMER_NOT_FOUND, including cross-tenant IDs },
           },
       }
   /appointments:
@@ -5849,6 +5937,120 @@ components:
         status: { enum: [ACTIVE, INACTIVE, MERGED] }
         isGuest: { type: boolean }
         idempotencyReplayed: { type: boolean }
+    CustomerDirectoryPagination:
+      type: object
+      required: [limit, nextCursor, hasMore]
+      properties:
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        nextCursor: { type: string, nullable: true, maxLength: 512 }
+        hasMore: { type: boolean }
+    Customer360Detail:
+      type: object
+      required:
+        [profile, contact, activitySummary, recentAppointments, recentPurchases, recentRefunds]
+      properties:
+        profile: { $ref: "#/components/schemas/Customer360Profile" }
+        contact: { $ref: "#/components/schemas/Customer360Contact" }
+        activitySummary: { $ref: "#/components/schemas/Customer360ActivitySummary" }
+        recentAppointments:
+          type: array
+          maxItems: 10
+          items: { $ref: "#/components/schemas/Customer360Appointment" }
+        recentPurchases:
+          oneOf:
+            - { $ref: "#/components/schemas/Customer360OptionalSection" }
+            - { $ref: "#/components/schemas/Customer360PurchaseSection" }
+        recentRefunds:
+          oneOf:
+            - { $ref: "#/components/schemas/Customer360OptionalSection" }
+            - { $ref: "#/components/schemas/Customer360RefundSection" }
+    Customer360Profile:
+      type: object
+      required: [id, displayName, preferredLocale, status, isGuest, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        preferredLocale: { enum: [vi-VN, en-US] }
+        status: { enum: [ACTIVE, INACTIVE, MERGED] }
+        isGuest: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    Customer360Contact:
+      type: object
+      required: [access, phone, email]
+      properties:
+        access: { const: FULL }
+        phone: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+    Customer360ActivitySummary:
+      type: object
+      required:
+        [appointmentCount, completedVisitCount, lastVisitAt, nextAppointmentAt, invoiceCount, refundCount]
+      properties:
+        appointmentCount: { type: integer, minimum: 0 }
+        completedVisitCount: { type: integer, minimum: 0 }
+        lastVisitAt: { type: string, format: date-time, nullable: true }
+        nextAppointmentAt: { type: string, format: date-time, nullable: true }
+        invoiceCount: { type: integer, nullable: true }
+        refundCount: { type: integer, nullable: true }
+    Customer360Appointment:
+      type: object
+      required: [id, bookingReference, branchId, scheduledStartAt, status, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        bookingReference: { type: string }
+        branchId: { type: string, format: uuid }
+        scheduledStartAt: { type: string, format: date-time }
+        status: { type: string }
+        createdAt: { type: string, format: date-time }
+    Customer360OptionalSection:
+      type: object
+      required: [access, items]
+      properties:
+        access: { const: DENIED }
+        items: { type: array, maxItems: 0, items: {} }
+    Customer360PurchaseSection:
+      type: object
+      required: [access, items]
+      properties:
+        access: { const: GRANTED }
+        items:
+          type: array
+          maxItems: 10
+          items: { $ref: "#/components/schemas/Customer360Purchase" }
+    Customer360Purchase:
+      type: object
+      required: [invoiceId, invoiceNumber, branchId, status, issuedAt, totalMinor, currency]
+      properties:
+        invoiceId: { type: string, format: uuid }
+        invoiceNumber: { type: string }
+        branchId: { type: string, format: uuid }
+        status: { type: string }
+        issuedAt: { type: string, format: date-time, nullable: true }
+        totalMinor: { type: string, pattern: "^[0-9]+$" }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+    Customer360RefundSection:
+      type: object
+      required: [access, items]
+      properties:
+        access: { const: GRANTED }
+        items:
+          type: array
+          maxItems: 10
+          items: { $ref: "#/components/schemas/Customer360Refund" }
+    Customer360Refund:
+      type: object
+      required:
+        [refundId, refundReference, invoiceId, branchId, status, requestedMinor, completedMinor, currency, createdAt]
+      properties:
+        refundId: { type: string, format: uuid }
+        refundReference: { type: string }
+        invoiceId: { type: string, format: uuid }
+        branchId: { type: string, format: uuid }
+        status: { type: string }
+        requestedMinor: { type: string, pattern: "^[0-9]+$" }
+        completedMinor: { type: string, pattern: "^[0-9]+$" }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        createdAt: { type: string, format: date-time }
     PublicCreateAppointmentRequest:
       type: object
       additionalProperties: false

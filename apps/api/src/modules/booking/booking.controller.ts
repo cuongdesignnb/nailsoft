@@ -21,10 +21,14 @@ import {
 } from "../identity/permission.decorator.js";
 import { BookingService } from "./booking.service.js";
 
-function meta(req: AuthenticatedRequest) {
+function meta(
+  req: AuthenticatedRequest,
+  pagination?: { limit: number; nextCursor: string | null; hasMore: boolean },
+) {
   return {
     requestId: req.raw.requestId ?? "unknown",
     timestamp: new Date().toISOString(),
+    ...(pagination ? { pagination } : {}),
   };
 }
 function idempotency(value: string | undefined) {
@@ -116,9 +120,23 @@ export class BookingCustomerController {
   @Get()
   @RequirePermission("customer.booking_lookup")
   async list(@Query() query: unknown, @Req() req: AuthenticatedRequest) {
+    const result = await this.service.listBookingCustomers(req.auth, query);
     return {
       success: true,
-      data: await this.service.listBookingCustomers(req.auth, query),
+      data: result.items,
+      meta: meta(req, result.pagination),
+    };
+  }
+
+  @Get(":customerId")
+  @RequirePermission("customer.booking_lookup")
+  async detail(
+    @Param("customerId") id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return {
+      success: true,
+      data: await this.service.getCustomerDetail(req.auth, id),
       meta: meta(req),
     };
   }

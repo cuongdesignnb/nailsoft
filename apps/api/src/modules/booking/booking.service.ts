@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -13,7 +14,9 @@ import {
   appointmentRescheduleSchema,
   appointmentVersionSchema,
   bookingCustomerCreateSchema,
-  bookingCustomerSearchSchema,
+  customerDirectoryCursorSchema,
+  customerDirectoryQuerySchema,
+  customerIdParamSchema,
   createAppointmentSchema,
   createSlotHoldSchema,
   depositWaiverSchema,
@@ -51,8 +54,8 @@ export class BookingService {
   }
 
   async listBookingCustomers(auth: AccessClaims, input: unknown) {
-    this.denyPlatform(auth);
-    const query = bookingCustomerSearchSchema.parse(input),
+    this.assertCustomerPiiAccess(auth);
+    const query = customerDirectoryQuerySchema.parse(input),
       search = query.search || null,
       normalizedEmail = search?.includes("@")
         ? this.normalizeEmail(search)
@@ -61,17 +64,130 @@ export class BookingService {
         search && search.replace(/\D/g, "").length >= 6
           ? this.normalizePhone(search)
           : null;
+    const cursor = query.cursor ? decodeCustomerCursor(query.cursor) : null;
     const rows = await this.db.query<any>(
-      `SELECT id,display_name,phone_normalized,email_normalized,preferred_locale,status,is_guest,created_at
+      `SELECT id,display_name,phone_normalized,email_normalized,preferred_locale,status,is_guest,created_at,
+              lower(display_name) AS display_name_sort_key
        FROM customers
        WHERE tenant_id=$1 AND status='ACTIVE'
          AND ($2::text IS NULL OR lower(display_name) LIKE '%'||lower($2)||'%'
            OR ($3::text IS NOT NULL AND phone_normalized LIKE '%'||$3)
            OR ($4::text IS NOT NULL AND lower(email_normalized)=lower($4)))
-       ORDER BY display_name,id LIMIT $5`,
-      [auth.tenantId, search, normalizedPhone, normalizedEmail, query.limit],
+         AND ($5::text IS NULL OR (lower(display_name), id) > ($5::text, $6::uuid))
+       ORDER BY lower(display_name),id LIMIT $7`,
+      [
+        auth.tenantId,
+        search,
+        normalizedPhone,
+        normalizedEmail,
+        cursor?.displayNameSortKey ?? null,
+        cursor?.customerId ?? null,
+        query.limit + 1,
+      ],
     );
-    return rows.rows.map((row) => this.customerView(row));
+    const hasMore = rows.rows.length > query.limit,
+      page = rows.rows.slice(0, query.limit),
+      last = page[page.length - 1];
+    return {
+      items: page.map((row) => this.customerView(row)),
+      pagination: {
+        limit: query.limit,
+        nextCursor:
+          hasMore && last
+            ? encodeCustomerCursor({
+                displayNameSortKey: last.display_name_sort_key,
+                customerId: last.id,
+              })
+            : null,
+        hasMore,
+      },
+    };
+  }
+
+  async getCustomerDetail(auth: AccessClaims, input: unknown) {
+    this.assertCustomerPiiAccess(auth);
+    const { customerId } = customerIdParamSchema.parse({ customerId: input });
+    const customer = (
+      await this.db.query<any>(
+        `SELECT id,display_name,phone_normalized,email_normalized,preferred_locale,status,is_guest,created_at
+         FROM customers
+         WHERE tenant_id=$1 AND id=$2`,
+        [auth.tenantId, customerId],
+      )
+    ).rows[0];
+    if (!customer)
+      throw new NotFoundException({
+        code: "CUSTOMER_NOT_FOUND",
+        message: "Customer was not found",
+      });
+
+    const optionalPermissions = await this.permissionSet(auth, [
+      "invoice.read",
+      "refund.read",
+    ]);
+    const tenantWide = this.owner(auth),
+      allowedBranches = tenantWide ? null : auth.branchIds,
+      branchClause = tenantWide ? "" : " AND a.branch_id=ANY($3::uuid[])",
+      activityParams = tenantWide
+        ? [auth.tenantId, customerId]
+        : [auth.tenantId, customerId, allowedBranches];
+    const activityRows = (
+      await this.db.query<any>(
+        `SELECT a.id,a.booking_reference,a.branch_id,a.start_at,a.status,a.created_at,
+                COUNT(*) OVER () AS appointment_count,
+                COUNT(*) FILTER (WHERE a.status='COMPLETED') OVER () AS completed_visit_count,
+                MAX(a.start_at) FILTER (WHERE a.status='COMPLETED') OVER () AS last_visit_at,
+                MIN(a.start_at) FILTER (
+                  WHERE a.start_at>now()
+                    AND a.status NOT IN ('CANCELLED_BY_CUSTOMER','CANCELLED_BY_SALON','NO_SHOW','EXPIRED')
+                ) OVER () AS next_appointment_at
+         FROM appointments a
+         WHERE a.tenant_id=$1 AND a.customer_id=$2${branchClause}
+         ORDER BY a.start_at DESC,a.id DESC
+         LIMIT 10`,
+        activityParams,
+      )
+    ).rows;
+    const activityFirst = activityRows[0];
+    const recentPurchases = optionalPermissions.has("invoice.read")
+      ? await this.recentCustomerPurchases(auth, customerId, allowedBranches)
+      : { access: "DENIED", items: [] };
+    const recentRefunds = optionalPermissions.has("refund.read")
+      ? await this.recentCustomerRefunds(auth, customerId, allowedBranches)
+      : { access: "DENIED", items: [] };
+    return {
+      profile: {
+        id: customer.id,
+        displayName: customer.display_name,
+        preferredLocale: customer.preferred_locale,
+        status: customer.status,
+        isGuest: customer.is_guest,
+        createdAt: customer.created_at,
+      },
+      contact: {
+        access: "FULL",
+        phone: customer.phone_normalized,
+        email: customer.email_normalized,
+      },
+      activitySummary: {
+        appointmentCount: Number(activityFirst?.appointment_count ?? 0),
+        completedVisitCount: Number(activityFirst?.completed_visit_count ?? 0),
+        lastVisitAt: activityFirst?.last_visit_at ?? null,
+        nextAppointmentAt: activityFirst?.next_appointment_at ?? null,
+        invoiceCount: null,
+        refundCount: null,
+      },
+      recentAppointments: activityRows.map((row) => ({
+        id: row.id,
+        bookingReference: row.booking_reference,
+        branchId: row.branch_id,
+        scheduledStartAt: row.start_at,
+        status: row.status,
+        createdAt: row.created_at,
+      })),
+      recentPurchases,
+      recentRefunds,
+    };
   }
 
   async createBookingCustomer(
@@ -1713,6 +1829,95 @@ export class BookingService {
       version: row.version,
     };
   }
+  private async permissionSet(auth: AccessClaims, permissionCodes: string[]) {
+    if (auth.supportAccess || permissionCodes.length === 0) return new Set<string>();
+    try {
+      const rows = await this.db.query<{ permission_code: string }>(
+        `SELECT DISTINCT rp.permission_code
+         FROM membership_roles mr
+         JOIN role_permissions rp ON rp.role=mr.role
+         WHERE mr.membership_id=$1 AND rp.permission_code=ANY($2::text[])`,
+        [auth.membershipId, permissionCodes],
+      );
+      return new Set(rows.rows.map((row) => row.permission_code));
+    } catch {
+      return new Set<string>();
+    }
+  }
+  private async hasAnyPermission(
+    auth: AccessClaims,
+    permissionCodes: string[],
+  ): Promise<boolean> {
+    const permissions = await this.permissionSet(auth, permissionCodes);
+    return permissionCodes.some((permission) => permissions.has(permission));
+  }
+  private async recentCustomerPurchases(
+    auth: AccessClaims,
+    customerId: string,
+    allowedBranches: string[] | null,
+  ) {
+    const branchClause = allowedBranches
+      ? " AND i.branch_id=ANY($3::uuid[])"
+      : "";
+    const rows = await this.db.query<any>(
+      `SELECT i.id,i.invoice_number,i.branch_id,i.status,i.issued_at,i.total_minor,i.currency
+       FROM invoices i
+       JOIN pos_orders o ON o.tenant_id=i.tenant_id AND o.id=i.pos_order_id
+       WHERE i.tenant_id=$1 AND o.customer_id=$2${branchClause}
+       ORDER BY COALESCE(i.issued_at,i.created_at) DESC,i.id DESC
+       LIMIT 10`,
+      allowedBranches
+        ? [auth.tenantId, customerId, allowedBranches]
+        : [auth.tenantId, customerId],
+    );
+    return {
+      access: "GRANTED",
+      items: rows.rows.map((row) => ({
+        invoiceId: row.id,
+        invoiceNumber: row.invoice_number,
+        branchId: row.branch_id,
+        status: row.status,
+        issuedAt: row.issued_at,
+        totalMinor: String(row.total_minor),
+        currency: row.currency,
+      })),
+    };
+  }
+  private async recentCustomerRefunds(
+    auth: AccessClaims,
+    customerId: string,
+    allowedBranches: string[] | null,
+  ) {
+    const branchClause = allowedBranches
+      ? " AND r.branch_id=ANY($3::uuid[])"
+      : "";
+    const rows = await this.db.query<any>(
+      `SELECT r.id,r.refund_reference,r.invoice_id,r.branch_id,r.status,
+              r.requested_minor,r.completed_minor,r.currency,r.created_at
+       FROM refunds r
+       JOIN pos_orders o ON o.tenant_id=r.tenant_id AND o.id=r.pos_order_id
+       WHERE r.tenant_id=$1 AND o.customer_id=$2${branchClause}
+       ORDER BY r.created_at DESC,r.id DESC
+       LIMIT 10`,
+      allowedBranches
+        ? [auth.tenantId, customerId, allowedBranches]
+        : [auth.tenantId, customerId],
+    );
+    return {
+      access: "GRANTED",
+      items: rows.rows.map((row) => ({
+        refundId: row.id,
+        refundReference: row.refund_reference,
+        invoiceId: row.invoice_id,
+        branchId: row.branch_id,
+        status: row.status,
+        requestedMinor: String(row.requested_minor),
+        completedMinor: String(row.completed_minor),
+        currency: row.currency,
+        createdAt: row.created_at,
+      })),
+    };
+  }
   private customerView(row: any) {
     return {
       id: row.id,
@@ -1992,6 +2197,14 @@ export class BookingService {
         message: "Platform support grant is required",
       });
   }
+  private assertCustomerPiiAccess(auth: AccessClaims) {
+    if (auth.supportAccess)
+      throw new ForbiddenException({
+        code: "SUPPORT_CUSTOMER_PII_DENIED",
+        message: "Customer PII is not available through support access.",
+      });
+    this.denyPlatform(auth);
+  }
   private owner(auth: AccessClaims) {
     return auth.roles.includes("SALON_OWNER");
   }
@@ -2032,4 +2245,23 @@ function version() {
     code: "BOOKING_VERSION_CONFLICT",
     message: "Appointment version is stale",
   });
+}
+
+function encodeCustomerCursor(value: {
+  displayNameSortKey: string;
+  customerId: string;
+}) {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function decodeCustomerCursor(cursor: string) {
+  try {
+    const decoded = Buffer.from(cursor, "base64url").toString("utf8");
+    return customerDirectoryCursorSchema.parse(JSON.parse(decoded));
+  } catch {
+    throw new BadRequestException({
+      code: "INVALID_CUSTOMER_CURSOR",
+      message: "Customer directory cursor is invalid",
+    });
+  }
 }

@@ -202,12 +202,21 @@ export const publicCreateAppointmentSchema = z
     acceptedAt: z.string().datetime({ offset: true }),
   })
   .strict();
-export const bookingCustomerSearchSchema = z
+export const customerDirectoryCursorSchema = z
+  .object({
+    displayNameSortKey: z.string().trim().min(1).max(200),
+    customerId: uuidSchema,
+  })
+  .strict();
+export const customerDirectoryQuerySchema = z
   .object({
     search: z.string().trim().max(200).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
+    cursor: z.string().trim().min(1).max(512).optional(),
   })
   .strict();
+export const customerIdParamSchema = z.object({ customerId: uuidSchema }).strict();
+export const bookingCustomerSearchSchema = customerDirectoryQuerySchema;
 export const bookingCustomerCreateSchema = publicAppointmentCustomerSchema;
 export const appointmentVersionSchema = z.object({
   version: z.number().int().positive(),
