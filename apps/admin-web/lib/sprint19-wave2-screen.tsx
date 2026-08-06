@@ -269,8 +269,27 @@ function CreditNotes({ detailId }: { detailId?: string }) { const remote = useRe
 
 function Commission({ adjustments = false }: { adjustments?: boolean }) { const remote = useRemote(adjustments ? "/v1/commission-adjustments" : "/v1/commission-entries"); return <Page title={adjustments ? "Commission adjustments" : "Commission evidence"} eyebrow="CORRECTIONS · COMMISSION" description="View contribution and reversal evidence from the existing commission contract; no client-side recalculation is performed."><AsyncPanel value={remote} label="commission records" />{remote.state === "ready" && <div className="w2-table-wrap"><table className="w2-table"><thead><tr><th>Record</th><th>Staff</th><th>Status</th><th>Amount</th><th>Reference</th></tr></thead><tbody>{(Array.isArray(remote.data) ? remote.data : []).map((row: any) => <tr key={row.id}><td><strong>{row.entryReference ?? row.adjustmentReference ?? row.id}</strong><small>{row.ruleCode ?? row.reasonCode ?? "Evidence"}</small></td><td>{row.staffName ?? row.staffId ?? "—"}</td><td><Status value={row.status ?? row.state} /></td><td className="w2-money">{money(row.amountMinor ?? row.commissionMinor ?? row.reversalMinor, row.currency)}</td><td>{row.sourceReference ?? row.refundId ?? row.statementId ?? "—"}</td></tr>)}</tbody></table></div>}</Page>; }
 
+function isWave2CommissionPath(pathname: string) {
+  return (
+    pathname === "/admin/commission" ||
+    pathname === "/admin/commission/entries" ||
+    pathname === "/admin/commission/adjustments"
+  );
+}
+
 export function isWave2Path(pathname: string) {
-  return pathname === "/admin/pos" || pathname === "/admin/pos/new" || pathname.startsWith("/admin/pos/") || pathname === "/admin/financial" || pathname.startsWith("/admin/financial/") || pathname === "/admin/refunds" || pathname.startsWith("/admin/refunds/") || pathname === "/admin/credit-notes" || pathname.startsWith("/admin/credit-notes/") || pathname.startsWith("/admin/commission");
+  return (
+    pathname === "/admin/pos" ||
+    pathname === "/admin/pos/new" ||
+    pathname.startsWith("/admin/pos/") ||
+    pathname === "/admin/financial" ||
+    pathname.startsWith("/admin/financial/") ||
+    pathname === "/admin/refunds" ||
+    pathname.startsWith("/admin/refunds/") ||
+    pathname === "/admin/credit-notes" ||
+    pathname.startsWith("/admin/credit-notes/") ||
+    isWave2CommissionPath(pathname)
+  );
 }
 
 export default function Sprint19Wave2Screen({ pathname }: { pathname: string }) {
