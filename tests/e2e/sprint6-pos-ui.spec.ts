@@ -43,7 +43,9 @@ test("Cashier completes the real POS, split-safe payment and immutable receipt U
 
   await page.getByRole("button", { name: "Finalize order" }).click();
   await expect(
-    page.getByText("Order finalized. Pricing mutations are closed."),
+    page.getByText("Order finalized. Pricing is now immutable.", {
+      exact: true,
+    }),
   ).toBeVisible();
   await page.getByRole("link", { name: "Collect payment" }).click();
   await expect(
