@@ -17,18 +17,26 @@ test("owner reviews and approves a real immutable refund request", async ({
   await loginUi(page);
   await page.goto("http://localhost:3000/admin/refunds");
   await expect(
-    page.getByRole("heading", { name: "Refund ledger" }),
+    page.getByRole("heading", { name: "Refund review queue" }),
   ).toBeVisible();
   await expect(page.getByText("RF-Q1-SEED-000001")).toBeVisible();
-  await page.getByRole("link", { name: "Open" }).first().click();
+  await page.getByRole("link", { name: "Review" }).first().click();
   await expect(
-    page.getByRole("heading", { name: "Refund detail" }),
+    page.getByRole("heading", { name: "Refund review" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Approve" }).click();
   await expect(
-    page.getByText("approve completed.", { exact: true }),
+    page.getByText("approve confirmed by the server.", {
+      exact: true,
+    }),
   ).toBeVisible();
-  await expect(page.getByText("APPROVED", { exact: true })).toBeVisible();
+  const refundStatusKpi = page.locator("article.w2-kpi").filter({
+    has: page.getByText("Status", { exact: true }),
+  });
+  await expect(refundStatusKpi).toHaveCount(1);
+  await expect(
+    refundStatusKpi.getByText("APPROVED", { exact: true }),
+  ).toBeVisible();
 
   const manager = await login("staff2@example.test");
   try {
