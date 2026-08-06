@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 2 implementation in progress; Wave 3 not authorized
+Current phase: Wave 2 accepted against source CI; Wave 3 not authorized
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -72,40 +72,46 @@ report. No unverified screenshot is claimed as acceptance evidence.
 
 ## Business route inventory for later waves
 
-## Wave 2 — POS, payment and cash operations (implementation in progress)
+## Wave 2 — POS, payment and cash operations (accepted)
 
 Wave 2 keeps the existing Sprint 6–7 APIs and permission guards. The new
 Admin Web surface is additive and server-authoritative; no migration or
 business state-machine change is part of this wave. Each row is tracked
 separately even where the catch-all route shares a renderer.
 
+Final Wave 2 source validation is commit
+`83474b1f12c107292b0b4144923b16edff39a720`, validated by full CI run
+`31085184446` with conclusion `SUCCESS`. The documentation commit that follows
+is not the source commit validated by that CI run.
+
 | ID | Screen | App | Route | Persona | Permission / scope | API dependency | Required states | Breakpoints | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19.2.1 | POS home and register context | Admin Web | `/admin/pos` | Owner, Manager, Cashier, Receptionist | `financial.summary.read`, `cash_session.read`, branch | summary, orders, cash sessions | loading, ready, empty, retry, forbidden, offline | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA |
-| 19.2.2 | Open and held orders | Admin Web | `/admin/pos/orders` | Cashier, Receptionist, Manager | `pos.order.read`, branch | `/v1/pos-orders` | loading, empty, retry, forbidden, stale | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.3 | New sale workspace | Admin Web | `/admin/pos/new` | Cashier, Receptionist | `pos.order.create`, branch | appointment POS order command | loading, validation, conflict, success | 1440, 1024, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.4 | Customer and appointment linking | Admin Web | `/admin/pos/new`, `/admin/pos/checkout/:id` | Cashier, Receptionist | appointment/POS scope | appointment detail, POS order creation | loading, not found, forbidden, retry | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.5 | Service and retail cart | Admin Web | `/admin/pos/orders/:id` | Cashier, Receptionist | `pos.order.update`, branch | POS order detail/line/recalculate | loading, empty, validation, version conflict | 1440, 1024, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.6 | Discount, tax, tip and approval | Admin Web | `/admin/pos/orders/:id` | Cashier, Manager | `pos.discount.*`, `pos.tip.set` | discount, tip, server totals | pending approval, success, error, conflict | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.7 | Checkout summary | Admin Web | `/admin/pos/orders/:id/payment` | Cashier, Manager | `payment.capture_cash`, branch | order detail/payment | loading, review, invalid, conflict | 1440, 1024, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.8 | Split tender payment | Admin Web | `/admin/pos/orders/:id/payment` | Cashier, Manager | payment tender permissions | POS payment command | submitting, success, failed, unknown, retry | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.9 | Payment result and recovery | Admin Web | `/admin/pos/orders/:id/payment` | Cashier, Manager | payment read/command scope | POS order/payment detail | processing, failed, unknown, requires action | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.10 | Invoice and receipt | Admin Web | `/admin/pos/orders/:id/receipt`, `/admin/financial/invoices` | Cashier, Accountant, Manager | `invoice.read`, `invoice.print` | invoice print/detail | loading, immutable ready, forbidden, retry | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.11 | Register assignment and open | Admin Web | `/admin/pos/registers`, `/admin/pos/cash-sessions/open` | Cashier, Manager | `cash_session.read/open`, device/branch | registers, cash session open | loading, validation, conflict, forbidden | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.12 | Cash drawer and movements | Admin Web | `/admin/pos/cash-sessions/:id` | Cashier, Manager | `cash_session.read/move_cash`, session ownership | session, movements, move command | loading, empty, validation, conflict | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.13 | Blind count and register close | Admin Web | `/admin/pos/cash-sessions/:id/close` | Cashier, Manager | `cash_session.begin_close/declare/close` | closing review, declare, close | blind, pending review, conflict, success | 1280, 768, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.14 | Variance review and reconciliation | Admin Web | `/admin/pos/cash-sessions/:id/close`, `/admin/financial/reconciliation` | Manager, Owner, Accountant | `cash_session.approve_variance`, financial read | closing review, reconciliation | loading, variance, approval, forbidden | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.15 | Refund initiation | Admin Web | `/admin/refunds/new` | Manager, Owner, Cashier (request) | `refund.request`, branch | refund plan/create | validation, policy window, error, success | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.16 | Refund allocation and review | Admin Web | `/admin/refunds`, `/admin/refunds/:id` | Manager, Owner | `refund.read/approve`, branch | refund list/detail/commands | loading, empty, approval, conflict, retry | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.17 | Credit note and refund detail | Admin Web | `/admin/credit-notes`, `/admin/credit-notes/:id` | Manager, Accountant, Owner | `credit_note.read/print`, branch | credit-note detail/delivery | loading, immutable ready, forbidden, retry | 1280, 390 | IMPLEMENTED_PENDING_QA |
-| 19.2.18 | Tip and commission reversal evidence | Admin Web | `/admin/commission`, `/admin/commission/adjustments` | Manager, Owner, Accountant | commission read/adjustment permissions | commission entries/adjustments | loading, empty, approval, forbidden | 1280, 390 | IMPLEMENTED_PENDING_QA |
+| 19.2.1 | POS home and register context | Admin Web | `/admin/pos` | Owner, Manager, Cashier, Receptionist | `financial.summary.read`, `cash_session.read`, branch | summary, orders, cash sessions | loading, ready, empty, retry, forbidden, offline | 1440, 1280, 1024, 768, 390, 360 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.2 | Open and held orders | Admin Web | `/admin/pos/orders` | Cashier, Receptionist, Manager | `pos.order.read`, branch | `/v1/pos-orders` | loading, empty, retry, forbidden, stale | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.3 | New sale workspace | Admin Web | `/admin/pos/new` | Cashier, Receptionist | `pos.order.create`, branch | appointment POS order command | loading, validation, conflict, success | 1440, 1024, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.4 | Customer and appointment linking | Admin Web | `/admin/pos/new`, `/admin/pos/checkout/:id` | Cashier, Receptionist | appointment/POS scope | appointment detail, POS order creation | loading, not found, forbidden, retry | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.5 | Service and retail cart | Admin Web | `/admin/pos/orders/:id` | Cashier, Receptionist | `pos.order.update`, branch | POS order detail/line/recalculate | loading, empty, validation, version conflict | 1440, 1024, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.6 | Discount, tax, tip and approval | Admin Web | `/admin/pos/orders/:id` | Cashier, Manager | `pos.discount.*`, `pos.tip.set` | discount, tip, server totals | pending approval, success, error, conflict | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.7 | Checkout summary | Admin Web | `/admin/pos/orders/:id/payment` | Cashier, Manager | `payment.capture_cash`, branch | order detail/payment | loading, review, invalid, conflict | 1440, 1024, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.8 | Split tender payment | Admin Web | `/admin/pos/orders/:id/payment` | Cashier, Manager | payment tender permissions | POS payment command | submitting, success, failed, unknown, retry | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.9 | Payment result and recovery | Admin Web | `/admin/pos/orders/:id/payment` | Cashier, Manager | payment read/command scope | POS order/payment detail | processing, failed, unknown, requires action | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.10 | Invoice and receipt | Admin Web | `/admin/pos/orders/:id/receipt`, `/admin/financial/invoices` | Cashier, Accountant, Manager | `invoice.read`, `invoice.print` | invoice print/detail | loading, immutable ready, forbidden, retry | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.11 | Register assignment and open | Admin Web | `/admin/pos/registers`, `/admin/pos/cash-sessions/open` | Cashier, Manager | `cash_session.read/open`, device/branch | registers, cash session open | loading, validation, conflict, forbidden | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.12 | Cash drawer and movements | Admin Web | `/admin/pos/cash-sessions/:id` | Cashier, Manager | `cash_session.read/move_cash`, session ownership | session, movements, move command | loading, empty, validation, conflict | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.13 | Blind count and register close | Admin Web | `/admin/pos/cash-sessions/:id/close` | Cashier, Manager | `cash_session.begin_close/declare/close` | closing review, declare, close | blind, pending review, conflict, success | 1280, 768, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.14 | Variance review and reconciliation | Admin Web | `/admin/pos/cash-sessions/:id/close`, `/admin/financial/reconciliation` | Manager, Owner, Accountant | `cash_session.approve_variance`, financial read | closing review, reconciliation | loading, variance, approval, forbidden | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.15 | Refund initiation | Admin Web | `/admin/refunds/new` | Manager, Owner, Cashier (request) | `refund.request`, branch | refund plan/create | validation, policy window, error, success | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.16 | Refund allocation and review | Admin Web | `/admin/refunds`, `/admin/refunds/:id` | Manager, Owner | `refund.read/approve`, branch | refund list/detail/commands | loading, empty, approval, conflict, retry | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.17 | Credit note and refund detail | Admin Web | `/admin/credit-notes`, `/admin/credit-notes/:id` | Manager, Accountant, Owner | `credit_note.read/print`, branch | credit-note detail/delivery | loading, immutable ready, forbidden, retry | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
+| 19.2.18 | Tip and commission reversal evidence | Admin Web | `/admin/commission`, `/admin/commission/adjustments` | Manager, Owner, Accountant | commission read/adjustment permissions | commission entries/adjustments | loading, empty, approval, forbidden | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
 
-The following route families are registered before implementation. Each business screen will receive its own acceptance row immediately before work starts; no business screen is accepted in Wave 0.
+The following route families remain planned for later waves. Wave 2 rows above
+are accepted; Wave 3 and later screens are not authorized by this closure.
 
 | Wave | Route family | Screen IDs | Primary personas | Permission examples |
 | --- | --- | --- | --- | --- |
 | 1 | Booking and daily operations | 19.1.1-19.1.16 | Owner, Manager, Receptionist, Technician | `calendar.*`, `appointment.*`, `operations.*`, `walkin.*` |
-| 2 | POS, payment and cash | 19.2.1-19.2.17 | Receptionist, Cashier, Manager, Accountant | `pos.*`, `payment.*`, `invoice.*`, `cash_session.*` |
+| 2 | POS, payment and cash | 19.2.1-19.2.18 | Receptionist, Cashier, Manager, Accountant | `pos.*`, `payment.*`, `invoice.*`, `cash_session.*` |
 | 3 | Customers, loyalty and engagement | 19.3.1-19.3.15 | Receptionist, Owner, Marketing | `customer.*`, `loyalty.*`, `membership.*`, `marketing.*` |
 | 4 | Staff, workforce and payroll | 19.4.1-19.4.14 | Owner, Manager, Accountant, Technician | `staff.*`, `shift.*`, `leave.*`, `payroll.*` |
 | 5 | Inventory, procurement and assets | 19.5.1-19.5.36 | Inventory/Procurement Operator, Manager, Accountant | `inventory.*`, `procurement.*`, `asset.*` |
@@ -115,5 +121,5 @@ The following route families are registered before implementation. Each business
 | 9 | Staff Mobile | 19.9.1-19.9.10 | Technician | Own staff and assigned-session scope |
 
 Total planned units: 180 (13 foundations and 167 business screens, including
-separately tracked staff assignment and transfer units). Wave 2 onward is not
-authorized by this document.
+separately tracked staff assignment and transfer units). Wave 3 onward remains
+unauthorized by this document.
