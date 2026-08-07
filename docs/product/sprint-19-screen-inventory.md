@@ -171,6 +171,30 @@ LIABILITY_ROUTE_OWNERSHIP_PRESERVED=YES
 MIGRATION_CHANGED=NO
 ```
 
+## Wave 3 Cluster 4 implementation ledger
+
+Cluster 4 redesigns communications, marketing, reviews and service recovery
+with existing Sprint 11 API contracts. Email remains the only communication
+channel; consent, suppression, dual-control and compensation ownership remain
+server-authoritative. These rows are implementation evidence only until the
+Wave 3 targeted QA and exact full CI source gate pass.
+
+| ID | Screen | App | Route | Persona | Permission / scope | API dependency | Required states | Breakpoints | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 19.3.13 | Communications, segments and email campaigns | Admin Web | `/admin/communications/templates`, `/admin/communications/rules`, `/admin/communications/messages`, `/admin/communications/suppressions`, `/admin/marketing/segments`, `/admin/marketing/campaigns`, `/admin/marketing/campaigns/:campaignId` | Owner, Manager, Marketing | `communication.*`, `marketing.*`, tenant/branch scope, consent and suppression | Communication, segment and campaign APIs | loading, ready, empty, retry, forbidden, offline, submitting, version conflict, dual-control | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 4 |
+| 19.3.14 | Reviews and review requests | Admin Web | `/admin/reviews`, `/admin/reviews/:reviewId`, `/admin/review-requests` | Owner, Manager, Receptionist | `review.*`, branch scope | Review and review-request APIs | loading, ready, empty, retry, forbidden, response validation, version conflict | 1280, 390 | IMPLEMENTED_PENDING_QA; local Cluster 4 |
+| 19.3.15 | Service recovery, compensation and timeline | Admin Web | `/admin/service-recovery`, `/admin/service-recovery/:caseId` | Owner, Manager, Receptionist, assigned Technician | `service_recovery.*`, branch and assigned-task scope, compensation dual control | Recovery case, task and compensation APIs | loading, ready, empty, retry, forbidden, version conflict, dual-control, owning-domain handoff | 1280, 390 | IMPLEMENTED_PENDING_QA; local Cluster 4 |
+
+```text
+WAVE_3_CLUSTER_4_STATUS=IMPLEMENTED_PENDING_QA
+SCREEN_ROWS_19_3_13_TO_19_3_15=IMPLEMENTED_PENDING_QA
+EMAIL_ONLY=YES
+CONSENT_AND_SUPPRESSION_SERVER_CHECKED=YES
+COMPENSATION_OWNING_DOMAIN_HANDOFF=YES
+ROUTE_OWNERSHIP_EXPLICIT=YES
+MIGRATION_CHANGED=NO
+```
+
 ## Wave 3 Cluster 1A implementation ledger
 
 Cluster 1A adds the Admin Web Customer Directory, create-only flow, read-only

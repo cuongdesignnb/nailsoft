@@ -224,6 +224,7 @@ export default function Sprint1Screen() {
     /^\/admin\/staff\/[^/]+\/pay-profile$/.test(pathname)
   )
     return <Sprint12Screen pathname={pathname} />;
+  if (isWave3Path(pathname)) return <Sprint19Wave3CustomerScreen pathname={pathname} />;
   if (
     pathname.startsWith("/admin/communications") ||
     pathname.startsWith("/admin/marketing") ||
@@ -233,7 +234,6 @@ export default function Sprint1Screen() {
     /^\/admin\/customers\/[^/]+\/engagement$/.test(pathname)
   )
     return <Sprint11Screen pathname={pathname} />;
-  if (isWave3Path(pathname)) return <Sprint19Wave3CustomerScreen pathname={pathname} />;
   if (
     pathname.startsWith("/admin/stored-value") ||
     pathname.startsWith("/admin/gift-cards") ||

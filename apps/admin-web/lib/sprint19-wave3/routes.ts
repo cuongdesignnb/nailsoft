@@ -33,6 +33,21 @@ export function isWave3Cluster3Path(pathname: string) {
     pathname === "/admin/stored-value/adjustments";
 }
 
+export function isWave3Cluster4Path(pathname: string) {
+  return pathname === "/admin/communications/templates" ||
+    pathname === "/admin/communications/rules" ||
+    pathname === "/admin/communications/messages" ||
+    pathname === "/admin/communications/suppressions" ||
+    pathname === "/admin/marketing/segments" ||
+    pathname === "/admin/marketing/campaigns" ||
+    /^\/admin\/marketing\/campaigns\/[^/]+$/.test(pathname) ||
+    pathname === "/admin/reviews" ||
+    /^\/admin\/reviews\/[^/]+$/.test(pathname) ||
+    pathname === "/admin/review-requests" ||
+    pathname === "/admin/service-recovery" ||
+    /^\/admin\/service-recovery\/[^/]+$/.test(pathname);
+}
+
 export function isWave3Path(pathname: string) {
-  return isWave3CustomerPath(pathname) || isWave3Cluster2Path(pathname) || isWave3Cluster3Path(pathname);
+  return isWave3CustomerPath(pathname) || isWave3Cluster2Path(pathname) || isWave3Cluster3Path(pathname) || isWave3Cluster4Path(pathname);
 }

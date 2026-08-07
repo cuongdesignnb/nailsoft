@@ -249,6 +249,31 @@ WAVE_4_STARTED=NO
 SPRINT_20_STARTED=NO
 ```
 
+## Wave 3 Cluster 4 local implementation
+
+Cluster 4 covers the Admin Web communications, marketing, reviews and service
+recovery routes. It uses existing APIs and keeps email consent, suppression,
+dual-control and owning-domain compensation rules on the server. Acceptance is
+pending targeted QA and the exact final Wave 3 source CI run.
+
+| ID | Route / surface | Persona | Permission and scope | API / evidence | Required states and QA | Source commit | CI | Acceptance |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 19.3.13 | Communications, segments and email campaigns | Owner, Manager, Marketing | `communication.*`, `marketing.*`, tenant/branch scope | Existing communication, segment and campaign APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, offline, submitting, version conflict, consent/suppression, dual control | local Cluster 4 pending commit | pending Wave 3 full CI | IMPLEMENTED_PENDING_QA |
+| 19.3.14 | Reviews and review requests | Owner, Manager, Receptionist | `review.*`, branch scope | Existing review and request APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, immutable customer content, response validation | local Cluster 4 pending commit | pending Wave 3 full CI | IMPLEMENTED_PENDING_QA |
+| 19.3.15 | Service recovery, compensation and timeline | Owner, Manager, Receptionist, assigned Technician | `service_recovery.*`, branch/assigned-task scope | Existing recovery case, task and compensation APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, version conflict, dual control, owning-domain handoff | local Cluster 4 pending commit | pending Wave 3 full CI | IMPLEMENTED_PENDING_QA |
+
+```text
+WAVE_3_CLUSTER_4_STATUS=IMPLEMENTED_PENDING_QA
+SCREEN_ROWS_19_3_13_TO_19_3_15=IMPLEMENTED_PENDING_QA
+EMAIL_ONLY=YES
+CONSENT_AND_SUPPRESSION_SERVER_CHECKED=YES
+COMPENSATION_OWNING_DOMAIN_HANDOFF=YES
+ROUTE_OWNERSHIP_EXPLICIT=YES
+MIGRATION_CHANGED=NO
+WAVE_4_STARTED=NO
+SPRINT_20_STARTED=NO
+```
+
 ## Wave 3 Cluster 3 local implementation
 
 ```text

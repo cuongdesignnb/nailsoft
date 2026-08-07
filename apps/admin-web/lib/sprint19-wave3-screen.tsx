@@ -10,6 +10,10 @@ import PackageCatalog, { PackageDetail, PackageEntitlements, PackageEntitlementD
 import { VoucherCampaignDetail, VoucherCampaigns, VoucherCodes } from "./sprint19-wave3/vouchers";
 import { GiftCardDetail, GiftCardIssuance, GiftCardProducts, GiftCards } from "./sprint19-wave3/gift-cards";
 import { CustomerCredit, StoredValueAdjustments } from "./sprint19-wave3/customer-credit";
+import { CommunicationMessages, CommunicationRules, CommunicationTemplates } from "./sprint19-wave3/communications";
+import { MarketingCampaignDetail, MarketingCampaigns, MarketingSegments } from "./sprint19-wave3/marketing";
+import { ReviewRoute } from "./sprint19-wave3/reviews";
+import { RecoveryRoute } from "./sprint19-wave3/service-recovery";
 import { isWave3CustomerPath, isWave3Path } from "./sprint19-wave3/routes";
 
 export { isWave3CustomerPath, isWave3Path };
@@ -42,6 +46,16 @@ export default function Sprint19Wave3CustomerScreen({ pathname }: { pathname: st
   if (giftCard) return <GiftCardDetail giftCardId={giftCard[1] ?? ""} />;
   if (pathname === "/admin/customer-credit") return <CustomerCredit />;
   if (pathname === "/admin/stored-value/adjustments") return <StoredValueAdjustments />;
+  if (pathname === "/admin/communications/templates") return <CommunicationTemplates />;
+  if (pathname === "/admin/communications/rules") return <CommunicationRules />;
+  if (pathname === "/admin/communications/messages") return <CommunicationMessages />;
+  if (pathname === "/admin/communications/suppressions") return <CommunicationMessages suppressions />;
+  if (pathname === "/admin/marketing/segments") return <MarketingSegments />;
+  if (pathname === "/admin/marketing/campaigns") return <MarketingCampaigns />;
+  const campaign = pathname.match(/^\/admin\/marketing\/campaigns\/([^/]+)$/);
+  if (campaign) return <MarketingCampaignDetail campaignId={campaign[1] ?? ""} />;
+  if (pathname === "/admin/reviews" || pathname === "/admin/review-requests" || /^\/admin\/reviews\/[^/]+$/.test(pathname)) return <ReviewRoute pathname={pathname} />;
+  if (pathname === "/admin/service-recovery" || /^\/admin\/service-recovery\/[^/]+$/.test(pathname)) return <RecoveryRoute pathname={pathname} />;
   if (pathname === "/admin/customers/new") return <CustomerCreate />;
   const detail = pathname.match(/^\/admin\/customers\/([^/]+)$/);
   if (detail) return <CustomerDetail customerId={detail[1] ?? ""} />;
