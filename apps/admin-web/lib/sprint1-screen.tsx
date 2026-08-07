@@ -22,6 +22,7 @@ import Sprint19Wave1Screen from "./sprint19-wave1-screen";
 import Sprint19Wave1Remediation, { isWave1RemediationPath } from "./sprint19-wave1-remediation";
 import Sprint19Wave2Screen, { isWave2Path } from "./sprint19-wave2-screen";
 import Sprint19Wave3CustomerScreen, { isWave3Path } from "./sprint19-wave3-screen";
+import Sprint19Wave4Screen, { isWave4Path } from "./sprint19-wave4-screen";
 
 type Resource = {
   title: string;
@@ -214,6 +215,7 @@ export default function Sprint1Screen() {
   if (pathname.startsWith("/admin/accounting")) return <Sprint14Screen />;
   if (pathname.startsWith("/admin/billing") || pathname.startsWith("/admin/support-access"))
     return <Sprint13Screen />;
+  if (isWave4Path(pathname)) return <Sprint19Wave4Screen pathname={pathname} />;
   if (
     pathname.startsWith("/admin/time-clock") ||
     pathname.startsWith("/admin/timesheets") ||
