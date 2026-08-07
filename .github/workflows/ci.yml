@@ -422,21 +422,82 @@ jobs:
           done
       - name: Sprint 8 authenticated wallet and dual-control E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint8-benefits.spec.ts --config=playwright.api.config.ts
-      - name: Sprint 8 closure authenticated E2E
+      - name: Sprint 8 closure voucher loyalty and package E2E
         shell: bash
         run: |
           set -euo pipefail
           for spec in \
             tests/e2e/sprint8-voucher-paid-lifecycle.spec.ts \
             tests/e2e/sprint8-loyalty-paid-refund.spec.ts \
-            tests/e2e/sprint8-package-booking-paid-refund.spec.ts \
-            tests/e2e/sprint8-membership-upgrade-downgrade.spec.ts \
-            tests/e2e/sprint8-multiline-benefits.spec.ts
+            tests/e2e/sprint8-package-booking-paid-refund.spec.ts
           do
             pnpm db:reset
             pnpm db:seed
             pnpm exec playwright test "$spec" --config=playwright.api.config.ts
           done
+      - name: Pause durable Worker for Sprint 8 membership fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -f worker-e2e.pid ]]; then
+            worker_pid="$(cat worker-e2e.pid)"
+
+            kill -- -"$worker_pid" || true
+
+            for i in {1..50}; do
+              if ! kill -0 -- -"$worker_pid" 2>/dev/null; then
+                break
+              fi
+              sleep 0.1
+            done
+
+            if kill -0 -- -"$worker_pid" 2>/dev/null; then
+              echo "Durable Worker process group did not stop"
+              exit 1
+            fi
+
+            rm -f worker-e2e.pid
+          fi
+      - name: Sprint 8 isolated membership upgrade and downgrade E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pnpm db:reset
+          pnpm db:seed
+
+          pnpm exec playwright test \
+            tests/e2e/sprint8-membership-upgrade-downgrade.spec.ts \
+            --config=playwright.api.config.ts
+      - name: Reset fixture after isolated Sprint 8 membership E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          pnpm db:reset
+          pnpm db:seed
+      - name: Resume durable Worker after Sprint 8 membership fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          setsid pnpm --filter @nailsoft/worker dev > worker-e2e.log 2>&1 &
+          worker_pid=$!
+          echo "$worker_pid" > worker-e2e.pid
+
+          sleep 1
+
+          if ! kill -0 -- -"$worker_pid" 2>/dev/null; then
+            echo "Durable Worker failed to resume"
+            cat worker-e2e.log || true
+            exit 1
+          fi
+      - name: Sprint 8 multiline benefits closure E2E
+        run: >-
+          pnpm exec playwright test
+          tests/e2e/sprint8-multiline-benefits.spec.ts
+          --config=playwright.api.config.ts
       - name: Sprint 9 purchase receipt transfer service count and retail E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint9-inventory-deep.spec.ts --config=playwright.api.config.ts
       - name: Sprint 10 Gift Card purchase redemption refund Customer Credit and dual-control E2E
