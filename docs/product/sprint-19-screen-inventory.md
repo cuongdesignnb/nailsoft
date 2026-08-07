@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 3 accepted against source CI with documented customer mutation deferral; Wave 4 not authorized
+Current phase: Wave 4 implementation in progress; Wave 3 accepted with documented customer mutation deferral
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -106,7 +106,7 @@ is not the source commit validated by that CI run.
 | 19.2.18 | Tip and commission reversal evidence | Admin Web | `/admin/commission`, `/admin/commission/adjustments` | Manager, Owner, Accountant | commission read/adjustment permissions | commission entries/adjustments | loading, empty, approval, forbidden | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
 
 The following route families remain planned for later waves. Wave 2 rows above
-are accepted; Wave 4 and later screens are not authorized by this closure.
+Wave 4 screens are currently IMPLEMENTED_PENDING_QA; Wave 5 and later screens remain unauthorized.
 
 | Wave | Route family | Screen IDs | Primary personas | Permission examples |
 | --- | --- | --- | --- | --- |
@@ -122,6 +122,29 @@ are accepted; Wave 4 and later screens are not authorized by this closure.
 
 Total planned units: 180 (13 foundations and 167 business screens, including
 separately tracked staff assignment and transfer units).
+
+## Wave 4 implementation ledger (pending QA)
+
+The Wave 4 Admin Web renderer is API-backed and preserves existing Sprint 2 and
+Sprint 12 contracts. These rows remain pending until targeted QA, regression and
+the exact Wave 4 CI source commit succeed.
+
+| ID | Screen | Route | Persona | Permission / scope | API dependency | Required states | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 19.4.1 | Staff directory and create | `/admin/staff/list`, `/admin/staff/new` | Owner, Manager | `staff.read`, `staff.create`; tenant/branch | `/v1/staff` | loading, empty, retry, forbidden, validation, success | IMPLEMENTED_PENDING_QA |
+| 19.4.2 | Staff profile, branches and skills | `/admin/staff/:id` | Owner, Manager | `staff.read`, assignment scope | staff profile/branch/skill APIs | loading, error, forbidden, version conflict | IMPLEMENTED_PENDING_QA |
+| 19.4.3 | Shift planner | `/admin/scheduling/shifts` | Owner, Manager, Receptionist | `shift.*`; branch | `/v1/shifts` | loading, empty, validation, conflict, success | IMPLEMENTED_PENDING_QA |
+| 19.4.4 | Leave review | `/admin/scheduling/leave-requests` | Owner, Manager | `leave.read_branch`, `leave.review_branch` | `/v1/leave-requests` | loading, empty, forbidden, state conflict | IMPLEMENTED_PENDING_QA |
+| 19.4.5 | Live clock and sessions | `/admin/time-clock`, `/admin/time-clock/sessions` | Manager, Technician | `time_clock.*`; branch/own staff | `/v1/time-clock` | loading, empty, retry, forbidden | IMPLEMENTED_PENDING_QA |
+| 19.4.6 | Attendance exceptions and devices | `/admin/time-clock/exceptions`, `/admin/time-clock/devices` | Manager | `time_clock.exception.*`, device scope | `/v1/time-clock/exceptions`, `/v1/time-clock/devices` | loading, action feedback, forbidden | IMPLEMENTED_PENDING_QA |
+| 19.4.7 | Timesheets and periods | `/admin/timesheets`, `/admin/timesheet-periods` | Manager, Accountant | `timesheet.*`; branch | `/v1/timesheets`, `/v1/timesheet-periods` | loading, empty, lock/review states | IMPLEMENTED_PENDING_QA |
+| 19.4.8 | Workforce policies, compliance and reports | `/admin/workforce/**` | Owner, Manager, Accountant | `workforce.policy.*`, report scope | workforce compliance/report APIs | loading, empty, forbidden, retry | IMPLEMENTED_PENDING_QA |
+| 19.4.9 | Staff pay profile | `/admin/staff/:id/pay-profile` | Owner, Accountant | `pay_profile.*`; tenant/staff | pay profile API | loading, validation, version conflict, success | IMPLEMENTED_PENDING_QA |
+| 19.4.10 | Payroll calendars and periods | `/admin/payroll/calendars`, `/admin/payroll/periods` | Owner, Accountant | `payroll.calendar.*`, period scope | payroll calendar/period APIs | loading, empty, validation, forbidden | IMPLEMENTED_PENDING_QA |
+| 19.4.11 | Payroll runs and exceptions | `/admin/payroll/runs`, `/admin/payroll/exceptions` | Owner, Accountant | payroll run/exception permissions | payroll run/exception APIs | loading, immutable states, conflict, retry | IMPLEMENTED_PENDING_QA |
+| 19.4.12 | Pay statements and reports | `/admin/payroll/statements`, `/admin/payroll/reports` | Owner, Accountant, Technician | statement/report read scope | statements/report APIs | loading, empty, privacy/forbidden | IMPLEMENTED_PENDING_QA |
+| 19.4.13 | Payout batches | `/admin/payouts`, `/admin/payouts/:id` | Owner, Accountant | payout dual-control scope | payout batch APIs | loading, approval, processing, error | IMPLEMENTED_PENDING_QA |
+| 19.4.14 | Payout reconciliation | `/admin/payout-reconciliation` | Owner, Accountant | reconciliation scope | reconciliation API | loading, empty, variance, forbidden | IMPLEMENTED_PENDING_QA |
 
 ## Wave 3 Cluster 2 implementation ledger
 

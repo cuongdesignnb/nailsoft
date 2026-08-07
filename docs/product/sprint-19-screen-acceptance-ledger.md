@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 3 accepted against source CI with documented customer mutation deferral; Wave 4 not authorized
+Current phase: Wave 4 implementation in progress; Wave 3 accepted with documented customer mutation deferral
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -77,7 +77,23 @@ FONT_RENDER_DETERMINISM=PASS
 
 Business rows are appended one screen at a time after Wave 0 acceptance. Wave 1
 and Wave 2 rows below are accepted only for the evidence explicitly listed.
-Wave 4 and later business waves remain unauthorized by this ledger.
+Wave 4 rows are IMPLEMENTED_PENDING_QA. Wave 5 and later business waves remain unauthorized.
+
+## Wave 4 implementation tracking
+
+The Wave 4 renderer uses the existing staff, scheduling, attendance, timesheet,
+workforce, payroll and payout APIs. No migration, permission, state-machine or
+business-contract change is included. Acceptance remains on hold until the
+targeted authenticated/visual QA, Sprint 2 and Sprint 12 regressions, affected
+builds and exact Wave 4 CI source SHA succeed.
+
+```text
+WAVE_4_SCREEN_ROWS=19.4.1_TO_19.4.14
+WAVE_4_STATUS=IMPLEMENTED_PENDING_QA
+WAVE_4_SOURCE_CI=NOT_RUN
+WAVE_5_STARTED=NO
+SPRINT_20_STARTED=NO
+```
 
 ## Wave 1 rows
 
