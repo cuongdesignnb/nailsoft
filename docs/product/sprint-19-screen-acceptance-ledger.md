@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 4 implementation in progress; Wave 3 accepted with documented customer mutation deferral
+Current phase: Wave 4 accepted against source CI; Wave 5 not authorized
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -77,22 +77,56 @@ FONT_RENDER_DETERMINISM=PASS
 
 Business rows are appended one screen at a time after Wave 0 acceptance. Wave 1
 and Wave 2 rows below are accepted only for the evidence explicitly listed.
-Wave 4 rows are IMPLEMENTED_PENDING_QA. Wave 5 and later business waves remain unauthorized.
+Wave 4 rows are accepted against the exact source CI evidence. Wave 5 and later
+business waves remain unauthorized.
 
-## Wave 4 implementation tracking
+## Wave 4 acceptance
 
 The Wave 4 renderer uses the existing staff, scheduling, attendance, timesheet,
 workforce, payroll and payout APIs. No migration, permission, state-machine or
-business-contract change is included. Acceptance remains on hold until the
-targeted authenticated/visual QA, Sprint 2 and Sprint 12 regressions, affected
-builds and exact Wave 4 CI source SHA succeed.
+business-contract change is included.
+
+Final Wave 4 source validation is commit
+`e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6`, validated by full CI run
+`31184779182` with conclusion `SUCCESS`. The documentation commit that follows
+is not the source commit validated by that CI run.
 
 ```text
 WAVE_4_SCREEN_ROWS=19.4.1_TO_19.4.14
-WAVE_4_STATUS=IMPLEMENTED_PENDING_QA
-WAVE_4_SOURCE_CI=NOT_RUN
+WAVE_4_SOURCE_SHA=e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6
+WAVE_4_SOURCE_CI_RUN_ID=31184779182
+WAVE_4_SOURCE_CI_CONCLUSION=SUCCESS
+
+WAVE_4_STATUS=COMPLETED
+BA_PO_WAVE_4_ACCEPTANCE=PASS
+
+SCREEN_ROWS_19_4_1_TO_19_4_14=ALL_ACCEPTED
 WAVE_5_STARTED=NO
 SPRINT_20_STARTED=NO
+```
+
+| ID | Route / surface | Persona | Permission and scope | API / evidence | Required states and QA | Locale | Source commit | CI | Acceptance |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 19.4.1 | `/admin/staff/list`, `/admin/staff/new` staff directory and create | Owner, Manager | `staff.read`, `staff.create`; tenant/branch | `/v1/staff`; staff directory/create E2E | Loading, empty, retry, forbidden, validation, success | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.2 | `/admin/staff/:id` staff profile, branches and skills | Owner, Manager | `staff.read`, assignment scope | Staff profile/branch/skill APIs | Loading, error, forbidden, version conflict | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.3 | `/admin/scheduling/shifts` shift planner | Owner, Manager, Receptionist | `shift.*`; branch | `/v1/shifts`; shift conflict E2E | Loading, empty, validation, conflict, success | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.4 | `/admin/scheduling/leave-requests` leave review | Owner, Manager | `leave.read_branch`, `leave.review_branch` | `/v1/leave-requests`; state guard E2E | Loading, empty, forbidden, state conflict | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.5 | `/admin/time-clock`, `/admin/time-clock/sessions` live clock and sessions | Manager, Technician | `time_clock.*`; branch/own staff | `/v1/time-clock`; server-time E2E | Loading, empty, retry, forbidden, branch/own scope | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.6 | `/admin/time-clock/exceptions`, `/admin/time-clock/devices` attendance exceptions and devices | Manager | `time_clock.exception.*`, device scope | Exception/trusted-device APIs; sensitive payload guard | Loading, action feedback, forbidden | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.7 | `/admin/timesheets`, `/admin/timesheets/:id`, `/admin/timesheet-periods` timesheets and periods | Manager, Accountant | `timesheet.*`; branch | Timesheet/review/lock/period APIs | Loading, empty, review, lock, immutable source | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.8 | `/admin/workforce/policies`, `/admin/workforce/compliance`, `/admin/workforce/reports` workforce policies, compliance and reports | Owner, Manager, Accountant | `workforce.policy.*`, report scope | Versioned policy/compliance/report APIs | Loading, empty, forbidden, retry | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.9 | `/admin/staff/:id/pay-profile` staff pay profile | Owner, Accountant | `pay_profile.*`; tenant/staff | Effective-dated pay profile API; privacy E2E | Loading, validation, version conflict, success, privacy | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.10 | `/admin/payroll/calendars`, `/admin/payroll/periods` payroll calendars and periods | Owner, Accountant | `payroll.calendar.*`, period scope | Payroll calendar/period APIs | Loading, empty, validation, forbidden | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.11 | `/admin/payroll/runs`, `/admin/payroll/runs/:id`, `/admin/payroll/exceptions` payroll runs and exceptions | Owner, Accountant | Payroll run/exception permissions | Calculate/recalculate/approval/finalize APIs | Loading, immutable states, conflict, retry | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.12 | `/admin/payroll/statements`, `/admin/payroll/reports` pay statements and reports | Owner, Accountant, Technician | Statement/report read scope | Pay statement/report APIs; privacy guard | Loading, empty, privacy, forbidden | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.13 | `/admin/payouts`, `/admin/payouts/:id` payout batches | Owner, Accountant | Payout dual-control scope | Payout batch APIs; exactly-once/evidence E2E | Loading, approval, processing, error | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+| 19.4.14 | `/admin/payout-reconciliation` payout reconciliation | Owner, Accountant | Reconciliation scope | Reconciliation API; variance evidence E2E | Loading, empty, variance, forbidden | vi-VN/en-US | `e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6` | `31184779182 / SUCCESS` | ACCEPTED |
+
+```text
+COMMON_EVIDENCE=SOURCE_COMMIT e257d0ccd5ee4601051f5df670f43c5ca0e7f0c6; CI 31184779182 / SUCCESS; ACCEPTANCE ACCEPTED
+SCREEN_ROWS_19_4_1_TO_19_4_14=ALL_ACCEPTED
+WAVE_4_STATUS=COMPLETED
+BA_PO_WAVE_4_ACCEPTANCE=PASS
 ```
 
 ## Wave 1 rows
