@@ -145,6 +145,32 @@ CUSTOMER_MUTATION_ADDED=NO
 MIGRATION_CHANGED=NO
 ```
 
+## Wave 3 Cluster 3 implementation ledger
+
+Cluster 3 redesigns voucher, gift-card and customer-credit operational
+surfaces using the existing benefits and stored-value APIs. POS funding and
+stored-value liability/reconciliation routes remain owned by their existing
+renderers. These rows are implementation evidence only until targeted QA and
+Wave 3 CI are complete.
+
+| ID | Screen | App | Route | Persona | Permission / scope | API dependency | Required states | Breakpoints | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 19.3.10 | Voucher campaigns, codes and customer vouchers | Admin Web | `/admin/vouchers/campaigns`, `/admin/vouchers/campaigns/:campaignId`, `/admin/vouchers/codes` | Receptionist, Owner, Marketing | `voucher.campaign.*`, `voucher.code.*`, tenant scope | Voucher campaign/code APIs | loading, empty, retry, forbidden, validation, version conflict, masked secret | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 3 |
+| 19.3.11 | Gift-card products, issuance and detail | Admin Web | `/admin/gift-cards/products`, `/admin/gift-cards/issuance`, `/admin/gift-cards`, `/admin/gift-cards/:giftCardId` | Receptionist, Owner, Cashier | `gift_card.*`, branch scope | Gift-card product/card/balance/ledger APIs | loading, empty, retry, forbidden, capture handoff, masked secret, version conflict | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 3 |
+| 19.3.12 | Customer credit and stored-value adjustments | Admin Web | `/admin/customer-credit`, `/admin/stored-value/adjustments` | Owner, Manager, Receptionist | `customer_credit.*`, branch scope, dual control | Customer credit and adjustment APIs | loading, empty, retry, forbidden, submitting, self-approval denied, version conflict, offline denied | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 3 |
+
+```text
+WAVE_3_CLUSTER_3_STATUS=IMPLEMENTED_PENDING_QA
+SCREEN_ROWS_19_3_10_TO_19_3_12=IMPLEMENTED_PENDING_QA
+VOUCHER_SECRET_MASKING=YES
+GIFT_CARD_SECRET_MASKING=YES
+SERVER_AUTHORITATIVE_STORED_VALUE=YES
+DUAL_CONTROL_SURFACE=YES
+POS_ROUTE_OWNERSHIP_PRESERVED=YES
+LIABILITY_ROUTE_OWNERSHIP_PRESERVED=YES
+MIGRATION_CHANGED=NO
+```
+
 ## Wave 3 Cluster 1A implementation ledger
 
 Cluster 1A adds the Admin Web Customer Directory, create-only flow, read-only

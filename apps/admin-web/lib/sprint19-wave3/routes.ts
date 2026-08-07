@@ -21,6 +21,18 @@ export function isWave3Cluster2Path(pathname: string) {
     pathname === "/admin/packages/entitlements" || /^\/admin\/packages\/entitlements\/[^/]+$/.test(pathname);
 }
 
+export function isWave3Cluster3Path(pathname: string) {
+  return pathname === "/admin/vouchers/campaigns" ||
+    /^\/admin\/vouchers\/campaigns\/[^/]+$/.test(pathname) ||
+    pathname === "/admin/vouchers/codes" ||
+    pathname === "/admin/gift-cards" ||
+    pathname === "/admin/gift-cards/products" ||
+    pathname === "/admin/gift-cards/issuance" ||
+    /^\/admin\/gift-cards\/[^/]+$/.test(pathname) ||
+    pathname === "/admin/customer-credit" ||
+    pathname === "/admin/stored-value/adjustments";
+}
+
 export function isWave3Path(pathname: string) {
-  return isWave3CustomerPath(pathname) || isWave3Cluster2Path(pathname);
+  return isWave3CustomerPath(pathname) || isWave3Cluster2Path(pathname) || isWave3Cluster3Path(pathname);
 }
