@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 2 accepted against source CI; Wave 3 not authorized
+Current phase: Wave 3 accepted against source CI with documented customer mutation deferral; Wave 4 not authorized
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -76,8 +76,8 @@ VISUAL_REGRESSION=PASS
 FONT_RENDER_DETERMINISM=PASS
 
 Business rows are appended one screen at a time after Wave 0 acceptance. Wave 1
-rows below are accepted only for the evidence explicitly listed. Wave 2 and all
-later business waves remain unauthorized by this ledger.
+and Wave 2 rows below are accepted only for the evidence explicitly listed.
+Wave 4 and later business waves remain unauthorized by this ledger.
 
 ## Wave 1 rows
 
@@ -218,53 +218,110 @@ logic was changed for this documentation closure.
 WAVE_2_STATUS=COMPLETED
 BA_PO_WAVE_2_ACCEPTANCE=PASS
 SPRINT_19_STATUS=IN_PROGRESS
-WAVE_3_STATUS=IN_PROGRESS
-WAVE_3_CLUSTER_1A_STATUS=IMPLEMENTED_PENDING_QA
-SCREEN_ROWS_19_3_1_3_3_3_4_3_5=IMPLEMENTED_PENDING_QA
-SCREEN_ROW_19_3_2=PARTIAL_CREATE_ONLY_PENDING_UPDATE_CONTRACT
+WAVE_3_STATUS=COMPLETED_WITH_DOCUMENTED_DEFERRAL
+WAVE_3_CLUSTER_1A_STATUS=ACCEPTED_WITH_DEFERRED_SCOPE
+SCREEN_ROWS_19_3_1_3_3_3_4_3_5=ACCEPTED
+SCREEN_ROW_19_3_2=ACCEPTED_WITH_DEFERRED_SCOPE
 CUSTOMER_UPDATE_CONTRACT=NOT_AUTHORIZED
 CUSTOMER_MERGE_CONTRACT=NOT_AUTHORIZED
 CUSTOMER_ENGAGEMENT_ROUTE_OWNERSHIP=SPRINT_11_RETAINED
-CUSTOMER_360_UI_SOURCE=LOCAL_CLUSTER_1A_PENDING_COMMIT
+CUSTOMER_360_UI_SOURCE=46f6d3c5476785ad64159bcdf9cdb66290102e54
 WAVE_3_STARTED=YES
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
-## Wave 3 Cluster 2 local implementation
+## Wave 3 Cluster 2 acceptance
 
 ```text
-WAVE_3_CLUSTER_2_STATUS=IMPLEMENTED_PENDING_QA
-SCREEN_ROWS_19_3_6_TO_19_3_9=IMPLEMENTED_PENDING_QA
-BENEFITS_WALLET=IMPLEMENTED_PENDING_QA
-LOYALTY_DUAL_CONTROL_SURFACE=IMPLEMENTED_PENDING_QA
-MEMBERSHIP_HISTORY=IMPLEMENTED_PENDING_QA
-PACKAGE_ENTITLEMENT_LEDGER=IMPLEMENTED_PENDING_QA
+WAVE_3_CLUSTER_2_STATUS=ACCEPTED
+SCREEN_ROWS_19_3_6_TO_19_3_9=ACCEPTED
+BENEFITS_WALLET=ACCEPTED
+LOYALTY_DUAL_CONTROL_SURFACE=ACCEPTED
+MEMBERSHIP_HISTORY=ACCEPTED
+PACKAGE_ENTITLEMENT_LEDGER=ACCEPTED
 SERVER_AUTHORITATIVE_BALANCES=YES
 SECRET_MASKING=YES
 POS_ROUTE_OWNERSHIP_PRESERVED=YES
-CLUSTER_2_LOCAL_QA=PENDING
-WAVE_3_STATUS=IN_PROGRESS
+CLUSTER_2_LOCAL_QA=PASS
+WAVE_3_STATUS=COMPLETED_WITH_DOCUMENTED_DEFERRAL
 WAVE_4_STARTED=NO
 SPRINT_20_STARTED=NO
 ```
 
-## Wave 3 Cluster 4 local implementation
+## Wave 3 final source evidence and acceptance
+
+Wave 3 final source validation is commit
+`638831f2021c4994a838eb19e213e3744381ee2b`, validated by full CI run
+`31168662060` with conclusion `SUCCESS`.
+
+The documentation commit that follows is not the source commit for that CI
+run. Source and documentation provenance remain separate.
+
+```text
+WAVE_3_REMOTE_START_CHECKPOINT=da8ecc107b85f4ad6877aee7b154f342fcba2d57
+FINAL_WAVE_3_SOURCE_SHA=638831f2021c4994a838eb19e213e3744381ee2b
+FINAL_WAVE_3_CI_RUN_ID=31168662060
+FINAL_WAVE_3_CI_CONCLUSION=SUCCESS
+QUALITY_JOB_ID=92835222116
+QUALITY_JOB=SUCCESS
+VISUAL_JOB_ID=92835222009
+VISUAL_JOB=SUCCESS
+
+FULLY_ACCEPTED_SCREEN_ROWS=14
+ACCEPTED_WITH_DEFERRED_SCOPE_SCREEN_ROWS=1
+ROW_19_3_2=ACCEPTED_WITH_DEFERRED_SCOPE
+CUSTOMER_UPDATE=DEFERRED
+CUSTOMER_MERGE=DEFERRED
+DEFERRED_ITEM_DESTINATION=FUTURE_CUSTOMER_MUTATION_ADDENDUM_OR_PRODUCT_BACKLOG
+```
+
+| ID | Route / surface | Source commit | CI | Acceptance |
+| --- | --- | --- | --- | --- |
+| 19.3.1 | Customer directory and search | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.2 | Customer create and duplicate-safe resolution | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED_WITH_DEFERRED_SCOPE |
+| 19.3.3 | Customer 360 profile | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.4 | Booking, visit and purchase history | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.5 | Consent and engagement timeline | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.6 | Customer benefits wallet | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.7 | Loyalty adjustment and ledger | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.8 | Membership tiers and customer history | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.9 | Package catalog, entitlements and ledger | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.10 | Voucher campaigns, codes and customer vouchers | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.11 | Gift-card products, issuance and detail | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.12 | Customer credit and stored-value adjustments | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.13 | Communications, segments and email campaigns | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.14 | Reviews and review requests | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.15 | Service recovery, compensation and timeline | `638831f2021c4994a838eb19e213e3744381ee2b` | `31168662060 / SUCCESS` | ACCEPTED |
+
+Row `19.3.2` covers customer creation and duplicate-safe existing-customer
+resolution. Customer Update and Customer Merge remain deferred and are not
+claimed as implemented. The deferred scope is not assigned to Wave 4.
+
+```text
+WAVE_3_STATUS=COMPLETED_WITH_DOCUMENTED_DEFERRAL
+BA_PO_WAVE_3_ACCEPTANCE=PASS_WITH_DOCUMENTED_DEFERRAL
+WAVE_4_STARTED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+## Wave 3 Cluster 4 acceptance
 
 Cluster 4 covers the Admin Web communications, marketing, reviews and service
 recovery routes. It uses existing APIs and keeps email consent, suppression,
 dual-control and owning-domain compensation rules on the server. Acceptance is
-pending targeted QA and the exact final Wave 3 source CI run.
+validated by the exact final Wave 3 source CI run.
 
 | ID | Route / surface | Persona | Permission and scope | API / evidence | Required states and QA | Source commit | CI | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19.3.13 | Communications, segments and email campaigns | Owner, Manager, Marketing | `communication.*`, `marketing.*`, tenant/branch scope | Existing communication, segment and campaign APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, offline, submitting, version conflict, consent/suppression, dual control | local Cluster 4 pending commit | pending Wave 3 full CI | IMPLEMENTED_PENDING_QA |
-| 19.3.14 | Reviews and review requests | Owner, Manager, Receptionist | `review.*`, branch scope | Existing review and request APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, immutable customer content, response validation | local Cluster 4 pending commit | pending Wave 3 full CI | IMPLEMENTED_PENDING_QA |
-| 19.3.15 | Service recovery, compensation and timeline | Owner, Manager, Receptionist, assigned Technician | `service_recovery.*`, branch/assigned-task scope | Existing recovery case, task and compensation APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, version conflict, dual control, owning-domain handoff | local Cluster 4 pending commit | pending Wave 3 full CI | IMPLEMENTED_PENDING_QA |
+| 19.3.13 | Communications, segments and email campaigns | Owner, Manager, Marketing | `communication.*`, `marketing.*`, tenant/branch scope | Existing communication, segment and campaign APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, offline, submitting, version conflict, consent/suppression, dual control | `6b054d57363091c45756aaa54e430b5305b2281f` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.14 | Reviews and review requests | Owner, Manager, Receptionist | `review.*`, branch scope | Existing review and request APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, immutable customer content, response validation | `6b054d57363091c45756aaa54e430b5305b2281f` | `31168662060 / SUCCESS` | ACCEPTED |
+| 19.3.15 | Service recovery, compensation and timeline | Owner, Manager, Receptionist, assigned Technician | `service_recovery.*`, branch/assigned-task scope | Existing recovery case, task and compensation APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, version conflict, dual control, owning-domain handoff | `6b054d57363091c45756aaa54e430b5305b2281f` | `31168662060 / SUCCESS` | ACCEPTED |
 
 ```text
-WAVE_3_CLUSTER_4_STATUS=IMPLEMENTED_PENDING_QA
-SCREEN_ROWS_19_3_13_TO_19_3_15=IMPLEMENTED_PENDING_QA
+WAVE_3_CLUSTER_4_STATUS=ACCEPTED
+SCREEN_ROWS_19_3_13_TO_19_3_15=ACCEPTED
 EMAIL_ONLY=YES
 CONSENT_AND_SUPPRESSION_SERVER_CHECKED=YES
 COMPENSATION_OWNING_DOMAIN_HANDOFF=YES
@@ -274,21 +331,21 @@ WAVE_4_STARTED=NO
 SPRINT_20_STARTED=NO
 ```
 
-## Wave 3 Cluster 3 local implementation
+## Wave 3 Cluster 3 acceptance
 
 ```text
-WAVE_3_CLUSTER_3_STATUS=IMPLEMENTED_PENDING_QA
-SCREEN_ROWS_19_3_10_TO_19_3_12=IMPLEMENTED_PENDING_QA
-VOUCHER_CAMPAIGNS_AND_MASKED_CODES=IMPLEMENTED_PENDING_QA
-GIFT_CARD_PRODUCTS_ISSUANCE_HANDOFF_AND_DETAIL=IMPLEMENTED_PENDING_QA
-CUSTOMER_CREDIT_AND_ADJUSTMENTS=IMPLEMENTED_PENDING_QA
+WAVE_3_CLUSTER_3_STATUS=ACCEPTED
+SCREEN_ROWS_19_3_10_TO_19_3_12=ACCEPTED
+VOUCHER_CAMPAIGNS_AND_MASKED_CODES=ACCEPTED
+GIFT_CARD_PRODUCTS_ISSUANCE_HANDOFF_AND_DETAIL=ACCEPTED
+CUSTOMER_CREDIT_AND_ADJUSTMENTS=ACCEPTED
 SERVER_AUTHORITATIVE_BALANCES=YES
 SECRET_MASKING=YES
 DUAL_CONTROL_SURFACE=YES
 POS_ROUTE_OWNERSHIP_PRESERVED=YES
 LIABILITY_ROUTE_OWNERSHIP_PRESERVED=YES
-CLUSTER_3_LOCAL_QA=PENDING
-WAVE_3_STATUS=IN_PROGRESS
+CLUSTER_3_LOCAL_QA=PASS
+WAVE_3_STATUS=COMPLETED_WITH_DOCUMENTED_DEFERRAL
 WAVE_4_STARTED=NO
 SPRINT_20_STARTED=NO
 ```

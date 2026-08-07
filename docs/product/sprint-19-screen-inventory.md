@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 2 accepted against source CI; Wave 3 not authorized
+Current phase: Wave 3 accepted against source CI with documented customer mutation deferral; Wave 4 not authorized
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -106,7 +106,7 @@ is not the source commit validated by that CI run.
 | 19.2.18 | Tip and commission reversal evidence | Admin Web | `/admin/commission`, `/admin/commission/adjustments` | Manager, Owner, Accountant | commission read/adjustment permissions | commission entries/adjustments | loading, empty, approval, forbidden | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
 
 The following route families remain planned for later waves. Wave 2 rows above
-are accepted; Wave 3 and later screens are not authorized by this closure.
+are accepted; Wave 4 and later screens are not authorized by this closure.
 
 | Wave | Route family | Screen IDs | Primary personas | Permission examples |
 | --- | --- | --- | --- | --- |
@@ -127,19 +127,20 @@ separately tracked staff assignment and transfer units).
 
 Cluster 2 implements the Admin Web benefits, loyalty, membership and package
 surfaces with the existing Sprint 8 API contracts. POS benefit routes remain
-owned by the Sprint 8 renderer. These rows are implementation evidence only
-until targeted QA and Wave 3 CI are complete.
+owned by the Sprint 8 renderer. Final source validation is commit
+`638831f2021c4994a838eb19e213e3744381ee2b`, validated by full CI run
+`31168662060` with conclusion `SUCCESS`.
 
 | ID | Screen | Route | Permission / scope | API dependency | Required states | Status |
 | --- | --- | --- | --- | --- | --- |
-| 19.3.6 | Customer benefits wallet | `/admin/benefits`, `/admin/benefits/customers/:customerId` | Existing benefits permissions; tenant/customer scope | loyalty, membership, voucher and package read APIs | loading, ready, empty, retry, forbidden, partial | IMPLEMENTED_PENDING_QA; local Cluster 2 |
-| 19.3.7 | Loyalty program, adjustment and ledger | `/admin/loyalty/programs`, `/admin/loyalty/adjustments`, `/admin/loyalty/customers/:customerId` | `loyalty.*`; tenant/customer scope; independent approval | loyalty program/account/ledger/adjustment APIs | validation, submitting, success, error, version conflict, forbidden | IMPLEMENTED_PENDING_QA; local Cluster 2 |
-| 19.3.8 | Membership tiers and customer history | `/admin/membership/tiers`, `/admin/membership/customers/:customerId` | `membership.*`; tenant/customer scope | membership tier and assignment APIs | loading, ready, empty, retry, forbidden | IMPLEMENTED_PENDING_QA; local Cluster 2 |
-| 19.3.9 | Package catalog, entitlements and ledger | `/admin/packages/catalog`, `/admin/packages/catalog/:packageId`, `/admin/packages/entitlements`, `/admin/packages/entitlements/:entitlementId` | `package.*`; tenant/customer scope | package catalog, entitlement and ledger APIs | validation, lifecycle, loading, empty, retry, forbidden | IMPLEMENTED_PENDING_QA; local Cluster 2 |
+| 19.3.6 | Customer benefits wallet | `/admin/benefits`, `/admin/benefits/customers/:customerId` | Existing benefits permissions; tenant/customer scope | loyalty, membership, voucher and package read APIs | loading, ready, empty, retry, forbidden, partial | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.7 | Loyalty program, adjustment and ledger | `/admin/loyalty/programs`, `/admin/loyalty/adjustments`, `/admin/loyalty/customers/:customerId` | `loyalty.*`; tenant/customer scope; independent approval | loyalty program/account/ledger/adjustment APIs | validation, submitting, success, error, version conflict, forbidden | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.8 | Membership tiers and customer history | `/admin/membership/tiers`, `/admin/membership/customers/:customerId` | `membership.*`; tenant/customer scope | membership tier and assignment APIs | loading, ready, empty, retry, forbidden | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.9 | Package catalog, entitlements and ledger | `/admin/packages/catalog`, `/admin/packages/catalog/:packageId`, `/admin/packages/entitlements`, `/admin/packages/entitlements/:entitlementId` | `package.*`; tenant/customer scope | package catalog, entitlement and ledger APIs | validation, lifecycle, loading, empty, retry, forbidden | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
 
 ```text
-WAVE_3_CLUSTER_2_STATUS=IMPLEMENTED_PENDING_QA
-SCREEN_ROWS_19_3_6_TO_19_3_9=IMPLEMENTED_PENDING_QA
+WAVE_3_CLUSTER_2_STATUS=ACCEPTED
+SCREEN_ROWS_19_3_6_TO_19_3_9=ACCEPTED
 POS_ROUTE_OWNERSHIP_PRESERVED=YES
 CUSTOMER_MUTATION_ADDED=NO
 MIGRATION_CHANGED=NO
@@ -150,18 +151,19 @@ MIGRATION_CHANGED=NO
 Cluster 3 redesigns voucher, gift-card and customer-credit operational
 surfaces using the existing benefits and stored-value APIs. POS funding and
 stored-value liability/reconciliation routes remain owned by their existing
-renderers. These rows are implementation evidence only until targeted QA and
-Wave 3 CI are complete.
+renderers. Final source validation is commit
+`638831f2021c4994a838eb19e213e3744381ee2b`, validated by full CI run
+`31168662060` with conclusion `SUCCESS`.
 
 | ID | Screen | App | Route | Persona | Permission / scope | API dependency | Required states | Breakpoints | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19.3.10 | Voucher campaigns, codes and customer vouchers | Admin Web | `/admin/vouchers/campaigns`, `/admin/vouchers/campaigns/:campaignId`, `/admin/vouchers/codes` | Receptionist, Owner, Marketing | `voucher.campaign.*`, `voucher.code.*`, tenant scope | Voucher campaign/code APIs | loading, empty, retry, forbidden, validation, version conflict, masked secret | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 3 |
-| 19.3.11 | Gift-card products, issuance and detail | Admin Web | `/admin/gift-cards/products`, `/admin/gift-cards/issuance`, `/admin/gift-cards`, `/admin/gift-cards/:giftCardId` | Receptionist, Owner, Cashier | `gift_card.*`, branch scope | Gift-card product/card/balance/ledger APIs | loading, empty, retry, forbidden, capture handoff, masked secret, version conflict | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 3 |
-| 19.3.12 | Customer credit and stored-value adjustments | Admin Web | `/admin/customer-credit`, `/admin/stored-value/adjustments` | Owner, Manager, Receptionist | `customer_credit.*`, branch scope, dual control | Customer credit and adjustment APIs | loading, empty, retry, forbidden, submitting, self-approval denied, version conflict, offline denied | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 3 |
+| 19.3.10 | Voucher campaigns, codes and customer vouchers | Admin Web | `/admin/vouchers/campaigns`, `/admin/vouchers/campaigns/:campaignId`, `/admin/vouchers/codes` | Receptionist, Owner, Marketing | `voucher.campaign.*`, `voucher.code.*`, tenant scope | Voucher campaign/code APIs | loading, empty, retry, forbidden, validation, version conflict, masked secret | 1440, 1280, 1024, 768, 390, 360 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.11 | Gift-card products, issuance and detail | Admin Web | `/admin/gift-cards/products`, `/admin/gift-cards/issuance`, `/admin/gift-cards`, `/admin/gift-cards/:giftCardId` | Receptionist, Owner, Cashier | `gift_card.*`, branch scope | Gift-card product/card/balance/ledger APIs | loading, empty, retry, forbidden, capture handoff, masked secret, version conflict | 1440, 1280, 1024, 768, 390, 360 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.12 | Customer credit and stored-value adjustments | Admin Web | `/admin/customer-credit`, `/admin/stored-value/adjustments` | Owner, Manager, Receptionist | `customer_credit.*`, branch scope, dual control | Customer credit and adjustment APIs | loading, empty, retry, forbidden, submitting, self-approval denied, version conflict, offline denied | 1440, 1280, 1024, 768, 390, 360 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
 
 ```text
-WAVE_3_CLUSTER_3_STATUS=IMPLEMENTED_PENDING_QA
-SCREEN_ROWS_19_3_10_TO_19_3_12=IMPLEMENTED_PENDING_QA
+WAVE_3_CLUSTER_3_STATUS=ACCEPTED
+SCREEN_ROWS_19_3_10_TO_19_3_12=ACCEPTED
 VOUCHER_SECRET_MASKING=YES
 GIFT_CARD_SECRET_MASKING=YES
 SERVER_AUTHORITATIVE_STORED_VALUE=YES
@@ -176,18 +178,19 @@ MIGRATION_CHANGED=NO
 Cluster 4 redesigns communications, marketing, reviews and service recovery
 with existing Sprint 11 API contracts. Email remains the only communication
 channel; consent, suppression, dual-control and compensation ownership remain
-server-authoritative. These rows are implementation evidence only until the
-Wave 3 targeted QA and exact full CI source gate pass.
+server-authoritative. Final source validation is commit
+`638831f2021c4994a838eb19e213e3744381ee2b`, validated by full CI run
+`31168662060` with conclusion `SUCCESS`.
 
 | ID | Screen | App | Route | Persona | Permission / scope | API dependency | Required states | Breakpoints | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19.3.13 | Communications, segments and email campaigns | Admin Web | `/admin/communications/templates`, `/admin/communications/rules`, `/admin/communications/messages`, `/admin/communications/suppressions`, `/admin/marketing/segments`, `/admin/marketing/campaigns`, `/admin/marketing/campaigns/:campaignId` | Owner, Manager, Marketing | `communication.*`, `marketing.*`, tenant/branch scope, consent and suppression | Communication, segment and campaign APIs | loading, ready, empty, retry, forbidden, offline, submitting, version conflict, dual-control | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 4 |
-| 19.3.14 | Reviews and review requests | Admin Web | `/admin/reviews`, `/admin/reviews/:reviewId`, `/admin/review-requests` | Owner, Manager, Receptionist | `review.*`, branch scope | Review and review-request APIs | loading, ready, empty, retry, forbidden, response validation, version conflict | 1280, 390 | IMPLEMENTED_PENDING_QA; local Cluster 4 |
-| 19.3.15 | Service recovery, compensation and timeline | Admin Web | `/admin/service-recovery`, `/admin/service-recovery/:caseId` | Owner, Manager, Receptionist, assigned Technician | `service_recovery.*`, branch and assigned-task scope, compensation dual control | Recovery case, task and compensation APIs | loading, ready, empty, retry, forbidden, version conflict, dual-control, owning-domain handoff | 1280, 390 | IMPLEMENTED_PENDING_QA; local Cluster 4 |
+| 19.3.13 | Communications, segments and email campaigns | Admin Web | `/admin/communications/templates`, `/admin/communications/rules`, `/admin/communications/messages`, `/admin/communications/suppressions`, `/admin/marketing/segments`, `/admin/marketing/campaigns`, `/admin/marketing/campaigns/:campaignId` | Owner, Manager, Marketing | `communication.*`, `marketing.*`, tenant/branch scope, consent and suppression | Communication, segment and campaign APIs | loading, ready, empty, retry, forbidden, offline, submitting, version conflict, dual-control | 1440, 1280, 1024, 768, 390, 360 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.14 | Reviews and review requests | Admin Web | `/admin/reviews`, `/admin/reviews/:reviewId`, `/admin/review-requests` | Owner, Manager, Receptionist | `review.*`, branch scope | Review and review-request APIs | loading, ready, empty, retry, forbidden, response validation, version conflict | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.15 | Service recovery, compensation and timeline | Admin Web | `/admin/service-recovery`, `/admin/service-recovery/:caseId` | Owner, Manager, Receptionist, assigned Technician | `service_recovery.*`, branch and assigned-task scope, compensation dual control | Recovery case, task and compensation APIs | loading, ready, empty, retry, forbidden, version conflict, dual-control, owning-domain handoff | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
 
 ```text
-WAVE_3_CLUSTER_4_STATUS=IMPLEMENTED_PENDING_QA
-SCREEN_ROWS_19_3_13_TO_19_3_15=IMPLEMENTED_PENDING_QA
+WAVE_3_CLUSTER_4_STATUS=ACCEPTED
+SCREEN_ROWS_19_3_13_TO_19_3_15=ACCEPTED
 EMAIL_ONLY=YES
 CONSENT_AND_SUPPRESSION_SERVER_CHECKED=YES
 COMPENSATION_OWNING_DOMAIN_HANDOFF=YES
@@ -199,13 +202,52 @@ MIGRATION_CHANGED=NO
 
 Cluster 1A adds the Admin Web Customer Directory, create-only flow, read-only
 Customer 360 profile/history and a link-only handoff to the existing Sprint 11
-engagement renderer. These rows are implementation evidence only and remain
-pending QA acceptance.
+engagement renderer. Final source validation is commit
+`638831f2021c4994a838eb19e213e3744381ee2b`, validated by full CI run
+`31168662060` with conclusion `SUCCESS`.
 
 | ID | Screen | App | Route | Persona | Permission / scope | API dependency | Required states | Breakpoints | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19.3.1 | Customer directory and search | Admin Web | `/admin/customers` | Receptionist, Owner | `customer.booking_lookup`, tenant | `GET /v1/customers` cursor search | loading, ready, empty, error/retry, forbidden, offline | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 1A |
-| 19.3.2 | Customer create/edit and duplicate warning | Admin Web | `/admin/customers/new` | Receptionist, Owner | `customer.booking_create`, tenant | `POST /v1/customers`, existing lookup | validation, submitting, error, forbidden, duplicate warning, success | 1280, 390 | PARTIAL_CREATE_ONLY_PENDING_UPDATE_CONTRACT; update/merge not authorized |
-| 19.3.3 | Customer 360 profile | Admin Web | `/admin/customers/:id` | Receptionist, Owner | `customer.booking_lookup`, tenant | `GET /v1/customers/:customerId` | loading, ready, error/retry, forbidden, offline | 1440, 1280, 1024, 768, 390, 360 | IMPLEMENTED_PENDING_QA; local Cluster 1A |
-| 19.3.4 | Booking, visit and purchase history | Admin Web | `/admin/customers/:id` | Receptionist, Owner | branch-filtered child activity; `invoice.read` optional | Customer detail aggregate | loading, bounded ready/empty, optional denied, retry | 1280, 390 | IMPLEMENTED_PENDING_QA; local Cluster 1A |
-| 19.3.5 | Consent preferences and engagement timeline link | Admin Web | `/admin/customers/:id/engagement` | Receptionist, Owner, Marketing | existing Sprint 11 permission and consent contract | existing engagement timeline API | legacy loading/empty/error/forbidden states | 1280, 390 | IMPLEMENTED_PENDING_QA; Sprint 11 renderer retained |
+| 19.3.1 | Customer directory and search | Admin Web | `/admin/customers` | Receptionist, Owner | `customer.booking_lookup`, tenant | `GET /v1/customers` cursor search | loading, ready, empty, error/retry, forbidden, offline | 1440, 1280, 1024, 768, 390, 360 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.2 | Customer create and duplicate-safe resolution | Admin Web | `/admin/customers/new` | Receptionist, Owner | `customer.booking_create`, tenant | `POST /v1/customers`, existing lookup | validation, submitting, error, forbidden, duplicate warning, success | 1280, 390 | REDESIGNED / API_BACKED_PARTIAL / ACCEPTED_WITH_DEFERRED_SCOPE; create and duplicate-safe resolution implemented; update/merge deferred |
+| 19.3.3 | Customer 360 profile | Admin Web | `/admin/customers/:id` | Receptionist, Owner | `customer.booking_lookup`, tenant | `GET /v1/customers/:customerId` | loading, ready, error/retry, forbidden, offline | 1440, 1280, 1024, 768, 390, 360 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.4 | Booking, visit and purchase history | Admin Web | `/admin/customers/:id` | Receptionist, Owner | branch-filtered child activity; `invoice.read` optional | Customer detail aggregate | loading, bounded ready/empty, optional denied, retry | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+| 19.3.5 | Consent preferences and engagement timeline link | Admin Web | `/admin/customers/:id/engagement` | Receptionist, Owner, Marketing | existing Sprint 11 permission and consent contract | existing engagement timeline API | legacy loading/empty/error/forbidden states | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `638831f2`; CI `31168662060` |
+
+## Wave 3 final acceptance
+
+Final Wave 3 source validation is commit
+`638831f2021c4994a838eb19e213e3744381ee2b`, validated by full CI run
+`31168662060` with conclusion `SUCCESS`. The documentation commit created
+after this validation is not the source commit validated by that run.
+
+```text
+WAVE_3_REMOTE_START_CHECKPOINT=da8ecc107b85f4ad6877aee7b154f342fcba2d57
+CUSTOMER_360_READ_FOUNDATION_SHA=1fcf657694dfe6912a53f239b886530f151c5453
+CUSTOMER_360_UI_SHA=46f6d3c5476785ad64159bcdf9cdb66290102e54
+LOYALTY_BENEFITS_UI_SHA=0c48325e59814c298f8b6a8eab3f08e929582595
+VOUCHERS_STORED_VALUE_UI_SHA=797fc814f9ea71b0c941c86726296765becab36c
+CUSTOMER_ENGAGEMENT_UI_SHA=6b054d57363091c45756aaa54e430b5305b2281f
+WAVE_3_CI_LANES_SHA=4addcf4b389751119b8626af432abe35636650c3
+SUPPLY_CHAIN_HARDENING_SHA=c39ae97282cd58c513e1f569f9c2ae8e10d0dc6a
+SPRINT8_MEMBERSHIP_FIXTURE_ISOLATION_SHA=638831f2021c4994a838eb19e213e3744381ee2b
+FINAL_WAVE_3_SOURCE_SHA=638831f2021c4994a838eb19e213e3744381ee2b
+FINAL_WAVE_3_CI_RUN_ID=31168662060
+FINAL_WAVE_3_CI_CONCLUSION=SUCCESS
+
+FULLY_ACCEPTED_ROWS=14
+ACCEPTED_WITH_DEFERRED_SCOPE_ROWS=1
+ROW_19_3_2=ACCEPTED_WITH_DEFERRED_SCOPE
+CUSTOMER_UPDATE=DEFERRED
+CUSTOMER_MERGE=DEFERRED
+WAVE_3_STATUS=COMPLETED_WITH_DOCUMENTED_DEFERRAL
+WAVE_4_STARTED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+Row `19.3.2` is accepted for customer creation, duplicate-safe existing
+customer resolution and the approved create flow only. Customer Update and
+Customer Merge remain deferred; this inventory does not claim either mutation
+is implemented. The deferred item belongs to a future customer mutation
+addendum or product backlog, not Wave 4.
