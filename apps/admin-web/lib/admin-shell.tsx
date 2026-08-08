@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
 import { translate } from "@nailsoft/localization";
@@ -20,13 +20,26 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
   const [compact, setCompact] = useState(false);
   const contextQuery = useQuery({ queryKey: ["auth-context"], queryFn: getAuthContext });
   const context = contextQuery.data;
+  useEffect(() => {
+    if (!context) return;
+    const grantedBranchIds = context.supportAccess?.branchIds ?? context.authorization.branchIds;
+    const authorizedBranches = context.branches.filter((branch) => grantedBranchIds.includes(branch.id) && branch.status === "ACTIVE");
+    const storedBranchId = getActiveBranchId();
+    if (storedBranchId && !authorizedBranches.some((branch) => branch.id === storedBranchId)) setActiveBranchId(undefined);
+    if (!storedBranchId && authorizedBranches.length === 1 && authorizedBranches[0]) setActiveBranchId(authorizedBranches[0].id);
+  }, [context]);
   const visibleGroups = context ? navigationRegistry.map((group) => ({ ...group, items: group.items.filter((item) => canSeeNavigation(item, context)) })).filter((group) => group.items.length > 0) : [];
   const page = useMemo(() => visibleGroups.flatMap((group) => group.items).find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`)), [pathname, visibleGroups]);
   if (contextQuery.isPending) return <div className="ns-shell-loading"><StatePanel state="loading" title="Loading workspace" detail="Checking your current access and branch scope." /></div>;
   if (contextQuery.isError || !context) return <UnauthenticatedAdminShell>{children}</UnauthenticatedAdminShell>;
   const locale = context.user.locale;
-  const branchId = getActiveBranchId() ?? context.authorization.branchIds[0];
-  const selectedBranch = context.branches.find((branch) => branch.id === branchId);
+  const grantedBranchIds = context.supportAccess?.branchIds ?? context.authorization.branchIds;
+  const authorizedBranches = context.branches.filter((branch) => grantedBranchIds.includes(branch.id) && branch.status === "ACTIVE");
+  const storedBranchId = getActiveBranchId();
+  const branchId = storedBranchId && authorizedBranches.some((branch) => branch.id === storedBranchId)
+    ? storedBranchId
+    : authorizedBranches.length === 1 ? authorizedBranches[0]?.id : undefined;
+  const selectedBranch = authorizedBranches.find((branch) => branch.id === branchId);
   return <div className={`ns-app-frame ${compact ? "ns-app-frame--compact" : ""}`}>
     <a className="ns-skip-link" href="#main-content">{translate(locale, "skipToContent")}</a>
     <aside className={`ns-admin-sidebar ${navigationOpen ? "ns-admin-sidebar--open" : ""}`} aria-label={translate(locale, "navigation")}>
@@ -40,7 +53,7 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
         <Button variant="quiet" className="ns-mobile-menu" aria-label={translate(locale, "menu")} onClick={() => setNavigationOpen(true)}><Icon name="menu" /></Button>
         <div className="ns-breadcrumb"><span>{context.workspace.tenantName}</span><span aria-hidden="true">/</span><strong>{page ? translate(locale, page.label) : translate(locale, "dashboard")}</strong></div>
         <div className="ns-header-actions">
-          <label className="ns-branch-picker"><span className="sr-only">{translate(locale, "branch")}</span><Icon name="store" /><select value={branchId ?? ""} onChange={(event) => setActiveBranchId(event.target.value || undefined)}>{context.branches.length === 0 ? <option value="">{translate(locale, "workspace")}</option> : context.branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+          <label className="ns-branch-picker"><span className="sr-only">{translate(locale, "branch")}</span><Icon name="store" /><select value={branchId ?? ""} onChange={(event) => setActiveBranchId(event.target.value || undefined)}>{authorizedBranches.length === 0 ? <option value="">{translate(locale, "workspace")}</option> : authorizedBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
           <StatusBadge tone={context.workspace.accessMode === "FULL" || context.workspace.accessMode === "GRACE" ? "success" : "warning"}>{selectedBranch?.name ?? context.workspace.accessMode}</StatusBadge>
           <Button variant="quiet" aria-label={translate(locale, "notifications")}><Icon name="notification" /></Button>
           <a className="ns-user-menu" href="/admin/profile"><span className="ns-avatar">{context.user.displayName.slice(0, 1).toUpperCase()}</span><span>{context.user.displayName}</span></a>

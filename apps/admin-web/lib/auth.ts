@@ -73,6 +73,19 @@ export async function getAuthContext(): Promise<AuthContext> {
   return body.data as AuthContext;
 }
 
+/** Resolve the active branch from fresh server context; local storage is only a UX hint. */
+export async function getAuthorizedBranchContext() {
+  const context = await getAuthContext();
+  const grantedBranchIds = context.supportAccess?.branchIds ?? context.authorization.branchIds;
+  const branches = context.branches.filter((branch) => grantedBranchIds.includes(branch.id) && branch.status === "ACTIVE");
+  const storedBranchId = getActiveBranchId();
+  const storedIsAuthorized = Boolean(storedBranchId && branches.some((branch) => branch.id === storedBranchId));
+  if (storedBranchId && !storedIsAuthorized) setActiveBranchId(undefined);
+  const branchId = storedIsAuthorized ? storedBranchId : branches.length === 1 ? branches[0]?.id : undefined;
+  if (!storedIsAuthorized && branchId) setActiveBranchId(branchId);
+  return { context, branches, branchId };
+}
+
 export function setActiveBranchId(branchId: string | undefined) {
   activeBranchId = branchId;
   if (typeof window !== "undefined") {

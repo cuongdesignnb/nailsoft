@@ -2,9 +2,9 @@
 "use client";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
-import { activeSession, authorizedFetch } from "./auth";
+import { activeSession, authorizedFetch, getAuthorizedBranchContext, setActiveBranchId } from "./auth";
 type State = "loading" | "ready" | "empty" | "error" | "forbidden";
-const branch = "20000000-0000-4000-8000-000000000001";
+const ACTIVE_BRANCH = "__ACTIVE_BRANCH__";
 async function api(path: string, init?: RequestInit) {
   const res = await authorizedFetch(path, init),
     body = await res.json().catch(() => ({}));
@@ -30,11 +30,16 @@ async function command(path: string, body: unknown = {}) {
     body: JSON.stringify(body),
   });
 }
-function useData(path: string) {
+function useData(path: string | undefined) {
   const [state, setState] = useState<State>("loading"),
     [data, setData] = useState<any[]>([]),
     [error, setError] = useState("");
   const load = useCallback(async () => {
+    if (!path) {
+      setData([]);
+      setState("empty");
+      return;
+    }
     setState("loading");
     try {
       const v = await api(path),
@@ -75,22 +80,22 @@ const configs: Record<string, { title: string; path: string; kind: string }> = {
   },
   "/admin/inventory/locations": {
     title: "Stock locations",
-    path: `/v1/inventory/locations?branchId=${branch}`,
+    path: `/v1/inventory/locations?branchId=${ACTIVE_BRANCH}`,
     kind: "location",
   },
   "/admin/inventory/stock": {
     title: "Stock availability",
-    path: `/v1/inventory/stock?branchId=${branch}`,
+    path: `/v1/inventory/stock?branchId=${ACTIVE_BRANCH}`,
     kind: "stock",
   },
   "/admin/inventory/lots": {
     title: "Lot and expiry view",
-    path: `/v1/inventory/stock?branchId=${branch}`,
+    path: `/v1/inventory/stock?branchId=${ACTIVE_BRANCH}`,
     kind: "stock",
   },
   "/admin/inventory/alerts": {
     title: "Inventory alerts",
-    path: `/v1/inventory/alerts?branchId=${branch}`,
+    path: `/v1/inventory/alerts?branchId=${ACTIVE_BRANCH}`,
     kind: "alert",
   },
   "/admin/inventory/suppliers": {
@@ -100,42 +105,42 @@ const configs: Record<string, { title: string; path: string; kind: string }> = {
   },
   "/admin/inventory/purchase-orders": {
     title: "Purchase orders",
-    path: `/v1/inventory/purchase-orders?branchId=${branch}`,
+    path: `/v1/inventory/purchase-orders?branchId=${ACTIVE_BRANCH}`,
     kind: "po",
   },
   "/admin/inventory/receipts": {
     title: "Goods receipts",
-    path: `/v1/inventory/receipts?branchId=${branch}`,
+    path: `/v1/inventory/receipts?branchId=${ACTIVE_BRANCH}`,
     kind: "receipt",
   },
   "/admin/inventory/transfers": {
     title: "Stock transfers",
-    path: `/v1/inventory/transfers?branchId=${branch}`,
+    path: `/v1/inventory/transfers?branchId=${ACTIVE_BRANCH}`,
     kind: "transfer",
   },
   "/admin/inventory/adjustments": {
     title: "Stock adjustments",
-    path: `/v1/inventory/adjustments?branchId=${branch}`,
+    path: `/v1/inventory/adjustments?branchId=${ACTIVE_BRANCH}`,
     kind: "adjustment",
   },
   "/admin/inventory/counts": {
     title: "Blind stock counts",
-    path: `/v1/inventory/counts?branchId=${branch}`,
+    path: `/v1/inventory/counts?branchId=${ACTIVE_BRANCH}`,
     kind: "count",
   },
   "/admin/inventory/service-recipes": {
     title: "Service material recipes",
-    path: `/v1/inventory/service-recipes?branchId=${branch}`,
+    path: `/v1/inventory/service-recipes?branchId=${ACTIVE_BRANCH}`,
     kind: "recipe",
   },
   "/admin/inventory/reports": {
     title: "Inventory ledger",
-    path: `/v1/inventory/ledger?branchId=${branch}`,
+    path: `/v1/inventory/ledger?branchId=${ACTIVE_BRANCH}`,
     kind: "ledger",
   },
   "/admin/inventory/valuation": {
     title: "Inventory valuation",
-    path: `/v1/inventory/reports/valuation?branchId=${branch}`,
+    path: `/v1/inventory/reports/valuation?branchId=${ACTIVE_BRANCH}`,
     kind: "valuation",
   },
 };
@@ -156,14 +161,39 @@ function InventoryPage({
   path: string;
   kind: string;
 }) {
-  const value = useData(path),
+  const [branchId, setBranchId] = useState<string | undefined>(),
+    [branchOptions, setBranchOptions] = useState<Array<{ id: string; name: string }>>([]),
+    [branchLoading, setBranchLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    void getAuthorizedBranchContext().then(({ branches, branchId: selected }) => {
+      if (cancelled) return;
+      setBranchOptions(branches);
+      setBranchId(selected);
+      setBranchLoading(false);
+    }).catch(() => {
+      if (!cancelled) setBranchLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const resolvedPath = path.includes(ACTIVE_BRANCH)
+    ? branchId ? path.replace(ACTIVE_BRANCH, encodeURIComponent(branchId)) : undefined
+    : path;
+  const value = useData(resolvedPath),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false);
   async function run(path: string, body: any = {}) {
+    if (path.includes("/inventory/") && !branchId && (("branchId" in body) || ("sourceBranchId" in body) || path.includes(ACTIVE_BRANCH))) {
+      setNotice("Select an authorized branch before continuing.");
+      return;
+    }
     setBusy(true);
     setNotice("");
     try {
-      await command(path, body);
+      const payload = branchId && body.branchId === undefined && !body.sourceBranchId
+        ? { ...body, branchId }
+        : body;
+      await command(path.replace(ACTIVE_BRANCH, encodeURIComponent(branchId ?? "")), payload);
       setNotice("Saved successfully. Authoritative stock has been refreshed.");
       await value.load();
     } catch (e: any) {
@@ -193,7 +223,10 @@ function InventoryPage({
           </div>
           <span className="timezone">Online commands only</span>
         </div>
-        <CreateForm kind={kind} run={run} />
+        {branchLoading && <p role="status" aria-busy="true">Loading authorized branches…</p>}
+        {!branchLoading && branchOptions.length > 1 && <label>Active branch<select value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Select a branch</option>{branchOptions.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
+        {!branchLoading && !branchId && path.includes(ACTIVE_BRANCH) && <p role="alert">Select an authorized branch to view branch-scoped inventory.</p>}
+        <CreateForm kind={kind} run={run} branchId={branchId} branches={branchOptions} />
         {notice && (
           <p role="status" className="notice">
             {notice}
@@ -490,9 +523,13 @@ function Actions({
 function CreateForm({
   kind,
   run,
+  branchId,
+  branches,
 }: {
   kind: string;
   run: (p: string, b: any) => Promise<void>;
+  branchId?: string | undefined;
+  branches: Array<{ id: string; name: string }>;
 }) {
   const [open, setOpen] = useState(false),
     title = useMemo(
@@ -532,7 +569,7 @@ function CreateForm({
       });
     if (kind === "location")
       await run("/v1/inventory/locations", {
-        branchId: branch,
+        branchId,
         code: v("code"),
         name: v("name"),
         locationType: "STOCKROOM",
@@ -545,7 +582,7 @@ function CreateForm({
       });
     if (kind === "adjustment")
       await run("/v1/inventory/adjustments", {
-        branchId: branch,
+        branchId,
         locationId: v("location"),
         itemId: v("item"),
         quantityDelta: v("quantity"),
@@ -554,7 +591,7 @@ function CreateForm({
       });
     if (kind === "po")
       await run("/v1/inventory/purchase-orders", {
-        branchId: branch,
+        branchId,
         supplierId: v("supplier"),
         currency: "VND",
         note: v("note") || undefined,
@@ -569,7 +606,7 @@ function CreateForm({
       });
     if (kind === "receipt")
       await run("/v1/inventory/receipts", {
-        branchId: branch,
+        branchId,
         purchaseOrderId: v("po") || null,
         locationId: v("location"),
         receivedAt: new Date().toISOString(),
@@ -586,7 +623,7 @@ function CreateForm({
       });
     if (kind === "transfer")
       await run("/v1/inventory/transfers", {
-        sourceBranchId: branch,
+        sourceBranchId: branchId,
         destinationBranchId: v("destinationBranch"),
         sourceLocationId: v("location"),
         destinationLocationId: v("destinationLocation"),
@@ -600,7 +637,7 @@ function CreateForm({
       });
     if (kind === "count")
       await run("/v1/inventory/counts", {
-        branchId: branch,
+        branchId,
         locationId: v("location"),
         blind: true,
         items: [{ itemId: v("item"), lotId: v("lot") || null }],
@@ -608,7 +645,7 @@ function CreateForm({
     if (kind === "recipe")
       await run("/v1/inventory/service-recipes", {
         serviceId: v("service"),
-        branchId: branch,
+        branchId,
         name: v("name"),
         lines: [
           {
@@ -752,8 +789,11 @@ function CreateForm({
           {kind === "transfer" && (
             <>
               <label>
-                Destination branch ID
-                <input name="destinationBranch" required />
+                Destination branch
+                <select name="destinationBranch" required defaultValue="">
+                  <option value="">Select an authorized branch</option>
+                  {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                </select>
               </label>
               <label>
                 Source location ID

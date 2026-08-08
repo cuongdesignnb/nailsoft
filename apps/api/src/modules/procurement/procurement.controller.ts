@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedRequest } from "../identity/auth.types.js";
 import { AuthGuard } from "../identity/auth.guard.js";
 import { PermissionGuard } from "../identity/permission.guard.js";
-import { RequirePermission } from "../identity/permission.decorator.js";
+import { RequireAnyPermission, RequirePermission } from "../identity/permission.decorator.js";
 import { ProcurementService } from "./procurement.service.js";
 
 const rid = (request: AuthenticatedRequest) => request.raw.requestId ?? "unknown";
@@ -124,6 +124,8 @@ export class ProcurementController {
 
   @Post("payment-proposals") @RequirePermission("procurement.payment.create")
   createProposal(@Body() b: any, @Headers("idempotency-key") k: string, @Req() r: AuthenticatedRequest) { return this.service.createPaymentProposal(r.auth, b, idem(k), rid(r)).then((x) => ok(x, r)); }
+  @Get("payment-proposals") @RequirePermission("procurement.payment.read")
+  paymentProposals(@Req() r: AuthenticatedRequest) { return this.service.listPaymentProposals(r.auth).then((x) => ok(x, r)); }
   @Post("payment-proposals/:id/submit") @RequirePermission("procurement.payment.submit")
   submitProposal(@Param("id") id: string, @Body() b: any, @Headers("idempotency-key") k: string, @Req() r: AuthenticatedRequest) { return this.service.proposalStatus(r.auth, id, "PENDING_APPROVAL", b, idem(k), rid(r)).then((x) => ok(x, r)); }
   @Post("payment-proposals/:id/approve") @RequirePermission("procurement.payment.approve")
@@ -157,6 +159,8 @@ export class ProcurementController {
 
   @Post("vendor-returns") @RequirePermission("procurement.return.create")
   createReturn(@Body() b: any, @Headers("idempotency-key") k: string, @Req() r: AuthenticatedRequest) { return this.service.createReturn(r.auth, b, idem(k), rid(r)).then((x) => ok(x, r)); }
+  @Get("vendor-returns") @RequireAnyPermission("procurement.return.create", "procurement.return.approve", "procurement.return.dispatch", "procurement.return.complete")
+  vendorReturns(@Req() r: AuthenticatedRequest) { return this.service.listVendorReturns(r.auth).then((x) => ok(x, r)); }
   @Post("vendor-returns/:id/submit") @RequirePermission("procurement.return.create")
   submitReturn(@Param("id") id: string, @Body() b: any, @Headers("idempotency-key") k: string, @Req() r: AuthenticatedRequest) { return this.service.returnStatus(r.auth, id, "PENDING_APPROVAL", b, idem(k), rid(r)).then((x) => ok(x, r)); }
   @Post("vendor-returns/:id/approve") @RequirePermission("procurement.return.approve")

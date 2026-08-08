@@ -4940,6 +4940,13 @@ paths:
       tags: [procurement]
       responses: { '200': { description: AP aging/open items } }
   /procurement/payment-proposals:
+    get:
+      tags: [procurement]
+      summary: List payment proposals in the authenticated tenant and branch scope
+      description: Requires procurement.payment.read. totalMinor is serialized as a string; requester, approver and provider secrets are never returned.
+      responses:
+        '200': { description: Payment proposal list }
+        '403': { description: Permission or support-scope denial }
     post:
       tags: [procurement]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
@@ -4961,6 +4968,13 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProcurementCommand' } } } }
       responses: { '201': { description: Vendor credit note draft } }
   /procurement/vendor-returns:
+    get:
+      tags: [procurement]
+      summary: List vendor returns in the authenticated tenant and branch scope
+      description: Requires any existing procurement.return.create, procurement.return.approve, procurement.return.dispatch or procurement.return.complete permission.
+      responses:
+        '200': { description: Vendor return list }
+        '403': { description: Permission or support-scope denial }
     post:
       tags: [procurement]
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
