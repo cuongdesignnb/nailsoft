@@ -1,0 +1,21 @@
+{
+  "exceptions": [
+    {
+      "id": "SEC-2026-IMAGE-SIZE-METRO",
+      "package": "image-size",
+      "advisoryIds": ["GHSA-w3rx-r6r6-pgpr", "GHSA-5p2g-fcmc-qvqq"],
+      "severity": "high",
+      "dependencyType": "transitive",
+      "noPatchAvailable": true,
+      "reason": "No patched image-size release is published for the advisory-fixed range.",
+      "dependencyContext": [
+        "metro",
+        "@react-native/community-cli-plugin",
+        "react-native"
+      ],
+      "approvedAt": "2026-08-08",
+      "expiresAt": "2026-09-07",
+      "productionGoLiveException": false
+    }
+  ]
+}
