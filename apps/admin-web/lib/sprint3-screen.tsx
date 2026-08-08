@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 import { FormEvent, useEffect, useState } from "react";
-import { authorizedFetch } from "./auth";
+import { authorizedFetch, getActiveBranchId } from "./auth";
 type State = "loading" | "ready" | "empty" | "error" | "forbidden" | "offline";
 const defaults = {
-  branchId: "20000000-0000-4000-8000-000000000001",
+  branchId: getActiveBranchId() ?? "",
   serviceId: "50000000-0000-4000-8000-000000000001",
   date: "2026-08-10",
 };

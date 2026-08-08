@@ -528,10 +528,25 @@ jobs:
         run: pnpm exec vitest run tests/contract/sprint19-wave3-cluster4-route-ownership.test.ts
       - name: Sprint 19 Wave 4 route ownership contract
         run: pnpm exec vitest run tests/contract/sprint19-wave4-route-ownership.test.ts
+      - name: Sprint 19 Wave 5 route ownership contract
+        run: pnpm exec vitest run tests/contract/sprint19-wave5-route-ownership.test.ts
       - name: Sprint 19 Wave 3 customer engagement authenticated E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint19-wave3-cluster4-engagement.spec.ts --config=playwright.config.ts
       - name: Sprint 19 Wave 4 workforce payroll authenticated E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint19-wave4-workforce-payroll.spec.ts --config=playwright.api.config.ts
+      - name: Sprint 19 Wave 5 inventory procurement assets authenticated E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          for spec in \
+            tests/e2e/sprint19-wave5-inventory.spec.ts \
+            tests/e2e/sprint19-wave5-procurement.spec.ts \
+            tests/e2e/sprint19-wave5-assets.spec.ts
+          do
+            pnpm db:reset
+            pnpm db:seed
+            pnpm exec playwright test "$spec" --config=playwright.config.ts --workers=1
+          done
       - name: Sprint 12 authenticated workforce payroll and payout E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint12-workforce-payroll.spec.ts --config=playwright.api.config.ts
       - name: Sprint 12 closure authenticated deep E2E
@@ -1002,6 +1017,24 @@ jobs:
           path: |
             test-results/**/*.png
             test-results/**/*.md
+          if-no-files-found: warn
+          retention-days: 5
+      - name: Sprint 19 Wave 5 inventory procurement assets visual E2E
+        id: sprint19_wave5_visual
+        run: >
+          pnpm exec playwright test
+          tests/e2e/sprint19-wave5-visual.spec.ts
+          --config=playwright.config.ts
+          --workers=1
+      - name: Upload Sprint 19 Wave 5 visual failure evidence
+        if: ${{ failure() && steps.sprint19_wave5_visual.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint19-wave5-visual-linux-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/**/*.png
+            test-results/**/*.md
+            artifacts/sprint19/screens/**/*.png
           if-no-files-found: warn
           retention-days: 5
       - name: Stop visual services
