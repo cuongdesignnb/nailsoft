@@ -23,6 +23,7 @@ import Sprint19Wave1Remediation, { isWave1RemediationPath } from "./sprint19-wav
 import Sprint19Wave2Screen, { isWave2Path } from "./sprint19-wave2-screen";
 import Sprint19Wave3CustomerScreen, { isWave3Path } from "./sprint19-wave3-screen";
 import Sprint19Wave4Screen, { isWave4Path } from "./sprint19-wave4-screen";
+import Sprint19Wave5Inventory, { isWave5InventoryPath } from "./sprint19-wave5-inventory";
 
 type Resource = {
   title: string;
@@ -244,6 +245,7 @@ export default function Sprint1Screen() {
       (pathname.endsWith("/stored-value") || pathname.endsWith("/gift-card")))
   )
     return <Sprint10Screen pathname={pathname} />;
+  if (isWave5InventoryPath(pathname)) return <Sprint19Wave5Inventory pathname={pathname} />;
   if (pathname.startsWith("/admin/inventory"))
     return <Sprint9Screen pathname={pathname} />;
   if (
