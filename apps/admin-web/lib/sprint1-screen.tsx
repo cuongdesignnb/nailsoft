@@ -25,6 +25,7 @@ import Sprint19Wave3CustomerScreen, { isWave3Path } from "./sprint19-wave3-scree
 import Sprint19Wave4Screen, { isWave4Path } from "./sprint19-wave4-screen";
 import Sprint19Wave5Inventory, { isWave5InventoryPath } from "./sprint19-wave5-inventory";
 import Sprint19Wave5Procurement, { isWave5ProcurementPath } from "./sprint19-wave5-procurement";
+import Sprint19Wave5Assets, { isWave5AssetsPath } from "./sprint19-wave5-assets";
 
 type Resource = {
   title: string;
@@ -212,6 +213,7 @@ export default function Sprint1Screen() {
   ) {
     return <Sprint19Wave1Screen pathname={pathname} />;
   }
+  if (isWave5AssetsPath(pathname)) return <Sprint19Wave5Assets pathname={pathname} />;
   if (pathname.startsWith("/admin/assets")) return <Sprint16Screen />;
   if (isWave5ProcurementPath(pathname)) return <Sprint19Wave5Procurement pathname={pathname} />;
   if (pathname.startsWith("/admin/procurement")) return <Sprint15Screen />;
