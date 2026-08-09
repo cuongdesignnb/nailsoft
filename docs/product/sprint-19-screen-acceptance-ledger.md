@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 4 accepted against source CI; Wave 5 not authorized
+Current phase: Wave 5 accepted against source CI; Wave 6 not authorized
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -77,8 +77,8 @@ FONT_RENDER_DETERMINISM=PASS
 
 Business rows are appended one screen at a time after Wave 0 acceptance. Wave 1
 and Wave 2 rows below are accepted only for the evidence explicitly listed.
-Wave 4 rows are accepted against the exact source CI evidence. Wave 5 and later
-business waves remain unauthorized.
+Wave 4 and Wave 5 rows are accepted against their exact source CI evidence.
+Wave 6 and later business waves remain unauthorized.
 
 ## Wave 4 acceptance
 
@@ -398,4 +398,73 @@ CLUSTER_3_LOCAL_QA=PASS
 WAVE_3_STATUS=COMPLETED_WITH_DOCUMENTED_DEFERRAL
 WAVE_4_STARTED=NO
 SPRINT_20_STARTED=NO
+```
+
+## Wave 5 acceptance — inventory, procurement and fixed assets
+
+Final Wave 5 source validation is commit
+`7d01aa86d94ebf4a7e6406082d3aeb176cac884c`, validated by full CI run
+`31287558715` with conclusion `SUCCESS`.
+
+The documentation commit created after this validation is not the source
+commit validated by run `31287558715`.
+
+```text
+WAVE_5_SOURCE_SHA=7d01aa86d94ebf4a7e6406082d3aeb176cac884c
+WAVE_5_SOURCE_CI_RUN_ID=31287558715
+WAVE_5_SOURCE_CI_CONCLUSION=SUCCESS
+WAVE_5_STATUS=COMPLETED
+BA_PO_WAVE_5_ACCEPTANCE=PASS
+SCREEN_ROWS_19_5_1_TO_19_5_36=ALL_ACCEPTED
+WAVE_6_STARTED=NO
+SPRINT_20_STARTED=NO
+```
+
+| ID | Screen | Source commit | CI | Acceptance |
+| --- | --- | --- | --- | --- |
+| 19.5.1 | Inventory items | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.2 | Stock locations | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.3 | Stock availability | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.4 | Lot and expiry | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.5 | Inventory alerts | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.6 | Inventory suppliers | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.7 | Inventory purchase orders | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.8 | Goods receipts | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.9 | Stock transfers | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.10 | Stock adjustments | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.11 | Blind stock counts | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.12 | Service material recipes | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.13 | Inventory ledger | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.14 | Inventory valuation | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.15 | Procurement control center | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.16 | Vendors | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.17 | Purchase requests | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.18 | Purchase orders | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.19 | Goods and service receipts | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.20 | Vendor bills | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.21 | Accounts payable | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.22 | Payment proposals | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.23 | Vendor payments | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.24 | Vendor credit notes | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.25 | Vendor returns | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.26 | Fixed asset register | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.27 | Asset candidates | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.28 | Capitalization approvals | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.29 | Depreciation runs | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.30 | Maintenance work orders | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.31 | Asset transfers | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.32 | Asset counts | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.33 | Inspections | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.34 | Impairments | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.35 | Disposals | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+| 19.5.36 | Asset reports | `7d01aa86d94ebf4a7e6406082d3aeb176cac884c` | `31287558715 / SUCCESS` | ACCEPTED |
+
+```text
+INVENTORY_SCREEN_ROWS=14_ACCEPTED
+PROCUREMENT_SCREEN_ROWS=11_ACCEPTED
+FIXED_ASSET_SCREEN_ROWS=11_ACCEPTED
+INVENTORY_CLUSTER=ACCEPTED
+PROCUREMENT_CLUSTER=ACCEPTED
+FIXED_ASSETS_CLUSTER=ACCEPTED
+ADDENDUM_A_FOUNDATION=ACCEPTED
 ```

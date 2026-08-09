@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 4 accepted against source CI; Wave 5 not authorized
+Current phase: Wave 5 accepted against source CI; Wave 6 not authorized
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -106,7 +106,7 @@ is not the source commit validated by that CI run.
 | 19.2.18 | Tip and commission reversal evidence | Admin Web | `/admin/commission`, `/admin/commission/adjustments` | Manager, Owner, Accountant | commission read/adjustment permissions | commission entries/adjustments | loading, empty, approval, forbidden | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
 
 The following route families remain planned for later waves. Wave 2 and Wave 4
-rows above are accepted; Wave 5 and later screens remain unauthorized.
+rows above are accepted; Wave 6 and later screens remain unauthorized.
 
 | Wave | Route family | Screen IDs | Primary personas | Permission examples |
 | --- | --- | --- | --- | --- |
@@ -303,3 +303,71 @@ customer resolution and the approved create flow only. Customer Update and
 Customer Merge remain deferred; this inventory does not claim either mutation
 is implemented. The deferred item belongs to a future customer mutation
 addendum or product backlog, not Wave 4.
+
+## Wave 5 — Inventory, procurement and fixed assets (accepted)
+
+Final Wave 5 source validation is commit
+`7d01aa86d94ebf4a7e6406082d3aeb176cac884c`, validated by full CI run
+`31287558715` with conclusion `SUCCESS`.
+
+The documentation commit created after this validation is not the source
+commit validated by run `31287558715`.
+
+All Wave 5 screens are API-backed and accepted against the exact source/CI
+evidence below. Branch context remains server-authoritative; the Admin Shell
+uses Auth Context, defaults multi-branch workspaces to an explicit unselected
+state, and validates stale local storage before any branch-scoped write.
+
+| ID | Screen | Cluster | Status |
+| --- | --- | --- | --- |
+| 19.5.1 | Inventory items | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.2 | Stock locations | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.3 | Stock availability | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.4 | Lot and expiry | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.5 | Inventory alerts | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.6 | Inventory suppliers | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.7 | Inventory purchase orders | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.8 | Goods receipts | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.9 | Stock transfers | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.10 | Stock adjustments | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.11 | Blind stock counts | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.12 | Service material recipes | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.13 | Inventory ledger | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.14 | Inventory valuation | Inventory | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.15 | Procurement control center | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.16 | Vendors | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.17 | Purchase requests | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.18 | Purchase orders | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.19 | Goods and service receipts | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.20 | Vendor bills | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.21 | Accounts payable | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.22 | Payment proposals | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.23 | Vendor payments | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.24 | Vendor credit notes | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.25 | Vendor returns | Procurement | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.26 | Fixed asset register | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.27 | Asset candidates | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.28 | Capitalization approvals | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.29 | Depreciation runs | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.30 | Maintenance work orders | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.31 | Asset transfers | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.32 | Asset counts | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.33 | Inspections | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.34 | Impairments | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.35 | Disposals | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+| 19.5.36 | Asset reports | Fixed assets | REDESIGNED / API_BACKED / ACCEPTED; source `7d01aa86`; CI `31287558715` |
+
+```text
+WAVE_5_SOURCE_SHA=7d01aa86d94ebf4a7e6406082d3aeb176cac884c
+WAVE_5_SOURCE_CI_RUN_ID=31287558715
+WAVE_5_SOURCE_CI_CONCLUSION=SUCCESS
+SCREEN_ROWS_19_5_1_TO_19_5_36=ALL_ACCEPTED
+INVENTORY_SCREEN_ROWS=14_ACCEPTED
+PROCUREMENT_SCREEN_ROWS=11_ACCEPTED
+FIXED_ASSET_SCREEN_ROWS=11_ACCEPTED
+WAVE_5_STATUS=COMPLETED
+BA_PO_WAVE_5_ACCEPTANCE=PASS
+WAVE_6_STARTED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
