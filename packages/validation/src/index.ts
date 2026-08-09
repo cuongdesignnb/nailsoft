@@ -190,13 +190,21 @@ export const publicAppointmentCustomerSchema = z
   .refine((value) => Boolean(value.phone || value.email), {
     message: "phone or email is required",
   });
+export const publicCustomerNoteSchema = z
+  .string()
+  .max(2000)
+  .refine(
+    (value) => !/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value),
+    "customerNote contains an unsafe control character",
+  )
+  .transform((value) => value.replace(/\r\n?/g, "\n").trim());
 export const publicCreateAppointmentSchema = z
   .object({
     holdId: uuidSchema,
     holdToken: z.string().min(1),
     customer: publicAppointmentCustomerSchema,
     contactVerificationToken: z.string().min(1),
-    customerNote: z.string().max(2000).optional(),
+    customerNote: publicCustomerNoteSchema.optional(),
     marketingConsent: z.boolean(),
     acceptedPolicyVersion: z.number().int().positive(),
     acceptedAt: z.string().datetime({ offset: true }),

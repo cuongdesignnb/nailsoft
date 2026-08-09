@@ -2370,11 +2370,12 @@ paths:
       {
         tags: [public-booking],
         security: [],
-        summary: Read public salon profile,
+        summary: Read public salon profile and safe booking availability capability,
         responses:
           {
-            "200": { description: Public salon profile },
+            "200": { description: Public salon profile with bookingAvailable; never includes billing or access-mode details },
             "404": { description: Salon unavailable },
+            "503": { description: Online booking is temporarily unavailable for this salon },
           },
       }
   /public/salons/{salonSlug}/branches:
@@ -2383,7 +2384,7 @@ paths:
         tags: [public-booking],
         security: [],
         summary: List public active branches and booking policies,
-        responses: { "200": { description: Branches } },
+        responses: { "200": { description: Branches }, "503": { description: Online booking unavailable } },
       }
   /public/salons/{salonSlug}/services:
     get:
@@ -2391,7 +2392,7 @@ paths:
         tags: [public-booking],
         security: [],
         summary: List online-bookable services and effective prices,
-        responses: { "200": { description: Services } },
+        responses: { "200": { description: Services }, "503": { description: Online booking unavailable } },
       }
   /public/salons/{salonSlug}/staff:
     get:
@@ -2400,7 +2401,7 @@ paths:
         security: [],
         summary: List policy-visible bookable staff for a branch,
         responses:
-          { "200": { description: Staff or an empty policy-shaped list } },
+          { "200": { description: Staff or an empty policy-shaped list }, "503": { description: Online booking unavailable } },
       }
   /public/salons/{salonSlug}/availability:
     get:
@@ -2412,6 +2413,7 @@ paths:
           {
             "200": { description: Availability },
             "409": { description: Rate limited or unavailable },
+            "503": { description: Online booking unavailable },
           },
       }
   /public/salons/{salonSlug}/slot-holds:
@@ -2422,7 +2424,7 @@ paths:
         summary: Create a rate-limited public hold,
         parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
         responses:
-          { "201": { description: Active hold and scoped capability } },
+          { "201": { description: Active hold and scoped capability }, "503": { description: Online booking unavailable } },
       }
   /public/salons/{salonSlug}/contact-verification/request:
     post:
@@ -2434,6 +2436,7 @@ paths:
           {
             "201": { description: Neutral challenge response },
             "409": { description: Rate limited },
+            "503": { description: Online booking unavailable },
           },
       }
   /public/salons/{salonSlug}/contact-verification/verify:
@@ -2446,6 +2449,7 @@ paths:
           {
             "201": { description: Contact capability },
             "401": { description: Invalid or expired code },
+            "503": { description: Online booking unavailable },
           },
       }
   /public/salons/{salonSlug}/bookings:
@@ -2473,6 +2477,7 @@ paths:
           {
             "201": { description: Booking reference and status },
             "403": { description: Hold/contact capability invalid },
+            "503": { description: Online booking unavailable },
           },
       }
   /public/salons/{salonSlug}/bookings/access/request:

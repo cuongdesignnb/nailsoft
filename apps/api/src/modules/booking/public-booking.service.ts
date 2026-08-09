@@ -64,17 +64,20 @@ export class PublicBookingService {
   async salon(slug: string) {
     this.assertEnabled();
     const row = await this.tenant(slug);
+    this.assertManageBookingReadAllowed(row);
     return {
       slug: row.slug,
       name: row.name,
       locale: row.default_locale,
       currency: row.currency,
       timezone: row.timezone,
+      bookingAvailable: this.canCreatePublicBooking(row),
     };
   }
   async branches(slug: string) {
     this.assertEnabled();
     const t = await this.tenant(slug);
+    this.assertNewPublicBookingAllowed(t);
     return (
       await this.db.query<any>(
         "SELECT b.id,b.name,b.code,b.timezone,ts.booking_policy_json tenant_policy_json,bs.booking_policy_json branch_policy_json FROM branches b JOIN tenant_settings ts ON ts.tenant_id=b.tenant_id LEFT JOIN branch_settings bs ON bs.tenant_id=b.tenant_id AND bs.branch_id=b.id WHERE b.tenant_id=$1 AND b.status='ACTIVE' ORDER BY b.name",
@@ -119,6 +122,7 @@ export class PublicBookingService {
   async services(slug: string, branchId?: string) {
     this.assertEnabled();
     const t = await this.tenant(slug);
+    this.assertNewPublicBookingAllowed(t);
     if (branchId) await this.branchPolicy(t.id, branchId);
     return (
       await this.db.query<any>(
@@ -142,6 +146,7 @@ export class PublicBookingService {
   async staff(slug: string, branchId: string) {
     this.assertEnabled();
     const tenant = await this.tenant(slug);
+    this.assertNewPublicBookingAllowed(tenant);
     const policy = await this.branchPolicy(tenant.id, branchId);
     if (
       policy.allowCustomerSelectStaff === false ||
@@ -163,6 +168,7 @@ export class PublicBookingService {
   ) {
     this.assertEnabled();
     const t = await this.tenant(slug);
+    this.assertNewPublicBookingAllowed(t);
     await this.rate(`availability:${t.id}:${ip}`, 120);
     const branch = await this.branchPolicy(t.id, input.branchId);
     if (
@@ -182,6 +188,7 @@ export class PublicBookingService {
     await this.assertPublicServices(
       t.id,
       input.serviceId ? [input.serviceId] : [],
+      input.branchId,
     );
     let availabilityInput = input;
     if (authorization && input.bookingReference) {
@@ -236,6 +243,7 @@ export class PublicBookingService {
   ) {
     this.assertEnabled();
     const t = await this.tenant(slug);
+    this.assertNewPublicBookingAllowed(t);
     const body = createSlotHoldSchema.parse({
       ...input,
       source: "CUSTOMER_WEB",
@@ -279,6 +287,7 @@ export class PublicBookingService {
   ) {
     this.assertEnabled();
     const t = await this.tenant(slug);
+    this.assertNewPublicBookingAllowed(t);
     const body = publicCreateAppointmentSchema.parse(input);
     await this.rate(`booking:${t.id}:${ip}`, 20);
     const hold = (
@@ -303,8 +312,9 @@ export class PublicBookingService {
 
   async requestContact(slug: string, input: unknown, ip: string) {
     this.assertEnabled();
-    const t = await this.tenant(slug),
-      body = contactSchema.parse(input),
+    const t = await this.tenant(slug);
+    this.assertNewPublicBookingAllowed(t);
+    const body = contactSchema.parse(input),
       normalized = this.booking.normalizeContact(body.contact),
       hash = this.booking.contactHash(normalized);
     await this.rate(`contact:${t.id}:${hash}:${ip}`, 5);
@@ -334,6 +344,7 @@ export class PublicBookingService {
   async verifyContact(slug: string, input: unknown, ip: string) {
     this.assertEnabled();
     const tenant = await this.tenant(slug);
+    this.assertNewPublicBookingAllowed(tenant);
     const body = verifySchema.parse(input);
     await this.rate(`contact-verify:${tenant.id}:${ip}`, 10);
     const challenge = await this.consumeChallenge(
@@ -360,6 +371,7 @@ export class PublicBookingService {
   async requestAccess(slug: string, input: unknown, ip: string) {
     this.assertEnabled();
     const tenant = await this.tenant(slug);
+    this.assertManageBookingReadAllowed(tenant);
     const body = accessRequestSchema.parse(input),
       reference = body.bookingReference.toUpperCase(),
       normalized = this.booking.normalizeContact(body.contact),
@@ -411,6 +423,7 @@ export class PublicBookingService {
   async verifyAccess(slug: string, input: unknown, ip: string) {
     this.assertEnabled();
     const tenant = await this.tenant(slug);
+    this.assertManageBookingReadAllowed(tenant);
     const body = verifySchema.parse(input);
     await this.rate(`booking-access-verify:${tenant.id}:${ip}`, 10);
     const challenge = await this.consumeChallenge(
@@ -489,7 +502,15 @@ export class PublicBookingService {
       ip,
       "reschedule-hold",
     );
+    this.assertNewPublicBookingAllowed(context.tenant);
     await this.commandRate("reschedule-hold", context, ip, 20);
+    await this.assertPublicServices(
+      context.root.tenant_id,
+      Array.isArray(input?.items)
+        ? input.items.map((item: any) => item.serviceId)
+        : [],
+      context.root.branch_id,
+    );
     return this.booking.createHold(
       this.auth(context.root.tenant_id, context.root.branch_id),
       {
@@ -521,6 +542,7 @@ export class PublicBookingService {
       ip,
       "reschedule",
     );
+    this.assertNewPublicBookingAllowed(context.tenant);
     await this.commandRate("reschedule", context, ip, 20);
     if (!input.replacementHoldToken)
       throw new ForbiddenException({
@@ -555,6 +577,7 @@ export class PublicBookingService {
     ip: string,
   ) {
     const context = await this.management(slug, reference, token, ip, "cancel");
+    this.assertManageBookingWriteAllowed(context.tenant, "cancel");
     await this.commandRate("cancel", context, ip, 20);
     return this.booking.cancel(
       this.auth(context.root.tenant_id, context.root.branch_id),
@@ -578,6 +601,7 @@ export class PublicBookingService {
   ) {
     this.assertEnabled();
     const tenant = await this.tenant(slug);
+    this.assertManageBookingReadAllowed(tenant);
     await this.rate(`management-entry:${command}:${tenant.id}:ip:${ip}`, 60);
     const claims = await this.tokens.verifyManagement(token);
     if (
@@ -602,7 +626,7 @@ export class PublicBookingService {
         code: "BOOKING_ACCESS_DENIED",
         message: "Booking access has been revoked",
       });
-    return { claims, root };
+    return { claims, root, tenant };
   }
   private async consumeChallenge(
     tenantId: string,
@@ -648,7 +672,7 @@ export class PublicBookingService {
   private async tenant(slug: string) {
     const row = (
       await this.db.query<any>(
-        "SELECT * FROM tenants WHERE lower(slug)=lower($1) AND status='ACTIVE'",
+        "SELECT t.*,COALESCE((SELECT ep.enabled FROM platform_entitlement_projections ep WHERE ep.tenant_id=t.id AND ep.entitlement_code='booking.enabled' LIMIT 1),false) booking_enabled FROM tenants t WHERE lower(t.slug)=lower($1) AND t.status='ACTIVE'",
         [slug],
       )
     ).rows[0];
@@ -658,6 +682,44 @@ export class PublicBookingService {
         message: "Salon not found",
       });
     return row;
+  }
+
+  private canCreatePublicBooking(tenant: any) {
+    return ["FULL", "GRACE"].includes(String(tenant.access_mode ?? "")) &&
+      tenant.booking_enabled === true;
+  }
+
+  private canReadManagedBooking(tenant: any) {
+    return ["FULL", "GRACE", "READ_ONLY"].includes(
+      String(tenant.access_mode ?? ""),
+    );
+  }
+
+  private publicBookingUnavailable(): never {
+    throw new ServiceUnavailableException({
+      code: "PUBLIC_BOOKING_UNAVAILABLE",
+      message: "Online booking is temporarily unavailable for this salon.",
+    });
+  }
+
+  private assertNewPublicBookingAllowed(tenant: any) {
+    if (!this.canCreatePublicBooking(tenant)) this.publicBookingUnavailable();
+  }
+
+  private assertManageBookingReadAllowed(tenant: any) {
+    if (!this.canReadManagedBooking(tenant)) this.publicBookingUnavailable();
+  }
+
+  private assertManageBookingWriteAllowed(
+    tenant: any,
+    action: "cancel" | "reschedule",
+  ) {
+    if (action === "cancel") {
+      if (!["FULL", "GRACE"].includes(String(tenant.access_mode ?? "")))
+        this.publicBookingUnavailable();
+      return;
+    }
+    this.assertNewPublicBookingAllowed(tenant);
   }
   private auth(tenantId: string, branchId?: string): AccessClaims {
     return {
@@ -765,14 +827,18 @@ export class PublicBookingService {
           code: "PUBLIC_STAFF_SELECTION_NOT_ALLOWED",
           message: "Customers cannot select a technician",
         });
-      await this.assertPublicServices(tenantId, [item.serviceId]);
+      await this.assertPublicServices(tenantId, [item.serviceId], body.branchId);
     }
   }
-  private async assertPublicServices(tenantId: string, serviceIds: string[]) {
+  private async assertPublicServices(
+    tenantId: string,
+    serviceIds: string[],
+    branchId: string,
+  ) {
     if (!serviceIds.length) return;
     const services = await this.db.query<{ id: string }>(
-      "SELECT id FROM services WHERE tenant_id=$1 AND id=ANY($2::uuid[]) AND status='ACTIVE' AND online_booking_enabled=true",
-      [tenantId, serviceIds],
+      "SELECT s.id FROM services s JOIN LATERAL (SELECT 1 FROM service_prices sp WHERE sp.tenant_id=s.tenant_id AND sp.service_id=s.id AND sp.status='ACTIVE' AND (sp.branch_id=$3::uuid OR sp.branch_id IS NULL) AND sp.effective_from<=now() AND (sp.effective_to IS NULL OR sp.effective_to>now()) ORDER BY (sp.branch_id IS NOT NULL) DESC LIMIT 1) applicable_price ON true WHERE s.tenant_id=$1 AND s.id=ANY($2::uuid[]) AND s.status='ACTIVE' AND s.online_booking_enabled=true",
+      [tenantId, serviceIds, branchId],
     );
     if (
       new Set(services.rows.map((row) => row.id)).size !==
