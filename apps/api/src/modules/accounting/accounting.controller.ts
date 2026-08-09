@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedRequest } from "../identity/auth.types.js";
 import { AuthGuard } from "../identity/auth.guard.js";
 import { PermissionGuard } from "../identity/permission.guard.js";
-import { RequirePermission } from "../identity/permission.decorator.js";
+import { RequireAnyPermission, RequirePermission } from "../identity/permission.decorator.js";
 import { AccountingService } from "./accounting.service.js";
 
 const rid=(r:AuthenticatedRequest)=>r.raw.requestId??"unknown";
@@ -61,6 +61,15 @@ export class AccountingController {
   @Get("bank-accounts") @RequirePermission("accounting.bank_account.read") bankAccounts(@Query("bookId") bookId:string,@Req() r:AuthenticatedRequest){return this.s.bankAccounts(r.auth,bookId).then(x=>ok(x,r));}
   @Post("bank-accounts") @RequirePermission("accounting.bank_account.manage") createBankAccount(@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.createBankAccount(r.auth,b,rid(r),idem(k)).then(x=>ok(x,r));}
   @Get("bank-accounts/:bankAccountId/imports") @RequirePermission("accounting.bank_statement.import") bankImports(@Param("bankAccountId") id:string,@Req() r:AuthenticatedRequest){return this.s.bankImports(r.auth,id).then(x=>ok(x,r));}
+  @Get("bank-accounts/:bankAccountId/statement-lines")
+  @RequireAnyPermission("accounting.bank_reconciliation.read", "accounting.bank_statement.import")
+  statementLines(@Param("bankAccountId") id:string,@Query("limit") limit:string,@Req() r:AuthenticatedRequest){return this.s.statementLines(r.auth,id,Number(limit||50)).then(x=>ok(x,r));}
+  @Get("bank-matches")
+  @RequireAnyPermission("accounting.bank_reconciliation.read", "accounting.bank_match.manage")
+  bankMatches(@Query() q:any,@Req() r:AuthenticatedRequest){return this.s.bankMatches(r.auth,q).then(x=>ok(x,r));}
+  @Get("reconciliation-exceptions")
+  @RequirePermission("accounting.bank_reconciliation.read")
+  reconciliationExceptions(@Query("limit") limit:string,@Req() r:AuthenticatedRequest){return this.s.reconciliationExceptions(r.auth,Number(limit||50)).then(x=>ok(x,r));}
   @Post("bank-statements/imports") @RequirePermission("accounting.bank_statement.import") importBankStatement(@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.importBankStatement(r.auth,b,rid(r),idem(k)).then(x=>ok(x,r));}
   @Post("bank-matches") @RequirePermission("accounting.bank_match.manage") createBankMatch(@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.createBankMatch(r.auth,b,rid(r),idem(k)).then(x=>ok(x,r));}
   @Post("bank-matches/:id/confirm") @RequirePermission("accounting.bank_match.manage") confirmBankMatch(@Param("id") id:string,@Body() b:any,@Req() r:AuthenticatedRequest){return this.s.transitionBankMatch(r.auth,id,"MATCHED",b,rid(r)).then(x=>ok(x,r));}

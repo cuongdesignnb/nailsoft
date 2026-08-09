@@ -29,6 +29,16 @@ export class AccountingService {
   private guard(auth: AccessClaims) {
     if (!auth.tenantId) throw new ForbiddenException({ code: "TENANT_SCOPE_REQUIRED" });
   }
+  private present(row: any) {
+    return row
+      ? Object.fromEntries(
+          Object.entries(row).map(([key, value]) => [
+            key.replace(/_([a-z])/g, (_, c) => c.toUpperCase()),
+            value,
+          ]),
+        )
+      : row;
+  }
   private async audit(c: PoolClient, auth: AccessClaims, action: string, entity: string, id: string, before: unknown, after: unknown, requestId: string, reason?: string) {
     await c.query(
       `INSERT INTO audit_logs(tenant_id,actor_user_id,action,entity_type,entity_id,before_json,after_json,reason,request_id)
@@ -254,6 +264,86 @@ export class AccountingService {
   async postOpeningBalance(auth:AccessClaims,id:string,input:any,requestId:string){return this.db.transaction(async c=>{const current=await c.query<any>("SELECT * FROM accounting_opening_balance_imports WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);if(!current.rows[0])throw new NotFoundException({code:"OPENING_BALANCE_NOT_FOUND"});if(current.rows[0].state!=="APPROVED")throw new ConflictException({code:"OPENING_BALANCE_STATE_INVALID"});const rows=await c.query<any>("SELECT * FROM accounting_opening_balance_rows WHERE tenant_id=$1 AND import_id=$2 ORDER BY row_no",[auth.tenantId,id]);const period=await c.query<any>("SELECT * FROM accounting_periods WHERE tenant_id=$1 AND book_id=$2 AND $3::date BETWEEN starts_on AND ends_on AND state IN('OPEN','REOPENED') ORDER BY starts_on LIMIT 1 FOR UPDATE",[auth.tenantId,current.rows[0].book_id,current.rows[0].cutover_date]);if(!period.rows[0])throw new ConflictException({code:"OPENING_BALANCE_PERIOD_NOT_POSTABLE"});const number=await this.allocateJournalNumber(c,auth.tenantId,current.rows[0].book_id,period.rows[0].id);const j=await c.query<any>(`INSERT INTO accounting_journals(tenant_id,book_id,period_id,journal_type,accounting_date,currency,journal_number,requested_by_user_id,approved_by_user_id,state) VALUES($1,$2,$3,'OPENING_BALANCE',$4,$5,$6,$7,$8,'APPROVED') RETURNING *`,[auth.tenantId,current.rows[0].book_id,period.rows[0].id,current.rows[0].cutover_date,current.rows[0].currency,number,current.rows[0].created_by_user_id,current.rows[0].approved_by_user_id]);for(let i=0;i<rows.rows.length;i++){const x=rows.rows[i];await c.query(`INSERT INTO accounting_journal_lines(tenant_id,journal_id,line_no,account_id,debit_minor,credit_minor,functional_debit_minor,functional_credit_minor,currency,exchange_numerator,exchange_denominator) VALUES($1,$2,$3,$4,$5,$6,$5,$6,$7,1,1)`,[auth.tenantId,j.rows[0].id,i+1,x.account_id,x.debit_minor,x.credit_minor,current.rows[0].currency]);}const posted=await c.query<any>(`UPDATE accounting_journals SET state='POSTED',posted_by_user_id=$3,posted_at=now(),version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING *`,[auth.tenantId,j.rows[0].id,auth.userId]);const n=await c.query<any>("UPDATE accounting_opening_balance_imports SET state='POSTED',posted_journal_id=$3,version=version+1 WHERE tenant_id=$1 AND id=$2 RETURNING *",[auth.tenantId,id,posted.rows[0].id]);await this.audit(c,auth,"accounting.opening_balance_posted","accounting_opening_balance_import",id,current.rows[0],n.rows[0],requestId,input?.reason);return {...n.rows[0],postedJournal:posted.rows[0]};});}
   async bankImports(auth:AccessClaims,bankAccountId:string){return (await this.db.query<any>("SELECT * FROM accounting_bank_statement_imports WHERE tenant_id=$1 AND bank_account_id=$2 ORDER BY created_at DESC",[auth.tenantId,bankAccountId])).rows;}
   async reconciliations(auth:AccessClaims,bankAccountId:string){return (await this.db.query<any>("SELECT * FROM accounting_bank_reconciliations WHERE tenant_id=$1 AND bank_account_id=$2 ORDER BY created_at DESC",[auth.tenantId,bankAccountId])).rows;}
+
+  /** Bounded, redacted statement-line projection for the reconciliation UI. */
+  async statementLines(auth: AccessClaims, bankAccountId: string, limit = 50) {
+    this.guard(auth);
+    const bounded = Math.min(Math.max(Number(limit) || 50, 1), 100);
+    const bank = await this.db.query<any>(
+      "SELECT id FROM accounting_bank_accounts WHERE tenant_id=$1 AND id=$2",
+      [auth.tenantId, bankAccountId],
+    );
+    if (!bank.rows[0]) throw new NotFoundException({ code: "BANK_ACCOUNT_NOT_FOUND" });
+    const rows = await this.db.query<any>(
+      `SELECT id,bank_account_id,import_id,line_no,transaction_date,value_date,
+              amount_minor,currency,direction,reference,description,match_state,
+              matched_minor,created_at
+         FROM accounting_bank_statement_lines
+        WHERE tenant_id=$1 AND bank_account_id=$2
+        ORDER BY transaction_date DESC,line_no DESC
+        LIMIT $3`,
+      [auth.tenantId, bankAccountId, bounded],
+    );
+    return rows.rows.map((row) => this.present(row));
+  }
+
+  /** Bounded match projection; allocations are represented by a count only. */
+  async bankMatches(auth: AccessClaims, query: any = {}) {
+    this.guard(auth);
+    const bounded = Math.min(Math.max(Number(query?.limit) || 50, 1), 100);
+    const rows = await this.db.query<any>(
+      `SELECT m.id,m.reconciliation_id,r.bank_account_id,m.match_type,m.state,
+              m.total_minor,m.journal_id,m.created_by_user_id,m.confirmed_by_user_id,
+              m.created_at,
+              (SELECT count(*)::int FROM accounting_bank_match_allocations a
+                 WHERE a.tenant_id=m.tenant_id AND a.match_id=m.id) allocation_count
+         FROM accounting_bank_matches m
+         JOIN accounting_bank_reconciliations r
+           ON r.tenant_id=m.tenant_id AND r.id=m.reconciliation_id
+        WHERE m.tenant_id=$1
+          AND ($2::uuid IS NULL OR r.bank_account_id=$2)
+          AND ($3::uuid IS NULL OR m.reconciliation_id=$3)
+          AND ($4::text IS NULL OR m.state=$4)
+        ORDER BY m.created_at DESC
+        LIMIT $5`,
+      [auth.tenantId, query?.bankAccountId ?? null, query?.reconciliationId ?? null, query?.status ?? null, bounded],
+    );
+    return rows.rows.map((row) => this.present(row));
+  }
+
+  /**
+   * Read-only exception evidence assembled from persisted reconciliation and
+   * adjustment-request records. No new exception state or ledger row is made.
+   */
+  async reconciliationExceptions(auth: AccessClaims, limit = 50) {
+    this.guard(auth);
+    const bounded = Math.min(Math.max(Number(limit) || 50, 1), 100);
+    const [adjustments, reconciliations] = await Promise.all([
+      this.db.query<any>(
+        `SELECT id,reconciliation_id,amount_minor,reason,state,journal_id,
+                requested_by_user_id,approved_by_user_id,created_at
+           FROM accounting_reconciliation_adjustment_requests
+          WHERE tenant_id=$1
+          ORDER BY created_at DESC
+          LIMIT $2`,
+        [auth.tenantId, bounded],
+      ),
+      this.db.query<any>(
+        `SELECT id,bank_account_id,period_id,state,statement_balance_minor,
+                ledger_balance_minor,difference_minor,version,created_by_user_id,
+                closed_by_user_id,created_at,closed_at
+           FROM accounting_bank_reconciliations
+          WHERE tenant_id=$1 AND difference_minor<>0
+          ORDER BY created_at DESC
+          LIMIT $2`,
+        [auth.tenantId, bounded],
+      ),
+    ]);
+    return {
+      adjustmentRequests: adjustments.rows.map((row) => this.present(row)),
+      unreconciledReconciliations: reconciliations.rows.map((row) => this.present(row)),
+    };
+  }
   async statementSnapshots(auth:AccessClaims,bookId:string){return (await this.db.query<any>("SELECT * FROM accounting_statement_snapshots WHERE tenant_id=$1 AND book_id=$2 ORDER BY created_at DESC",[auth.tenantId,bookId])).rows;}
   async trialBalance(auth:AccessClaims, q:any){const bookId=str(q?.bookId,"book_id");await this.book(auth,bookId);const params=[auth.tenantId,bookId,q?.periodId??null];return (await this.db.query<any>(`WITH bounds AS (SELECT starts_on,ends_on FROM accounting_periods WHERE tenant_id=$1 AND book_id=$2 AND ($3::uuid IS NULL OR id=$3) ORDER BY starts_on DESC LIMIT 1), lines AS (SELECT l.account_id,a.code,a.name,a.account_type,a.control_class,j.accounting_date,l.functional_debit_minor,l.functional_credit_minor FROM accounting_journal_lines l JOIN accounting_journals j ON j.tenant_id=l.tenant_id AND j.id=l.journal_id JOIN accounting_accounts a ON a.tenant_id=l.tenant_id AND a.id=l.account_id WHERE l.tenant_id=$1 AND j.state='POSTED' AND j.book_id=$2) SELECT account_id,code,name,account_type,control_class,coalesce(sum(functional_debit_minor) FILTER(WHERE accounting_date<(SELECT starts_on FROM bounds)),0)::bigint opening_debit_minor,coalesce(sum(functional_credit_minor) FILTER(WHERE accounting_date<(SELECT starts_on FROM bounds)),0)::bigint opening_credit_minor,coalesce(sum(functional_debit_minor) FILTER(WHERE accounting_date BETWEEN (SELECT starts_on FROM bounds) AND (SELECT ends_on FROM bounds)),0)::bigint period_debit_minor,coalesce(sum(functional_credit_minor) FILTER(WHERE accounting_date BETWEEN (SELECT starts_on FROM bounds) AND (SELECT ends_on FROM bounds)),0)::bigint period_credit_minor,coalesce(sum(functional_debit_minor),0)::bigint closing_debit_minor,coalesce(sum(functional_credit_minor),0)::bigint closing_credit_minor,coalesce(sum(functional_debit_minor-functional_credit_minor),0)::bigint balance_minor FROM lines GROUP BY account_id,code,name,account_type,control_class ORDER BY code`,params)).rows;}
   async generalLedger(auth:AccessClaims,q:any){const bookId=str(q?.bookId,"book_id");await this.book(auth,bookId);const params=[auth.tenantId,bookId,q?.accountId??null];return (await this.db.query<any>(`SELECT j.id,j.journal_number,j.accounting_date,j.journal_type,l.line_no,l.account_id,a.code,a.name,l.debit_minor,l.credit_minor,l.currency FROM accounting_journal_lines l JOIN accounting_journals j ON j.tenant_id=l.tenant_id AND j.id=l.journal_id JOIN accounting_accounts a ON a.id=l.account_id WHERE l.tenant_id=$1 AND j.state='POSTED' AND j.book_id=$2 AND ($3::uuid IS NULL OR l.account_id=$3) ORDER BY j.accounting_date,j.created_at,l.line_no LIMIT 5000`,params)).rows;}

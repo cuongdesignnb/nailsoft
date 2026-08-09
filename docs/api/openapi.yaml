@@ -4741,6 +4741,17 @@ paths:
       parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }]
       responses: { '201': { description: CSV statement imported }, '409': { description: Duplicate checksum } }
   /accounting/bank-matches:
+    get:
+      tags: [Accounting]
+      summary: Read bounded bank match evidence
+      description: Requires accounting.bank_reconciliation.read or accounting.bank_match.manage; tenant scoped.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: bankAccountId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: reconciliationId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: status, in: query, required: false, schema: { type: string } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses: { '200': { description: Bank matches } }
     post:
       tags: [Accounting]
       security: [{ bearerAuth: [] }]
@@ -5107,6 +5118,95 @@ paths:
     post: { operationId: receiveAssetTransfer, parameters: [{ $ref: '#/components/parameters/IdempotencyKey' }], responses: { '200': { description: OK }, '409': { description: Conflict } } }
   /assets/reports/net-book-value:
     get: { operationId: assetNetBookValueReport, responses: { '200': { description: OK } } }
+  /accounting/bank-accounts/{bankAccountId}/statement-lines:
+    get:
+      tags: [Accounting]
+      summary: Read bounded bank statement lines for reconciliation
+      description: Requires accounting.bank_reconciliation.read or accounting.bank_statement.import; tenant and book scoped; raw import payload and credentials are never returned.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: bankAccountId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Statement lines }
+        '403': { description: Permission denied }
+        '404': { description: Bank account not found in tenant }
+  /accounting/reconciliation-exceptions:
+    get:
+      tags: [Accounting]
+      summary: Read persisted reconciliation exception evidence
+      description: Requires accounting.bank_reconciliation.read. The response is derived only from existing reconciliation and adjustment-request records; no new exception state is introduced.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses: { '200': { description: Reconciliation exception evidence } }
+  /platform/discounts:
+    get:
+      tags: [platform-catalog]
+      summary: Read platform discount definitions
+      description: Requires platform.plan.read or platform.price.read. Platform-global read; support sessions are denied.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Discount catalog } }
+  /platform/tenants/{tenantId}/entitlements:
+    get:
+      tags: [platform-tenants]
+      summary: Read effective tenant entitlement projections
+      description: Requires platform.subscription.read or platform.usage.read. A support session is restricted to its granted target tenant.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: tenantId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: Effective entitlements }, '403': { description: Support scope denied } }
+  /platform/tenants/{tenantId}/invoices:
+    get:
+      tags: [platform-billing]
+      summary: Read tenant SaaS invoices
+      description: Requires platform.invoice.read. Amounts are returned as bigint-safe strings; support sessions are restricted to their granted target tenant.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: tenantId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: Tenant platform invoices }, '403': { description: Support scope denied } }
+  /platform/tenants/{tenantId}/payments:
+    get:
+      tags: [platform-payments]
+      summary: Read tenant platform payments
+      description: Requires platform.payment.read. Provider secrets and raw webhook evidence are excluded; support sessions are restricted to their granted target tenant.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: tenantId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { '200': { description: Tenant platform payments }, '403': { description: Support scope denied } }
+  /platform/refunds:
+    get:
+      tags: [platform-payments]
+      summary: Read platform refund evidence
+      description: Requires platform.payment.read. Normal platform sessions see platform scope; support sessions see only their granted tenant.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Refunds } }
+  /platform/reconciliation:
+    get:
+      tags: [platform-payments]
+      summary: Read platform payment reconciliation evidence
+      description: Requires platform.payment.read or platform.payment.reconcile. Provider evidence payloads are redacted; support sessions remain tenant scoped.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Payment reconciliation records } }
+  /platform/dunning:
+    get:
+      tags: [platform-billing]
+      summary: Read-only platform dunning monitoring
+      description: Requires platform.invoice.read. No manual dunning action is exposed by this contract; support sessions remain tenant scoped.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Dunning cases } }
+  /platform/reports:
+    get:
+      tags: [platform-reports]
+      summary: Read SaaS platform billing reports
+      description: Requires platform.tenant.read. Reports contain only platform billing and usage metrics, never salon operational data; support sessions are target-tenant scoped.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Platform report projections } }
+  /platform/break-glass:
+    get:
+      tags: [platform-security]
+      summary: Read disabled break-glass safety status
+      description: Requires platform.support_grant.read. Break-glass is intentionally disabled; this endpoint never returns a token, credential, or session material.
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Disabled break-glass status } }
+
 components:
   parameters:
     IdempotencyKey:
