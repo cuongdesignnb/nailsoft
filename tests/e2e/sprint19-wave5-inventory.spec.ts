@@ -16,6 +16,12 @@ test.describe.serial("Sprint 19 Wave 5 Inventory workspace", () => {
     await expect(page.getByRole("heading", { name: "Stock availability" })).toBeVisible();
     await expect(page.getByLabel("Active branch")).toBeVisible();
     await expect(page.getByRole("option")).not.toHaveCount(0);
+    const shellBranchSelector = page.locator(".ns-branch-picker select");
+    await expect(shellBranchSelector).toHaveValue("");
+    await expect(shellBranchSelector.locator('option[value=""]')).toHaveText(/Workspace|Không gian làm việc/);
+    await shellBranchSelector.selectOption({ label: "New York DST Lab" });
+    await expect(shellBranchSelector).not.toHaveValue("");
+    await expect(page.locator(".ns-header-actions .ns-status")).toHaveText("New York DST Lab");
     const branchSelector = page.getByLabel("Active branch");
     const selected = await branchSelector.inputValue();
     expect(selected).not.toContain("20000000-0000-4000-8000-000000000001");

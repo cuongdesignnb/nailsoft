@@ -18,6 +18,7 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [compact, setCompact] = useState(false);
+  const [activeBranchId, setShellActiveBranchId] = useState<string | undefined>(() => getActiveBranchId());
   const contextQuery = useQuery({ queryKey: ["auth-context"], queryFn: getAuthContext });
   const context = contextQuery.data;
   useEffect(() => {
@@ -25,8 +26,17 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
     const grantedBranchIds = context.supportAccess?.branchIds ?? context.authorization.branchIds;
     const authorizedBranches = context.branches.filter((branch) => grantedBranchIds.includes(branch.id) && branch.status === "ACTIVE");
     const storedBranchId = getActiveBranchId();
-    if (storedBranchId && !authorizedBranches.some((branch) => branch.id === storedBranchId)) setActiveBranchId(undefined);
-    if (!storedBranchId && authorizedBranches.length === 1 && authorizedBranches[0]) setActiveBranchId(authorizedBranches[0].id);
+    const storedBranchIsAuthorized = Boolean(storedBranchId && authorizedBranches.some((branch) => branch.id === storedBranchId));
+    if (authorizedBranches.length === 1 && authorizedBranches[0]) {
+      const nextBranchId = authorizedBranches[0].id;
+      setShellActiveBranchId(nextBranchId);
+      if (storedBranchId !== nextBranchId) setActiveBranchId(nextBranchId);
+    } else if (authorizedBranches.length > 1 && storedBranchIsAuthorized) {
+      setShellActiveBranchId(storedBranchId);
+    } else {
+      setShellActiveBranchId(undefined);
+      if (storedBranchId) setActiveBranchId(undefined);
+    }
   }, [context]);
   const visibleGroups = context ? navigationRegistry.map((group) => ({ ...group, items: group.items.filter((item) => canSeeNavigation(item, context)) })).filter((group) => group.items.length > 0) : [];
   const page = useMemo(() => visibleGroups.flatMap((group) => group.items).find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`)), [pathname, visibleGroups]);
@@ -35,11 +45,13 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
   const locale = context.user.locale;
   const grantedBranchIds = context.supportAccess?.branchIds ?? context.authorization.branchIds;
   const authorizedBranches = context.branches.filter((branch) => grantedBranchIds.includes(branch.id) && branch.status === "ACTIVE");
-  const storedBranchId = getActiveBranchId();
-  const branchId = storedBranchId && authorizedBranches.some((branch) => branch.id === storedBranchId)
-    ? storedBranchId
-    : authorizedBranches.length === 1 ? authorizedBranches[0]?.id : undefined;
+  const branchId = activeBranchId && authorizedBranches.some((branch) => branch.id === activeBranchId) ? activeBranchId : undefined;
   const selectedBranch = authorizedBranches.find((branch) => branch.id === branchId);
+  const selectBranch = (nextBranchId: string | undefined) => {
+    const authorizedSelection = nextBranchId && authorizedBranches.some((branch) => branch.id === nextBranchId) ? nextBranchId : undefined;
+    setShellActiveBranchId(authorizedSelection);
+    setActiveBranchId(authorizedSelection);
+  };
   return <div className={`ns-app-frame ${compact ? "ns-app-frame--compact" : ""}`}>
     <a className="ns-skip-link" href="#main-content">{translate(locale, "skipToContent")}</a>
     <aside className={`ns-admin-sidebar ${navigationOpen ? "ns-admin-sidebar--open" : ""}`} aria-label={translate(locale, "navigation")}>
@@ -53,7 +65,7 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
         <Button variant="quiet" className="ns-mobile-menu" aria-label={translate(locale, "menu")} onClick={() => setNavigationOpen(true)}><Icon name="menu" /></Button>
         <div className="ns-breadcrumb"><span>{context.workspace.tenantName}</span><span aria-hidden="true">/</span><strong>{page ? translate(locale, page.label) : translate(locale, "dashboard")}</strong></div>
         <div className="ns-header-actions">
-          <label className="ns-branch-picker"><span className="sr-only">{translate(locale, "branch")}</span><Icon name="store" /><select value={branchId ?? ""} onChange={(event) => setActiveBranchId(event.target.value || undefined)}>{authorizedBranches.length === 0 ? <option value="">{translate(locale, "workspace")}</option> : authorizedBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+          <label className="ns-branch-picker"><span className="sr-only">{translate(locale, "branch")}</span><Icon name="store" /><select value={branchId ?? ""} onChange={(event) => selectBranch(event.target.value || undefined)}>{authorizedBranches.length === 0 || authorizedBranches.length > 1 ? <option value="">{translate(locale, "workspace")}</option> : null}{authorizedBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
           <StatusBadge tone={context.workspace.accessMode === "FULL" || context.workspace.accessMode === "GRACE" ? "success" : "warning"}>{selectedBranch?.name ?? context.workspace.accessMode}</StatusBadge>
           <Button variant="quiet" aria-label={translate(locale, "notifications")}><Icon name="notification" /></Button>
           <a className="ns-user-menu" href="/admin/profile"><span className="ns-avatar">{context.user.displayName.slice(0, 1).toUpperCase()}</span><span>{context.user.displayName}</span></a>
