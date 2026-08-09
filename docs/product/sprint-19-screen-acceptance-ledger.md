@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 6 accepted against source CI; Wave 7 not authorized
+Current phase: Wave 7 implementation in progress; Wave 8 not authorized
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -505,4 +505,39 @@ DEFERRED_SCOPE_2=RECONCILIATION_MANUAL_EXCEPTION_ADJUSTMENT
 DEFERRED_SCOPE_3=PLATFORM_DISCOUNT_MUTATION_LIFECYCLE
 DEFERRED_SCOPE_4=MANUAL_DUNNING_ACTIONS
 BREAK_GLASS=INTENTIONALLY_DISABLED_FOUNDATION
+```
+
+## Wave 7 acceptance ledger — pending exact source CI
+
+Start checkpoint: `97ca6c643fcc427076948cbba4f827cce7ab3b95`.
+
+The policy foundation and four public Booking Web clusters are implemented in
+local commits. Acceptance is intentionally held until the exact final source
+commit passes both the Wave 7 public/contract quality lanes and the visual
+lane. No row below is accepted early.
+
+| ID | Route / surface | Persona | Permission and scope | API / evidence | Required states and QA | Locale | Source commit | CI | Acceptance |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 19.7.1 | `/` public landing | Customer | Public tenant-neutral | Landing and salon-code resolution | Ready, error, mobile, axe | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.2 | `/book/[salonSlug]` salon/branch discovery | Customer | Active tenant/branch | Salon and branch profile | Available/unavailable, mobile, axe | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.3 | `/book/[salonSlug]` services/staff | Customer | Public offering policy | Services, prices, staff preference | Empty, reorder, policy, axe | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.4 | `/book/[salonSlug]` availability | Customer | Public booking capability | Availability and slot hold | Loading, empty, expired hold, timezone | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.5 | `/book/[salonSlug]` contact | Customer | Verified contact flow | Contact request | Validation, submitting, offline | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.6 | `/book/[salonSlug]` contact OTP | Customer | OTP rate-limit policy | OTP request/verify | Invalid, expired, limited, success | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.7 | `/book/[salonSlug]` review/policy | Customer | Explicit policy acceptance | Server hold plan | Policy changed, consent optional, axe | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.8 | `/book/[salonSlug]` result | Customer | No payment capture | Idempotent booking create | Submitting, success, no token display | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.9 | `/manage-booking` lookup | Customer | Neutral management lookup | Booking access request | Neutral error, retry, mobile | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.10 | `/manage-booking` OTP | Customer | Management OTP | OTP request/verify | Invalid, expired, resend | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.11 | `/manage-booking` detail/cancel/packages | Customer | Management bearer/domain policy | Detail, cancel, package reservation | Forbidden, conflict, success | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.12 | `/manage-booking` replacement availability | Customer | Management bearer | Replacement availability | Loading, empty, expired token | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.7.13 | `/manage-booking` reschedule | Customer | FULL/GRACE + `booking.enabled` | Reschedule hold/commit | Version conflict, expired hold, success | vi-VN/en-US | pending | pending | IMPLEMENTED_PENDING_QA |
+
+```text
+WAVE_7_SOURCE_SHA=PENDING
+WAVE_7_SOURCE_CI_RUN_ID=PENDING
+WAVE_7_SOURCE_CI_CONCLUSION=PENDING
+WAVE_7_STATUS=IN_PROGRESS
+SCREEN_ROWS_19_7_1_TO_19_7_13=IMPLEMENTED_PENDING_QA
+WAVE_8_STARTED=NO
+SPRINT_20_STARTED=NO
 ```

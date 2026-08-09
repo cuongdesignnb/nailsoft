@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 6 accepted against source CI; Wave 7 not authorized
+Current phase: Wave 7 implementation in progress; Wave 8 not authorized
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -424,6 +424,39 @@ FIXED_ASSET_SCREEN_ROWS=11_ACCEPTED
 WAVE_5_STATUS=COMPLETED
 BA_PO_WAVE_5_ACCEPTANCE=PASS
 WAVE_6_STARTED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+## Wave 7 — Public Booking Web (implementation pending source CI)
+
+Wave 7 starts from `97ca6c643fcc427076948cbba4f827cce7ab3b95`. The public
+booking policy foundation and all four implementation clusters are present in
+the local source history, but no Wave 7 source commit has been validated by
+full CI yet. Every row below remains `IMPLEMENTED_PENDING_QA` until the exact
+source SHA has a successful Wave 7 quality and visual run.
+
+| ID | Screen | Route | Persona | Permission / scope | API dependency | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 19.7.1 | Public booking landing | `/` | Customer | Public; tenant-neutral | Public salon resolution | IMPLEMENTED_PENDING_QA |
+| 19.7.2 | Salon and branch discovery | `/book/[salonSlug]` | Customer | Public; active tenant/branch | Public salon, branches | IMPLEMENTED_PENDING_QA |
+| 19.7.3 | Service catalog and staff preference | `/book/[salonSlug]` | Customer | Public offering policy | Public services, staff | IMPLEMENTED_PENDING_QA |
+| 19.7.4 | Availability and date/time | `/book/[salonSlug]` | Customer | Public booking capability | Public availability and holds | IMPLEMENTED_PENDING_QA |
+| 19.7.5 | Customer contact | `/book/[salonSlug]` | Customer | Public; verified contact | Contact verification | IMPLEMENTED_PENDING_QA |
+| 19.7.6 | Contact OTP verification | `/book/[salonSlug]` | Customer | Public OTP policy | OTP request/verify | IMPLEMENTED_PENDING_QA |
+| 19.7.7 | Review, policy and consent | `/book/[salonSlug]` | Customer | Public booking policy | Hold plan and policy | IMPLEMENTED_PENDING_QA |
+| 19.7.8 | Booking result | `/book/[salonSlug]` | Customer | Public; no payment capture | Booking create/result | IMPLEMENTED_PENDING_QA |
+| 19.7.9 | Manage booking lookup | `/manage-booking` | Customer | Safe neutral lookup | Management access request | IMPLEMENTED_PENDING_QA |
+| 19.7.10 | Manage booking OTP | `/manage-booking` | Customer | Management OTP policy | OTP request/verify | IMPLEMENTED_PENDING_QA |
+| 19.7.11 | Booking detail, packages and cancel | `/manage-booking` | Customer | Management token and domain policy | Detail, cancel, package reservation | IMPLEMENTED_PENDING_QA |
+| 19.7.12 | Replacement availability | `/manage-booking` | Customer | Management token | Replacement availability | IMPLEMENTED_PENDING_QA |
+| 19.7.13 | Reschedule hold and confirmation | `/manage-booking` | Customer | FULL/GRACE + booking entitlement | Reschedule hold/commit | IMPLEMENTED_PENDING_QA |
+
+```text
+WAVE_7_STATUS=IN_PROGRESS
+WAVE_7_SOURCE_CI=PENDING
+SCREEN_ROWS_19_7_1_TO_19_7_13=IMPLEMENTED_PENDING_QA
+WAVE_8_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
