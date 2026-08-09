@@ -1,24 +1,50 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import {
+  formatSalonDateTime,
+  formatSalonTime,
+  getInitialLocale,
+  getMessage,
+  localizedValue,
+  persistLocale,
+  type BookingMessageKey,
+  type Locale,
+} from "./i18n";
 
 const api = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+type ManageStep = "LOOKUP" | "OTP" | "DETAIL" | "REPLACEMENT_AVAILABILITY" | "RESCHEDULE_REVIEW";
+type ManageState = "ready" | "loading" | "error" | "offline" | "expired";
+
+function localizedError(cause: any, locale: Locale) {
+  const code = cause?.code;
+  if (code === "PUBLIC_BOOKING_UNAVAILABLE" || code === "PUBLIC_BOOKING_DISABLED")
+    return getMessage(locale, "bookingUnavailable");
+  if (code === "BOOKING_ACCESS_DENIED") return getMessage(locale, "sessionExpired");
+  if (code === "BOOKING_VERSION_CONFLICT") return getMessage(locale, "bookingChanged");
+  if (code === "SLOT_HOLD_EXPIRED") return getMessage(locale, "holdExpired");
+  return cause?.message ?? getMessage(locale, "retry");
+}
 
 async function call(path: string, init?: RequestInit) {
   const response = await fetch(`${api}${path}`, init);
   const body = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw Object.assign(
-      new Error(body.error?.message ?? "Không thể hoàn tất yêu cầu"),
-      { code: body.error?.code },
-    );
+  if (!response.ok) {
+    throw Object.assign(new Error(body.error?.message ?? "Unable to complete the request."), {
+      code: body.error?.code,
+      details: body.error?.details,
+    });
+  }
   return body.data;
 }
 
 export default function ManageBooking() {
-  const [step, setStep] = useState(1);
+  const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
+  const [step, setStep] = useState<ManageStep>("LOOKUP");
+  const [state, setState] = useState<ManageState>("ready");
   const [salonSlug, setSalonSlug] = useState("");
+  const [salon, setSalon] = useState<any>();
   const [reference, setReference] = useState("");
   const [contact, setContact] = useState("");
   const [challenge, setChallenge] = useState<any>();
@@ -27,7 +53,6 @@ export default function ManageBooking() {
   const [booking, setBooking] = useState<any>();
   const [branch, setBranch] = useState<any>();
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [date, setDate] = useState("");
   const [availability, setAvailability] = useState<any>();
@@ -35,20 +60,29 @@ export default function ManageBooking() {
   const [replacementHold, setReplacementHold] = useState<any>();
   const [packages, setPackages] = useState<any[]>([]);
   const [packageReservation, setPackageReservation] = useState<any>();
-  const keys = useRef({ hold: "", reschedule: "", cancel: "", package: "" });
+  const [keys, setKeys] = useState({ hold: "", reschedule: "", cancel: "", package: "" });
+
+  const t = (key: BookingMessageKey) => getMessage(locale, key);
 
   useEffect(() => {
-    const value = new URLSearchParams(window.location.search).get("salon");
+    const params = new URLSearchParams(window.location.search);
+    const value = params.get("salon");
     if (value) setSalonSlug(value);
-  }, []);
+    document.documentElement.lang = locale;
+  }, [locale]);
 
   function path(suffix: string) {
     return `/v1/public/salons/${encodeURIComponent(salonSlug)}/bookings${suffix}`;
   }
 
+  function fail(cause: any) {
+    setError(localizedError(cause, locale));
+    setState(cause.code === "BOOKING_ACCESS_DENIED" ? "expired" : !navigator.onLine ? "offline" : "error");
+  }
+
   async function request(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setLoading(true);
+    setState("loading");
     setError("");
     setNotice("");
     try {
@@ -62,17 +96,35 @@ export default function ManageBooking() {
         }),
       });
       setChallenge(data);
-      setCode(data.testCode ?? "");
-      setStep(2);
+      if (process.env.NODE_ENV !== "production") setCode(data.testCode ?? "");
+      setStep("OTP");
+      setState("ready");
     } catch (cause: any) {
-      setError(cause.message);
-    } finally {
-      setLoading(false);
+      fail(cause);
     }
   }
 
+  async function loadContext(nextToken: string, bookingReference: string) {
+    const profile = await call(`/v1/public/salons/${encodeURIComponent(salonSlug)}`);
+    setSalon(profile);
+    const detail = await loadDetail(bookingReference, nextToken);
+    let selectedBranch: any = { name: profile.name, timezone: profile.timezone, policy: {} };
+    try {
+      const branchRows = await call(`/v1/public/salons/${encodeURIComponent(salonSlug)}/branches`);
+      selectedBranch = branchRows.find((item: any) => item.id === detail.branchId) ?? branchRows[0] ?? selectedBranch;
+    } catch {
+      // Read-only tenants intentionally deny the branch discovery endpoint.
+      // Detail access remains available with the salon timezone as the safe fallback.
+    }
+    setBranch(selectedBranch);
+    setDate(selectedBranch.bookingWindow?.earliestDate ?? "");
+    setBooking(detail);
+    return detail;
+  }
+
   async function verify() {
-    setLoading(true);
+    if (!challenge) return;
+    setState("loading");
     setError("");
     try {
       const data = await call(path("/access/verify"), {
@@ -80,450 +132,174 @@ export default function ManageBooking() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ challengeId: challenge.challengeId, code }),
       });
-      const detail = await loadDetail(
-        data.bookingReference,
-        data.managementToken,
-      );
-      const branches = await call(
-        `/v1/public/salons/${encodeURIComponent(salonSlug)}/branches`,
-      );
-      const selectedBranch = branches.find(
-        (item: any) => item.id === detail.branchId,
-      );
       setToken(data.managementToken);
       setReference(data.bookingReference);
+      const detail = await loadContext(data.managementToken, data.bookingReference);
+      try {
+        const wallet = await call(`/v1/public/salons/${encodeURIComponent(salonSlug)}/customer-packages`, { headers: { authorization: `Bearer ${data.managementToken}` } });
+        setPackages(Array.isArray(wallet) ? wallet : []);
+      } catch {
+        setPackages([]);
+      }
       setBooking(detail);
-      const wallet = await call(
-        `/v1/public/salons/${encodeURIComponent(salonSlug)}/customer-packages`,
-        { headers: { authorization: `Bearer ${data.managementToken}` } },
-      );
-      setPackages(Array.isArray(wallet) ? wallet : []);
-      setBranch(selectedBranch);
-      setDate(selectedBranch?.bookingWindow?.earliestDate ?? "");
-      setStep(3);
+      setStep("DETAIL");
+      setState("ready");
     } catch (cause: any) {
-      setError(cause.message);
-    } finally {
-      setLoading(false);
+      fail(cause);
     }
   }
 
   async function loadDetail(value = reference, capability = token) {
-    return call(path(`/${encodeURIComponent(value)}`), {
-      headers: { authorization: `Bearer ${capability}` },
-    });
+    return call(path(`/${encodeURIComponent(value)}`), { headers: { authorization: `Bearer ${capability}` } });
   }
 
   async function findReplacementSlots() {
-    const serviceId = booking.items?.[0]?.service?.serviceId;
-    if (!serviceId) return setError("Không tìm thấy dịch vụ để đổi lịch.");
-    setLoading(true);
+    const serviceId = booking?.items?.[0]?.service?.serviceId;
+    if (!serviceId) {
+      setError(t("noServiceToReschedule"));
+      return;
+    }
+    setState("loading");
     setError("");
     try {
-      const params = new URLSearchParams({
-        branchId: booking.branchId,
-        serviceId,
-        dateFrom: date,
-        dateTo: date,
-        slotIntervalMin: "15",
-        bookingReference: reference,
-      });
-      const data = await call(
-        `/v1/public/salons/${encodeURIComponent(salonSlug)}/availability?${params}`,
-        { headers: { authorization: `Bearer ${token}` } },
-      );
+      const params = new URLSearchParams({ branchId: booking.branchId, serviceId, dateFrom: date, dateTo: date, slotIntervalMin: "15", bookingReference: reference });
+      const data = await call(`/v1/public/salons/${encodeURIComponent(salonSlug)}/availability?${params}`, { headers: { authorization: `Bearer ${token}` } });
       setAvailability(data);
       setSelectedSlot(undefined);
       setReplacementHold(undefined);
-      setStep(4);
+      setStep("REPLACEMENT_AVAILABILITY");
+      setState("ready");
     } catch (cause: any) {
-      setError(cause.message);
-    } finally {
-      setLoading(false);
+      fail(cause);
     }
   }
 
-  async function holdReplacement(slot: any) {
-    setLoading(true);
+  async function holdReplacement(slotValue: any) {
+    setState("loading");
     setError("");
     try {
-      keys.current.hold ||= crypto.randomUUID();
+      const nextKeys = { ...keys, hold: keys.hold || crypto.randomUUID() };
+      setKeys(nextKeys);
       const data = await call(path(`/${reference}/reschedule-holds`), {
         method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-          "idempotency-key": keys.current.hold,
-        },
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": nextKeys.hold },
         body: JSON.stringify({
-          desiredStartAt: slot.startAt,
+          desiredStartAt: slotValue.startAt,
           availabilityDataVersion: availability.dataVersion,
           items: booking.items.map((item: any, index: number) => ({
             serviceId: item.service.serviceId,
-            staffPreference: branch?.policy?.allowAnyTechnician
-              ? { type: "ANY" }
-              : { type: "SPECIFIC", staffId: item.staff.id },
-            ...(index === 0
-              ? { availabilityFingerprint: slot.fingerprint }
-              : {}),
+            staffPreference: branch?.policy?.allowAnyTechnician === false ? { type: "SPECIFIC", staffId: item.staff.id } : { type: "ANY" },
+            ...(index === 0 ? { availabilityFingerprint: slotValue.fingerprint } : {}),
           })),
         }),
       });
-      setSelectedSlot(slot);
+      setSelectedSlot(slotValue);
       setReplacementHold(data);
-      setStep(5);
+      setStep("RESCHEDULE_REVIEW");
+      setState("ready");
     } catch (cause: any) {
-      setError(cause.message);
-    } finally {
-      setLoading(false);
+      fail(cause);
     }
   }
 
   async function confirmReschedule() {
-    if (!navigator.onLine) return setError("Cần kết nối Internet để đổi lịch.");
-    setLoading(true);
+    if (!navigator.onLine) { setState("offline"); return; }
+    setState("loading");
     setError("");
     try {
-      keys.current.reschedule ||= crypto.randomUUID();
+      const nextKeys = { ...keys, reschedule: keys.reschedule || crypto.randomUUID() };
+      setKeys(nextKeys);
       await call(path(`/${reference}/reschedule`), {
         method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-          "idempotency-key": keys.current.reschedule,
-        },
-        body: JSON.stringify({
-          version: booking.version,
-          replacementHoldId: replacementHold.holdId,
-          replacementHoldToken: replacementHold.holdToken,
-          reasonCode: "CUSTOMER_REQUEST",
-          note: "Customer self-service reschedule",
-        }),
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": nextKeys.reschedule },
+        body: JSON.stringify({ version: booking.version, replacementHoldId: replacementHold.holdId, replacementHoldToken: replacementHold.holdToken, reasonCode: "CUSTOMER_REQUEST", note: "Customer self-service reschedule" }),
       });
       setBooking(await loadDetail());
-      setNotice(
-        "Đổi lịch thành công. Lịch cũ chỉ được giải phóng sau khi lịch mới được xác nhận.",
-      );
-      setStep(3);
+      setNotice(t("newTimeConfirmed"));
+      setStep("DETAIL");
+      setState("ready");
     } catch (cause: any) {
-      setError(
-        cause.code === "BOOKING_VERSION_CONFLICT"
-          ? "Lịch hẹn đã thay đổi. Vui lòng xác minh và tải lại."
-          : cause.message,
-      );
-    } finally {
-      setLoading(false);
+      setError(localizedError(cause, locale));
+      setState(cause.code === "BOOKING_ACCESS_DENIED" ? "expired" : "error");
     }
   }
 
   async function cancel() {
-    if (!navigator.onLine) return setError("Cần kết nối Internet để hủy lịch.");
-    setLoading(true);
+    if (!navigator.onLine) { setState("offline"); return; }
+    setState("loading");
     setError("");
     try {
-      keys.current.cancel ||= crypto.randomUUID();
+      const nextKeys = { ...keys, cancel: keys.cancel || crypto.randomUUID() };
+      setKeys(nextKeys);
       const data = await call(path(`/${reference}/cancel`), {
         method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-          "idempotency-key": keys.current.cancel,
-        },
-        body: JSON.stringify({
-          version: booking.version,
-          reasonCode: "CUSTOMER_REQUEST",
-          note: "Cancelled from booking management",
-        }),
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": nextKeys.cancel },
+        body: JSON.stringify({ version: booking.version, reasonCode: "CUSTOMER_REQUEST", note: "Cancelled from booking management" }),
       });
       setBooking(data);
-      setNotice("Lịch hẹn đã được hủy và vẫn được lưu trong lịch sử.");
+      setNotice(t("bookingCancelledNotice"));
+      setState("ready");
     } catch (cause: any) {
-      setError(
-        cause.code === "BOOKING_VERSION_CONFLICT"
-          ? "Lịch hẹn đã thay đổi. Vui lòng xác minh và tải lại."
-          : cause.message,
-      );
-    } finally {
-      setLoading(false);
+      setError(localizedError(cause, locale));
+      setState(cause.code === "BOOKING_ACCESS_DENIED" ? "expired" : "error");
     }
   }
 
-  async function reservePackage(
-    entitlementId: string,
-    appointmentItemId: string,
-  ) {
-    if (!navigator.onLine)
-      return setError("Internet connection required to reserve package units.");
-    setLoading(true);
+  async function reservePackage(entitlementId: string, appointmentItemId: string) {
+    if (!navigator.onLine) { setState("offline"); return; }
+    setState("loading");
     setError("");
     try {
-      keys.current.package ||= crypto.randomUUID();
-      const value = await call(
-        `/v1/public/salons/${encodeURIComponent(salonSlug)}/package-reservations`,
-        {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${token}`,
-            "content-type": "application/json",
-            "idempotency-key": keys.current.package,
-          },
-          body: JSON.stringify({ entitlementId, appointmentItemId }),
-        },
-      );
+      const nextKeys = { ...keys, package: keys.package || crypto.randomUUID() };
+      setKeys(nextKeys);
+      const value = await call(`/v1/public/salons/${encodeURIComponent(salonSlug)}/package-reservations`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": nextKeys.package },
+        body: JSON.stringify({ entitlementId, appointmentItemId }),
+      });
       setPackageReservation(value);
-      setNotice("Package unit reserved for this appointment.");
+      setNotice(t("reservedUnit"));
+      setState("ready");
     } catch (cause: any) {
-      setError(
-        cause.code === "PACKAGE_RESERVATION_CONFLICT"
-          ? "This appointment item already has an active package reservation."
-          : cause.message,
-      );
-    } finally {
-      setLoading(false);
+      fail(cause);
     }
   }
 
   const slots = availability?.days?.flatMap((day: any) => day.slots) ?? [];
+  const bookingCancelled = String(booking?.status ?? "").startsWith("CANCELLED");
+
   return (
-    <main className="booking-shell">
+    <main className="booking-shell" data-testid="manage-booking">
       <header className="brand">
-        <a href="/">NAILSOFT</a>
-        {salonSlug && (
-          <a href={`/book/${encodeURIComponent(salonSlug)}`}>Đặt lịch mới</a>
-        )}
+        <a href="/" aria-label="Nailsoft">NAILSOFT</a>
+        <div className="brand-tools">
+          {salonSlug && <a href={`/book/${encodeURIComponent(salonSlug)}`}>{t("startBooking")}</a>}
+          <label className="language-switcher"><span className="sr-only">{t("selectLanguage")}</span><select aria-label={t("selectLanguage")} value={locale} onChange={(event) => { const next = event.target.value as Locale; setLocale(next); persistLocale(next); }}><option value="vi-VN">vi-VN</option><option value="en-US">en-US</option></select></label>
+        </div>
       </header>
-      <section className="hero">
-        <p>BOOKING MANAGEMENT</p>
-        <h1>Quản lý lịch hẹn.</h1>
-      </section>
-      <section className="card">
-        {error && (
-          <div className="error" role="alert">
-            {error}
-            <button className="link-button" onClick={() => setError("")}>
-              Thử lại
-            </button>
-          </div>
-        )}
-        {notice && (
-          <div className="success" role="status">
-            {notice}
-          </div>
-        )}
-        {loading && (
-          <div className="state" role="status">
-            Đang xử lý…
-          </div>
-        )}
+      <section className="hero" aria-labelledby="manage-title"><p>{t("bookingManagement")}</p><h1 id="manage-title">{t("manageBooking")}</h1><p className="muted">{t("manageBookingDescription")}</p></section>
+      <section className="card booking-card">
+        {notice && <div className="success" role="status">{notice}</div>}
+        {state === "loading" && <div className="state" role="status">{t("loading")}</div>}
+        {state === "offline" && <div className="error error-summary" role="alert"><strong>{t("offline")}</strong><p>{t("internetRequired")}</p><button className="secondary" type="button" onClick={() => setState("ready")}>{t("retry")}</button></div>}
+        {state === "expired" && <div className="error error-summary" role="alert"><strong>{t("sessionExpired")}</strong><p>{t("manageBookingDescription")}</p><button className="secondary" type="button" onClick={() => { setToken(""); setStep("LOOKUP"); setState("ready"); }}>{t("verify")}</button></div>}
+        {state === "error" && <div className="error error-summary" role="alert"><strong>{t("retry")}</strong><p>{error}</p><div className="actions"><button className="secondary" type="button" onClick={() => setState("ready")}>{t("retry")}</button><button className="link-button" type="button" onClick={() => { setError(""); setStep("LOOKUP"); setState("ready"); }}>{t("changeDetails")}</button></div></div>}
 
-        {step === 1 && (
-          <form className="grid" onSubmit={request}>
-            <label className="field">
-              Mã salon
-              <input
-                required
-                value={salonSlug}
-                onChange={(event) => setSalonSlug(event.target.value.trim())}
-                placeholder="nailsoft-demo"
-              />
-            </label>
-            <label className="field">
-              Mã lịch hẹn
-              <input
-                required
-                value={reference}
-                onChange={(event) =>
-                  setReference(event.target.value.toUpperCase())
-                }
-              />
-            </label>
-            <label className="field">
-              Số điện thoại hoặc email
-              <input
-                required
-                value={contact}
-                onChange={(event) => setContact(event.target.value)}
-              />
-            </label>
-            <button className="primary" disabled={loading}>
-              Gửi mã truy cập
-            </button>
-            <p className="muted">
-              Phản hồi luôn trung tính để bảo vệ dữ liệu khách hàng.
-            </p>
-          </form>
-        )}
+        {state === "ready" && step === "LOOKUP" && <form className="grid" onSubmit={request} aria-labelledby="lookup-heading"><h2 id="lookup-heading">{t("manageBooking")}</h2><label className="field" htmlFor="manage-salon">{t("salonCode")}<input id="manage-salon" required value={salonSlug} onChange={(event) => setSalonSlug(event.target.value.trim())} placeholder={t("salonCodePlaceholder")} /></label><label className="field" htmlFor="manage-reference">{t("bookingReference")}<input id="manage-reference" required value={reference} onChange={(event) => setReference(event.target.value.toUpperCase())} /></label><label className="field" htmlFor="manage-contact">{t("phone")} / {t("email")}<input id="manage-contact" required value={contact} onChange={(event) => setContact(event.target.value)} /></label><button className="primary" type="submit">{t("sendCode")}</button><p className="muted">{t("neutralResponse")}</p></form>}
 
-        {step === 2 && (
-          <div className="grid">
-            <label className="field">
-              Mã xác minh
-              <input
-                autoFocus
-                inputMode="numeric"
-                pattern="[0-9]{6}"
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-              />
-            </label>
-            <button
-              className="primary"
-              disabled={!/^\d{6}$/.test(code) || loading}
-              onClick={() => void verify()}
-            >
-              Mở lịch hẹn
-            </button>
-          </div>
-        )}
+        {state === "ready" && step === "OTP" && <div className="grid" aria-labelledby="manage-otp-heading"><h2 id="manage-otp-heading">{t("verificationCode")}</h2><label className="field" htmlFor="manage-code">{t("verificationCode")}<input id="manage-code" autoFocus inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} /></label><p className="muted">{t("verificationHint")}</p><button className="primary" type="button" disabled={!/^\d{6}$/.test(code)} onClick={() => void verify()}>{t("verify")}</button></div>}
 
-        {step === 3 && booking && (
-          <div className="grid">
-            <div className="summary">
-              <h2>{booking.bookingReference}</h2>
-              <strong>{booking.status}</strong>
-              <span>
-                {new Date(booking.startAt).toLocaleString("vi-VN", {
-                  timeZone: branch?.timezone,
-                })}
-              </span>
-              <span>{booking.contact?.displayName}</span>
-              {booking.items?.map((item: any) => (
-                <span key={item.id}>
-                  {item.sequenceNo}.{" "}
-                  {item.service?.name?.["vi-VN"] ?? item.service?.code}
-                </span>
-              ))}
-              <span>Phiên truy cập hết hạn sau 15 phút.</span>
-            </div>
-            <div className="summary">
-              <h2>Service packages</h2>
-              {packages.length === 0 ? (
-                <span>No active package covers this customer.</span>
-              ) : (
-                packages.map((item: any) => (
-                  <span key={item.id}>
-                    {item.name?.["vi-VN"] ?? item.code}: {item.availableUnits} units
-                    {booking.items?.[0]?.id && !packageReservation && (
-                      <button
-                        className="secondary"
-                        disabled={loading || item.availableUnits < 1}
-                        onClick={() =>
-                          void reservePackage(item.id, booking.items[0].id)
-                        }
-                      >
-                        Reserve one unit
-                      </button>
-                    )}
-                  </span>
-                ))
-              )}
-              {packageReservation && (
-                <strong>Reserved · {packageReservation.units} unit</strong>
-              )}
-            </div>
-            {!String(booking.status).startsWith("CANCELLED") && (
-              <div className="actions">
-                <label className="field">
-                  Ngày mới
-                  <input
-                    type="date"
-                    required
-                    min={branch?.bookingWindow?.earliestDate}
-                    max={branch?.bookingWindow?.latestDate}
-                    value={date}
-                    onChange={(event) => setDate(event.target.value)}
-                  />
-                </label>
-                <button
-                  className="secondary"
-                  disabled={!date || loading}
-                  onClick={() => void findReplacementSlots()}
-                >
-                  Chọn lịch mới
-                </button>
-                <button
-                  className="danger"
-                  disabled={loading}
-                  onClick={() => void cancel()}
-                >
-                  Hủy lịch hẹn
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+        {state === "ready" && step === "DETAIL" && booking && <div className="grid" aria-labelledby="detail-heading"><div className="section-heading"><div><p className="eyebrow">{salon?.name ?? salonSlug}</p><h2 id="detail-heading">{booking.bookingReference}</h2></div><span className="badge">{booking.status}</span></div><div className="summary"><span>{t("branch")}: {branch?.name ?? salon?.name}</span><span>{booking.startAt && formatSalonDateTime(booking.startAt, locale, branch?.timezone ?? salon?.timezone)}</span><span>{t("timezoneLabel")}: {branch?.timezone ?? salon?.timezone}</span><span>{booking.contact?.displayName}</span>{booking.items?.map((item: any) => <span key={item.id}>{item.sequenceNo}. {localizedValue(item.service?.name, locale, item.service?.code)}</span>)}</div><PackagePanel locale={locale} packages={packages} booking={booking} packageReservation={packageReservation} loading={false} onReserve={reservePackage} /><div className="actions">{!bookingCancelled && <><label className="field" htmlFor="manage-date">{t("chooseTime")}<input id="manage-date" type="date" min={branch?.bookingWindow?.earliestDate} max={branch?.bookingWindow?.latestDate} value={date} onChange={(event) => setDate(event.target.value)} /></label><button className="secondary" type="button" disabled={!date} onClick={() => void findReplacementSlots()}>{t("chooseAnotherTime")}</button><button className="danger" type="button" onClick={() => void cancel()}>{t("cancelBooking")}</button></>}</div></div>}
 
-        {step === 4 && (
-          <div className="grid">
-            <h2>Chọn giờ mới</h2>
-            {slots.length === 0 ? (
-              <div className="state">Không còn giờ phù hợp trong ngày này.</div>
-            ) : (
-              <div className="slots">
-                {slots.map((item: any) => (
-                  <button
-                    className="choice"
-                    key={item.fingerprint}
-                    onClick={() => void holdReplacement(item)}
-                  >
-                    <strong>
-                      {new Date(item.startAt).toLocaleTimeString("vi-VN", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        timeZone: branch?.timezone,
-                      })}
-                    </strong>
-                    <small>Bất kỳ kỹ thuật viên phù hợp</small>
-                  </button>
-                ))}
-              </div>
-            )}
-            <button className="secondary" onClick={() => setStep(3)}>
-              Quay lại
-            </button>
-          </div>
-        )}
+        {state === "ready" && step === "REPLACEMENT_AVAILABILITY" && <div className="grid" aria-labelledby="replacement-heading"><h2 id="replacement-heading">{t("chooseAnotherTime")}</h2><p className="muted">{t("salonTime")}: {branch?.timezone ?? salon?.timezone}</p>{slots.length ? <div className="slots">{slots.map((item: any) => <button className="choice slot" type="button" key={item.fingerprint} onClick={() => void holdReplacement(item)}><strong>{formatSalonTime(item.startAt, locale, branch?.timezone ?? salon?.timezone)}</strong><small>{t("anyStaff")}</small></button>)}</div> : <div className="state">{t("noAvailability")}</div>}<button className="secondary" type="button" onClick={() => setStep("DETAIL")}>{t("back")}</button></div>}
 
-        {step === 5 && replacementHold && (
-          <div className="grid">
-            <h2>Xác nhận đổi lịch</h2>
-            <div className="summary">
-              <span>
-                Lịch hiện tại:{" "}
-                {new Date(booking.startAt).toLocaleString("vi-VN", {
-                  timeZone: branch?.timezone,
-                })}
-              </span>
-              <strong>
-                Lịch mới:{" "}
-                {new Date(selectedSlot.startAt).toLocaleString("vi-VN", {
-                  timeZone: branch?.timezone,
-                })}
-              </strong>
-              <span>
-                Slot mới đang được giữ đến{" "}
-                {new Date(replacementHold.expiresAt).toLocaleTimeString(
-                  "vi-VN",
-                  { timeZone: branch?.timezone },
-                )}
-                .
-              </span>
-            </div>
-            <div className="actions">
-              <button className="secondary" onClick={() => setStep(4)}>
-                Chọn lại
-              </button>
-              <button
-                className="primary"
-                disabled={loading}
-                onClick={() => void confirmReschedule()}
-              >
-                Xác nhận đổi lịch
-              </button>
-            </div>
-          </div>
-        )}
+        {state === "ready" && step === "RESCHEDULE_REVIEW" && replacementHold && <div className="grid" aria-labelledby="reschedule-heading"><h2 id="reschedule-heading">{t("review")}</h2><div className="summary"><span>{t("chooseTime")}: {formatSalonDateTime(selectedSlot.startAt, locale, branch?.timezone ?? salon?.timezone)}</span><span>{t("holdExpires")}: {formatSalonTime(replacementHold.expiresAt, locale, branch?.timezone ?? salon?.timezone)}</span><span>{t("noPayment")}</span></div><div className="actions"><button className="secondary" type="button" onClick={() => setStep("REPLACEMENT_AVAILABILITY")}>{t("back")}</button><button className="primary" type="button" onClick={() => void confirmReschedule()}>{t("confirmBooking")}</button></div></div>}
       </section>
     </main>
   );
+}
+
+function PackagePanel({ locale, packages, booking, packageReservation, loading, onReserve }: { locale: Locale; packages: any[]; booking: any; packageReservation: any; loading: boolean; onReserve: (entitlementId: string, itemId: string) => void }) {
+  const t = (key: BookingMessageKey) => getMessage(locale, key);
+  return <div className="summary"><h3>{t("servicePackages")}</h3>{packages.length === 0 ? <span>{t("noActivePackage")}</span> : packages.map((item: any) => <span key={item.id}>{localizedValue(item.name, locale, item.code)}: {item.availableUnits} {t("packageUnit")} {booking.items?.[0]?.id && !packageReservation && <button className="secondary" type="button" disabled={loading || item.availableUnits < 1} onClick={() => onReserve(item.id, booking.items[0].id)}>{t("reserveUnit")}</button>}</span>)}{packageReservation && <strong>{t("reservedUnit")} · {packageReservation.units}</strong>}</div>;
 }

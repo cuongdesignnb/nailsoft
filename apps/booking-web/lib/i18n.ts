@@ -8,6 +8,16 @@ const localeStorageKey = "nailsoft.booking.locale";
 
 export type BookingMessageKey =
   | "language"
+  | "bookingManagement"
+  | "offline"
+  | "internetRequired"
+  | "neutralResponse"
+  | "noServiceToReschedule"
+  | "newTimeConfirmed"
+  | "bookingCancelledNotice"
+  | "packageUnit"
+  | "holdExpires"
+  | "bookingChanged"
   | "brandEyebrow"
   | "landingTitle"
   | "landingDescription"
@@ -75,6 +85,16 @@ export type BookingMessageKey =
 const messages: Record<Locale, Record<BookingMessageKey, string>> = {
   "vi-VN": {
     language: "Ngôn ngữ",
+    bookingManagement: "QUẢN LÝ ĐẶT LỊCH",
+    offline: "Ngoại tuyến",
+    internetRequired: "Cần kết nối internet để thay đổi lịch hẹn.",
+    neutralResponse: "Thông tin phản hồi sẽ giữ ở trạng thái trung lập cho đến khi xác minh.",
+    noServiceToReschedule: "Không có dịch vụ nào để đổi lịch.",
+    newTimeConfirmed: "Thời gian mới đã được xác nhận. Lịch cũ chỉ được giải phóng sau khi xác nhận thành công.",
+    bookingCancelledNotice: "Lịch hẹn đã được hủy và vẫn được lưu trong lịch sử đặt lịch.",
+    packageUnit: "lượt",
+    holdExpires: "Giữ chỗ hết hạn lúc",
+    bookingChanged: "Lịch hẹn đã thay đổi từ lúc bạn mở. Vui lòng tải lại chi tiết lịch hẹn.",
     brandEyebrow: "ĐẶT LỊCH TRỰC TUYẾN",
     landingTitle: "Thời gian làm đẹp dành riêng cho bạn.",
     landingDescription:
@@ -143,6 +163,16 @@ const messages: Record<Locale, Record<BookingMessageKey, string>> = {
   },
   "en-US": {
     language: "Language",
+    bookingManagement: "BOOKING MANAGEMENT",
+    offline: "Offline",
+    internetRequired: "An internet connection is required for booking changes.",
+    neutralResponse: "Responses remain neutral until verification.",
+    noServiceToReschedule: "No service is available to reschedule.",
+    newTimeConfirmed: "Your new time is confirmed. The previous slot was released only after confirmation.",
+    bookingCancelledNotice: "Your booking was cancelled and remains in booking history.",
+    packageUnit: "unit",
+    holdExpires: "Hold expires",
+    bookingChanged: "This booking changed since you opened it. Reload booking details.",
     brandEyebrow: "ONLINE BOOKING",
     landingTitle: "Time reserved for you.",
     landingDescription:
