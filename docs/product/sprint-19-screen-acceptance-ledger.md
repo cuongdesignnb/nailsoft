@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 5 accepted against source CI; Wave 6 not authorized
+Current phase: Wave 6 implementation in progress; Wave 7 not authorized
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -467,4 +467,36 @@ INVENTORY_CLUSTER=ACCEPTED
 PROCUREMENT_CLUSTER=ACCEPTED
 FIXED_ASSETS_CLUSTER=ACCEPTED
 ADDENDUM_A_FOUNDATION=ACCEPTED
+```
+
+## Wave 6 implementation ledger — pending exact source CI
+
+Start checkpoint: `290e9ae24775ad89ffc9af9e982dad161878633a`.
+
+Phase 0A support scope and Phase 0B read foundation are implemented locally;
+the 34 Wave 6 rows remain pending QA and exact full CI. No row is accepted by
+this draft.
+
+| Rows | Cluster | Source / API evidence | Acceptance |
+| --- | --- | --- | --- |
+| 19.6.1–19.6.11 | Accounting and banking | `/v1/accounting/*`; statement-line, match and exception reads | IMPLEMENTED_PENDING_QA |
+| 19.6.12–19.6.18 | Tenant billing and support | `/v1/tenant/billing/*`; support grant API | IMPLEMENTED_PENDING_QA |
+| 19.6.19–19.6.29 | Platform commerce and support | `/v1/platform/*`; support target scope; break-glass disabled read | IMPLEMENTED_PENDING_QA |
+| 19.6.30–19.6.34 | Analytics | `/v1/analytics/*`; dedicated Wave 6 renderer | IMPLEMENTED_PENDING_QA |
+
+```text
+WAVE_6_STATUS=IN_PROGRESS
+WAVE_6_SOURCE_SHA=PENDING_EXACT_SOURCE_CI
+WAVE_6_CI_RUN_ID=PENDING
+WAVE_6_CI_CONCLUSION=PENDING
+WAVE_6_STARTED=YES
+WAVE_7_STARTED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+
+DEFERRED_SCOPE_1=BANK_STATEMENT_LINE_EXCEPTION_EXCLUSION
+DEFERRED_SCOPE_2=RECONCILIATION_MANUAL_EXCEPTION_ADJUSTMENT
+DEFERRED_SCOPE_3=PLATFORM_DISCOUNT_MUTATION_LIFECYCLE
+DEFERRED_SCOPE_4=MANUAL_DUNNING_ACTIONS
+BREAK_GLASS=INTENTIONALLY_DISABLED_FOUNDATION
 ```

@@ -5207,6 +5207,83 @@ paths:
       security: [{ bearerAuth: [] }]
       responses: { '200': { description: Disabled break-glass status } }
 
+  /analytics/command-center:
+    get:
+      tags: [analytics]
+      summary: Server-authoritative analytics command center
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date } }
+      responses:
+        '200': { description: KPI, trend, branch and freshness projection }
+        '403': { description: Permission or branch scope denied }
+  /analytics/trends:
+    get:
+      tags: [analytics]
+      summary: Server-generated sales trends
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Sales trend projection }, '403': { description: Permission denied } }
+  /analytics/bookings:
+    get:
+      tags: [analytics]
+      summary: Server-generated booking and utilization metrics
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Booking analytics projection }, '403': { description: Permission denied } }
+  /analytics/staff:
+    get:
+      tags: [analytics]
+      summary: Permission-scoped staff analytics
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Staff analytics projection }, '403': { description: Staff scope denied } }
+  /analytics/staff/me:
+    get:
+      tags: [analytics]
+      summary: Own staff analytics
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Own-staff analytics projection }, '403': { description: Permission denied } }
+  /analytics/data-quality:
+    get:
+      tags: [analytics]
+      summary: Projection health and data quality
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Projection checkpoints and freshness }, '403': { description: Permission denied } }
+  /analytics/projection-health:
+    get:
+      tags: [analytics]
+      summary: Projection health alias
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Projection health }, '403': { description: Permission denied } }
+  /analytics/alerts:
+    get:
+      tags: [analytics]
+      summary: Open analytics alerts
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Tenant-scoped alerts }, '403': { description: Permission denied } }
+  /analytics/exports:
+    get:
+      tags: [analytics]
+      summary: Authenticated analytics exports
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Authorized export jobs }, '403': { description: Export permission denied } }
+    post:
+      tags: [analytics]
+      summary: Request an authorized analytics export
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Export request accepted }, '403': { description: Export permission denied } }
+  /analytics/rebuilds:
+    get:
+      tags: [analytics]
+      summary: Projection rebuild evidence
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Authorized rebuild jobs }, '403': { description: Rebuild permission denied } }
+  /analytics/projection/refresh:
+    post:
+      tags: [analytics]
+      summary: Request projection refresh
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Refresh request accepted }, '403': { description: Rebuild permission denied } }
+
 components:
   parameters:
     IdempotencyKey:
