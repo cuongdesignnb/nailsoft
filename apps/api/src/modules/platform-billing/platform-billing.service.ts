@@ -44,6 +44,35 @@ export class PlatformBillingService {
         message: "Platform role required",
       });
   }
+  /**
+   * Platform-global data is never available through a tenant support session.
+   * Keeping this check separate from the role check makes it difficult for a
+   * caller to accidentally widen a support session while adding a new read.
+   */
+  private assertPlatformGlobalScope(a: AccessClaims) {
+    this.platform(a);
+    if (a.supportAccess) {
+      throw new ForbiddenException({
+        code: "SUPPORT_SCOPE_DENIED",
+        message: "Support sessions are restricted to their granted tenant",
+      });
+    }
+  }
+  /**
+   * Tenant-bearing platform commands and reads may be used by a support
+   * session only for the tenant bound into the authenticated support session.
+   * AuthGuard proves that a support token's auth.tenantId is the grant target;
+   * no client supplied tenant can widen that scope here.
+   */
+  private assertPlatformTenantScope(a: AccessClaims, targetTenantId: string) {
+    this.platform(a);
+    if (a.supportAccess && targetTenantId !== a.tenantId) {
+      throw new ForbiddenException({
+        code: "SUPPORT_SCOPE_DENIED",
+        message: "Support session cannot access another tenant",
+      });
+    }
+  }
   private actor(a: AccessClaims, platform: boolean) {
     if (platform) this.platform(a);
     else this.tenantOwner(a);
@@ -66,6 +95,11 @@ export class PlatformBillingService {
     request: unknown,
     work: (c: PoolClient) => Promise<T>,
   ) {
+    // Tenant owners use the shared idempotency helper for their own billing
+    // commands as well. Apply the support-scope guard only to platform actors.
+    if (a.roles.includes("PLATFORM_SUPER_ADMIN")) {
+      this.assertPlatformTenantScope(a, targetTenantId);
+    }
     return this.db
       .transaction((c) =>
         this.idem.execute(c, {
@@ -150,6 +184,19 @@ export class PlatformBillingService {
     if (!row)
       throw new NotFoundException({ code, message: code.replaceAll("_", " ") });
     return row;
+  }
+
+  private scopedTenant(a: AccessClaims, targetTenantId?: string) {
+    this.platform(a);
+    if (a.supportAccess) {
+      if (targetTenantId && targetTenantId !== a.tenantId)
+        throw new ForbiddenException({
+          code: "SUPPORT_SCOPE_DENIED",
+          message: "Support session cannot access another tenant",
+        });
+      return a.tenantId;
+    }
+    return targetTenantId;
   }
 
   private rejectPayloadApprover(body: any) {
@@ -835,7 +882,7 @@ export class PlatformBillingService {
   }
 
   async platformPlans(a: AccessClaims) {
-    this.platform(a);
+    this.assertPlatformGlobalScope(a);
     return (
       await this.db.query<any>(
         `SELECT p.*,json_agg(v ORDER BY v.version_no) versions FROM platform_plans p LEFT JOIN platform_plan_versions v ON v.plan_id=p.id GROUP BY p.id ORDER BY p.created_at`,
@@ -843,7 +890,7 @@ export class PlatformBillingService {
     ).rows.map((x) => this.view(x));
   }
   async createPlan(a: AccessClaims, body: any, key: string, requestId: string) {
-    this.platform(a);
+    this.assertPlatformGlobalScope(a);
     return this.command(
       a,
       a.tenantId,
@@ -890,7 +937,7 @@ export class PlatformBillingService {
     key: string,
     _requestId: string,
   ) {
-    this.platform(a);
+    this.assertPlatformGlobalScope(a);
     return this.command(
       a,
       a.tenantId,
@@ -934,7 +981,7 @@ export class PlatformBillingService {
     key: string,
     requestId: string,
   ) {
-    this.platform(a);
+    this.assertPlatformGlobalScope(a);
     return this.command(
       a,
       a.tenantId,
@@ -985,7 +1032,7 @@ export class PlatformBillingService {
     );
   }
   async prices(a: AccessClaims) {
-    this.platform(a);
+    this.assertPlatformGlobalScope(a);
     return (
       await this.db.query<any>(
         "SELECT * FROM platform_prices ORDER BY created_at DESC",
@@ -998,7 +1045,7 @@ export class PlatformBillingService {
     key: string,
     _requestId: string,
   ) {
-    this.platform(a);
+    this.assertPlatformGlobalScope(a);
     return this.command(
       a,
       a.tenantId,
@@ -1033,7 +1080,7 @@ export class PlatformBillingService {
     key: string,
     requestId: string,
   ) {
-    this.platform(a);
+    this.assertPlatformGlobalScope(a);
     return this.command(
       a,
       a.tenantId,
@@ -1075,20 +1122,185 @@ export class PlatformBillingService {
       },
     );
   }
+
+  async platformDiscounts(a: AccessClaims) {
+    this.assertPlatformGlobalScope(a);
+    const rows = await this.db.query<any>(
+      `SELECT id,code,discount_type,amount_minor,numerator,denominator,currency,
+              starts_at,ends_at,redemption_limit,active
+         FROM platform_discount_definitions
+        ORDER BY starts_at DESC NULLS LAST, code`,
+    );
+    return rows.rows.map((row) => this.view(row));
+  }
+
+  async platformTenantEntitlements(a: AccessClaims, tenantId: string) {
+    this.assertPlatformTenantScope(a, tenantId);
+    const rows = await this.db.query<any>(
+      `SELECT tenant_id,entitlement_code,enabled,quota_limit,unlimited,
+              source_type,source_id,version,fingerprint,rebuilt_at
+         FROM platform_entitlement_projections
+        WHERE tenant_id=$1
+        ORDER BY entitlement_code`,
+      [tenantId],
+    );
+    return rows.rows.map((row) => this.view(row));
+  }
+
+  async platformTenantInvoices(a: AccessClaims, tenantId: string) {
+    this.assertPlatformTenantScope(a, tenantId);
+    const rows = await this.db.query<any>(
+      `SELECT id,tenant_id,billing_account_id,subscription_id,
+              subscription_period_id,invoice_number,status,currency,
+              subtotal_minor,discount_minor,credit_minor,tax_minor,total_minor,
+              paid_minor,refunded_minor,credited_minor,credit_applied_minor,
+              due_at,finalized_at,fingerprint,version,created_at,updated_at
+         FROM platform_invoices
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      [tenantId],
+    );
+    return rows.rows.map((row) => this.view(row));
+  }
+
+  async platformTenantPayments(a: AccessClaims, tenantId: string) {
+    this.assertPlatformTenantScope(a, tenantId);
+    const rows = await this.db.query<any>(
+      `SELECT id,tenant_id,invoice_id,payment_method_id,amount_minor,currency,
+              status,provider,created_at,updated_at
+         FROM platform_payment_intents
+        WHERE tenant_id=$1
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      [tenantId],
+    );
+    return rows.rows.map((row) => this.view(row));
+  }
+
+  async platformRefunds(a: AccessClaims) {
+    const tenantId = this.scopedTenant(a);
+    const rows = await this.db.query<any>(
+      `SELECT id,tenant_id,payment_intent_id,amount_minor,currency,status,reason,
+              requested_by_user_id,approved_by_user_id,created_at,updated_at,
+              submitted_at,approved_at,rejected_at,processed_at,version,failure_code
+         FROM platform_refunds
+        ${tenantId ? "WHERE tenant_id=$1" : ""}
+        ORDER BY created_at DESC
+        LIMIT 100`,
+      tenantId ? [tenantId] : [],
+    );
+    return rows.rows.map((row) => this.view(row));
+  }
+
+  async platformReconciliation(a: AccessClaims) {
+    const tenantId = this.scopedTenant(a);
+    const rows = await this.db.query<any>(
+      `SELECT r.id,r.tenant_id,r.payment_intent_id,
+              r.expected_status,r.observed_status,r.outcome,
+              r.reconciled_by_user_id,r.created_at,
+              p.status payment_status,p.amount_minor,p.currency,p.provider
+         FROM platform_payment_reconciliations r
+         JOIN platform_payment_intents p
+           ON p.tenant_id=r.tenant_id AND p.id=r.payment_intent_id
+        ${tenantId ? "WHERE r.tenant_id=$1" : ""}
+        ORDER BY r.created_at DESC
+        LIMIT 100`,
+      tenantId ? [tenantId] : [],
+    );
+    return rows.rows.map((row) => this.view(row));
+  }
+
+  async platformDunning(a: AccessClaims) {
+    const tenantId = this.scopedTenant(a);
+    const rows = await this.db.query<any>(
+      `SELECT d.id,d.tenant_id,d.invoice_id,d.policy_id,d.status,
+              d.current_stage,d.next_action_at,d.created_at,d.updated_at,
+              i.invoice_number,i.status invoice_status,i.currency,
+              i.total_minor,i.paid_minor,i.due_at
+         FROM platform_dunning_cases d
+         JOIN platform_invoices i
+           ON i.tenant_id=d.tenant_id AND i.id=d.invoice_id
+        ${tenantId ? "WHERE d.tenant_id=$1" : ""}
+        ORDER BY d.next_action_at ASC NULLS LAST,d.created_at DESC
+        LIMIT 100`,
+      tenantId ? [tenantId] : [],
+    );
+    return rows.rows.map((row) => this.view(row));
+  }
+
+  async platformReports(a: AccessClaims) {
+    const tenantId = this.scopedTenant(a);
+    const filter = tenantId ? " WHERE tenant_id=$1" : "";
+    const values = tenantId ? [tenantId] : [];
+    const [tenants, subscriptions, billing, invoices, usage] = await Promise.all([
+      this.db.query<any>(
+        `SELECT count(*)::int tenant_count FROM tenants${tenantId ? " WHERE id=$1" : ""}`,
+        values,
+      ),
+      this.db.query<any>(
+        `SELECT status,count(*)::int count FROM platform_subscriptions${filter} GROUP BY status ORDER BY status`,
+        values,
+      ),
+      this.db.query<any>(
+        `SELECT state,count(*)::int count FROM platform_billing_accounts${filter} GROUP BY state ORDER BY state`,
+        values,
+      ),
+      this.db.query<any>(
+        `SELECT currency,count(*)::int invoice_count,
+                COALESCE(sum(total_minor),0)::bigint total_minor,
+                COALESCE(sum(paid_minor),0)::bigint paid_minor,
+                COALESCE(sum(refunded_minor),0)::bigint refunded_minor
+           FROM platform_invoices${filter}
+          GROUP BY currency ORDER BY currency`,
+        values,
+      ),
+      this.db.query<any>(
+        `SELECT m.code meter_code,COALESCE(sum(u.quantity),0)::bigint quantity
+           FROM platform_usage_aggregates u
+           JOIN platform_usage_meter_definitions m ON m.id=u.meter_id
+          ${tenantId ? "WHERE u.tenant_id=$1" : ""}
+          GROUP BY m.code ORDER BY m.code`,
+        values,
+      ),
+    ]);
+    return {
+      scope: tenantId ? { tenantId } : { scope: "PLATFORM_GLOBAL" },
+      tenantCounts: tenants.rows.map((row) => this.view(row)),
+      subscriptionCounts: subscriptions.rows.map((row) => this.view(row)),
+      billingStateCounts: billing.rows.map((row) => this.view(row)),
+      invoiceTotals: invoices.rows.map((row) => this.view(row)),
+      usageSummary: usage.rows.map((row) => this.view(row)),
+    };
+  }
+
+  async breakGlassStatus(a: AccessClaims) {
+    this.assertPlatformGlobalScope(a);
+    return {
+      enabled: false,
+      status: "DISABLED",
+      reasonCode: "BREAK_GLASS_DISABLED",
+    };
+  }
+
   async platformTenants(a: AccessClaims, id?: string) {
-    this.platform(a);
+    if (id) this.assertPlatformTenantScope(a, id);
+    else this.platform(a);
+    const supportTenant = a.supportAccess ? a.tenantId : undefined;
     const r = await this.db.query<any>(
-      `SELECT t.id,t.name,t.slug,t.status,t.lifecycle_status,t.access_mode,a.state billing_state,a.collection_mode,s.id subscription_id,s.status subscription_status,p.code plan_code FROM tenants t LEFT JOIN platform_billing_accounts a ON a.tenant_id=t.id LEFT JOIN platform_subscriptions s ON s.tenant_id=t.id AND s.status NOT IN('CANCELLED','TERMINATED') LEFT JOIN platform_plans p ON p.id=s.plan_id ${id ? "WHERE t.id=$1" : ""} ORDER BY t.created_at`,
-      id ? [id] : [],
+      `SELECT t.id,t.name,t.slug,t.status,t.lifecycle_status,t.access_mode,a.state billing_state,a.collection_mode,s.id subscription_id,s.status subscription_status,p.code plan_code FROM tenants t LEFT JOIN platform_billing_accounts a ON a.tenant_id=t.id LEFT JOIN platform_subscriptions s ON s.tenant_id=t.id AND s.status NOT IN('CANCELLED','TERMINATED') LEFT JOIN platform_plans p ON p.id=s.plan_id ${id ? "WHERE t.id=$1" : supportTenant ? "WHERE t.id=$1" : ""} ORDER BY t.created_at`,
+      id || supportTenant ? [id ?? supportTenant] : [],
     );
     return id ? this.view(r.rows[0]) : r.rows.map((x) => this.view(x));
   }
 
   async listInvoices(a: AccessClaims) {
     this.platform(a);
+    const supportTenant = a.supportAccess ? a.tenantId : undefined;
     return (
       await this.db.query<any>(
-        "SELECT * FROM platform_invoices ORDER BY created_at DESC",
+        `SELECT id,tenant_id,billing_account_id,subscription_id,subscription_period_id,invoice_number,status,currency,subtotal_minor,discount_minor,credit_minor,tax_minor,total_minor,paid_minor,refunded_minor,due_at,finalized_at,fingerprint,version,created_at,updated_at FROM platform_invoices ${supportTenant ? "WHERE tenant_id=$1" : ""} ORDER BY created_at DESC`,
+        supportTenant ? [supportTenant] : [],
       )
     ).rows.map((x) => this.view(x));
   }
@@ -1970,9 +2182,11 @@ export class PlatformBillingService {
 
   async paymentIntents(a: AccessClaims) {
     this.platform(a);
+    const supportTenant = a.supportAccess ? a.tenantId : undefined;
     return (
       await this.db.query<any>(
-        "SELECT * FROM platform_payment_intents ORDER BY created_at DESC",
+        `SELECT id,tenant_id,invoice_id,payment_method_id,amount_minor,currency,status,provider,created_at,updated_at FROM platform_payment_intents ${supportTenant ? "WHERE tenant_id=$1" : ""} ORDER BY created_at DESC`,
+        supportTenant ? [supportTenant] : [],
       )
     ).rows.map((x) => this.view(x));
   }
@@ -3183,7 +3397,7 @@ export class PlatformBillingService {
     );
   }
   async usageAggregates(a: AccessClaims, tenant: string) {
-    this.platform(a);
+    this.assertPlatformTenantScope(a, tenant);
     return (
       await this.db.query<any>(
         `SELECT u.*,m.code meter_code FROM platform_usage_aggregates u JOIN platform_usage_meter_definitions m ON m.id=u.meter_id WHERE u.tenant_id=$1 ORDER BY period_start DESC`,
@@ -3581,9 +3795,11 @@ export class PlatformBillingService {
   }
   async platformSupportGrants(a: AccessClaims) {
     this.platform(a);
+    const supportTenant = a.supportAccess ? a.tenantId : undefined;
     return (
       await this.db.query<any>(
-        "SELECT * FROM platform_support_access_grants ORDER BY created_at DESC",
+        `SELECT id,tenant_id,support_user_id,ticket_reference,reason,permission_scope_json,branch_scope_json,data_classification_scope_json,state,starts_at,expires_at,session_ttl_seconds,requested_by_user_id,approved_by_user_id,created_at,updated_at FROM platform_support_access_grants ${supportTenant ? "WHERE tenant_id=$1 AND (id=$2 OR support_user_id=$3)" : ""} ORDER BY created_at DESC`,
+        supportTenant ? [supportTenant, a.supportAccess?.grantId, a.userId] : [],
       )
     ).rows.map((x) => this.view(x));
   }

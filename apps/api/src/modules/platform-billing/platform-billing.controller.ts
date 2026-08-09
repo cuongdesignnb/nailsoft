@@ -15,7 +15,7 @@ import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedRequest } from "../identity/auth.types.js";
 import { AuthGuard } from "../identity/auth.guard.js";
 import { PermissionGuard } from "../identity/permission.guard.js";
-import { RequirePermission } from "../identity/permission.decorator.js";
+import { RequireAnyPermission, RequirePermission } from "../identity/permission.decorator.js";
 import { PlatformBillingService } from "./platform-billing.service.js";
 
 const rid = (r: any) => r.raw?.requestId ?? "unknown",
@@ -250,6 +250,11 @@ export class PlatformBillingController {
   ) {
     return ok(await this.s.activatePrice(r.auth, id, b, idem(k), rid(r)), r);
   }
+  @Get("discounts")
+  @RequireAnyPermission("platform.plan.read", "platform.price.read")
+  async discounts(@Req() r: AuthenticatedRequest) {
+    return ok(await this.s.platformDiscounts(r.auth), r);
+  }
   @Get("tenants") @RequirePermission("platform.tenant.read") async tenants(
     @Req() r: AuthenticatedRequest,
   ) {
@@ -262,6 +267,30 @@ export class PlatformBillingController {
     @Req() r: AuthenticatedRequest,
   ) {
     return ok(await this.s.platformTenants(r.auth, tenant), r);
+  }
+  @Get("tenants/:tenantId/entitlements")
+  @RequireAnyPermission("platform.subscription.read", "platform.usage.read")
+  async tenantEntitlements(
+    @Param("tenantId") tenant: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.s.platformTenantEntitlements(r.auth, tenant), r);
+  }
+  @Get("tenants/:tenantId/invoices")
+  @RequirePermission("platform.invoice.read")
+  async tenantInvoices(
+    @Param("tenantId") tenant: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.s.platformTenantInvoices(r.auth, tenant), r);
+  }
+  @Get("tenants/:tenantId/payments")
+  @RequirePermission("platform.payment.read")
+  async tenantPayments(
+    @Param("tenantId") tenant: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.s.platformTenantPayments(r.auth, tenant), r);
   }
   @Get("tenants/:tenantId/subscription")
   @RequirePermission("platform.subscription.read")
@@ -443,6 +472,26 @@ export class PlatformBillingController {
   @RequirePermission("platform.payment.read")
   async payments(@Req() r: AuthenticatedRequest) {
     return ok(await this.s.paymentIntents(r.auth), r);
+  }
+  @Get("refunds")
+  @RequirePermission("platform.payment.read")
+  async refunds(@Req() r: AuthenticatedRequest) {
+    return ok(await this.s.platformRefunds(r.auth), r);
+  }
+  @Get("reconciliation")
+  @RequireAnyPermission("platform.payment.read", "platform.payment.reconcile")
+  async reconciliation(@Req() r: AuthenticatedRequest) {
+    return ok(await this.s.platformReconciliation(r.auth), r);
+  }
+  @Get("dunning")
+  @RequirePermission("platform.invoice.read")
+  async dunning(@Req() r: AuthenticatedRequest) {
+    return ok(await this.s.platformDunning(r.auth), r);
+  }
+  @Get("reports")
+  @RequirePermission("platform.tenant.read")
+  async reports(@Req() r: AuthenticatedRequest) {
+    return ok(await this.s.platformReports(r.auth), r);
   }
   @Post("payment-intents")
   @RequirePermission("platform.payment.collect")
@@ -696,6 +745,11 @@ export class PlatformBillingController {
   @RequirePermission("platform.support_grant.read")
   async grants(@Req() r: AuthenticatedRequest) {
     return ok(await this.s.platformSupportGrants(r.auth), r);
+  }
+  @Get("break-glass")
+  @RequirePermission("platform.support_grant.read")
+  async breakGlassStatus(@Req() r: AuthenticatedRequest) {
+    return ok(await this.s.breakGlassStatus(r.auth), r);
   }
   @Post("support-access-grants")
   @RequirePermission("platform.support_grant.request")
