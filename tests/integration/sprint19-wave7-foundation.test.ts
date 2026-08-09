@@ -126,6 +126,26 @@ describe.sequential("Sprint 19 Wave 7 public booking foundation", () => {
       });
       expect(availability.statusCode).toBe(403);
       expect(availability.json().error.code).toBe("PUBLIC_SERVICE_NOT_BOOKABLE");
+
+      const hold = await app.inject({
+        method: "POST",
+        url: `/v1/public/salons/${slug}/slot-holds`,
+        headers: { "idempotency-key": "wave7-non-offered-service-hold" },
+        payload: {
+          branchId,
+          desiredStartAt: "2026-08-10T02:15:00.000Z",
+          availabilityDataVersion: 1,
+          clientKey: "wave7-non-offered-service",
+          items: [
+            {
+              serviceId,
+              staffPreference: { type: "ANY" },
+            },
+          ],
+        },
+      });
+      expect(hold.statusCode).toBe(403);
+      expect(hold.json().error.code).toBe("PUBLIC_SERVICE_NOT_BOOKABLE");
     } finally {
       for (const price of original) {
         await db.query("UPDATE service_prices SET effective_to=$2 WHERE id=$1", [

@@ -678,7 +678,7 @@ export class PublicBookingService {
     ).rows[0];
     if (!row)
       throw new NotFoundException({
-        code: "BOOKING_NOT_FOUND",
+        code: "PUBLIC_SALON_NOT_FOUND",
         message: "Salon not found",
       });
     return row;
