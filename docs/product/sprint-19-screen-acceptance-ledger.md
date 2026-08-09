@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 6 implementation in progress; Wave 7 not authorized
+Current phase: Wave 6 accepted against source CI; Wave 7 not authorized
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -469,28 +469,34 @@ FIXED_ASSETS_CLUSTER=ACCEPTED
 ADDENDUM_A_FOUNDATION=ACCEPTED
 ```
 
-## Wave 6 implementation ledger — pending exact source CI
+## Wave 6 acceptance ledger — source CI complete
 
 Start checkpoint: `290e9ae24775ad89ffc9af9e982dad161878633a`.
 
 Phase 0A support scope and Phase 0B read foundation are implemented locally;
-the 34 Wave 6 rows remain pending QA and exact full CI. No row is accepted by
-this draft.
+all 34 Wave 6 rows are accepted against exact source commit
+`c3c46ab5e7cbf9b970e2fcd52836c7025c60cccc` and full CI run `31302322332`
+(`SUCCESS`). The documentation commit created after this validation is not
+the source commit validated by that run.
 
-| Rows | Cluster | Source / API evidence | Acceptance |
-| --- | --- | --- | --- |
-| 19.6.1–19.6.11 | Accounting and banking | `/v1/accounting/*`; statement-line, match and exception reads | IMPLEMENTED_PENDING_QA |
-| 19.6.12–19.6.18 | Tenant billing and support | `/v1/tenant/billing/*`; support grant API | IMPLEMENTED_PENDING_QA |
-| 19.6.19–19.6.29 | Platform commerce and support | `/v1/platform/*`; support target scope; break-glass disabled read | IMPLEMENTED_PENDING_QA |
-| 19.6.30–19.6.34 | Analytics | `/v1/analytics/*`; dedicated Wave 6 renderer | IMPLEMENTED_PENDING_QA |
+| Rows | Cluster | Source / API evidence | Source CI | Acceptance |
+| --- | --- | --- | --- | --- |
+| 19.6.1–19.6.11 | Accounting and banking | `/v1/accounting/*`; statement-line, match and exception reads | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.12–19.6.18 | Tenant billing and support | `/v1/tenant/billing/*`; support grant API | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.19–19.6.29 | Platform commerce and support | `/v1/platform/*`; support target scope; break-glass disabled read | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.30–19.6.34 | Analytics | `/v1/analytics/*`; dedicated Wave 6 renderer | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
 
 ```text
-WAVE_6_STATUS=IN_PROGRESS
-WAVE_6_SOURCE_SHA=PENDING_EXACT_SOURCE_CI
-WAVE_6_CI_RUN_ID=PENDING
-WAVE_6_CI_CONCLUSION=PENDING
+WAVE_6_STATUS=COMPLETED
+WAVE_6_SOURCE_SHA=c3c46ab5e7cbf9b970e2fcd52836c7025c60cccc
+WAVE_6_CI_RUN_ID=31302322332
+WAVE_6_CI_CONCLUSION=SUCCESS
+BA_PO_WAVE_6_ACCEPTANCE=PASS
+SCREEN_ROWS_19_6_1_TO_19_6_34=ALL_ACCEPTED
 WAVE_6_STARTED=YES
+SPRINT_19_STATUS=IN_PROGRESS
 WAVE_7_STARTED=NO
+WAVE_7_AUTHORIZED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 

@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 6 implementation in progress; Wave 7 not authorized
+Current phase: Wave 6 accepted against source CI; Wave 7 not authorized
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -48,54 +48,58 @@ CI_RUN=30985009361
 CI_CONCLUSION=SUCCESS
 ```
 
-## Wave 6 — Accounting, platform billing and analytics (implementation in progress)
+## Wave 6 — Accounting, platform billing and analytics (accepted)
 
 Wave 6 starts from `290e9ae24775ad89ffc9af9e982dad161878633a`. Phase 0A
 hardens Support Access to a target-tenant boundary and Phase 0B adds the
-approved read-only projections. The screen rows below are intentionally
-`IMPLEMENTED_PENDING_QA` until an exact Wave 6 source commit has green full CI.
+approved read-only projections. Final source commit
+`c3c46ab5e7cbf9b970e2fcd52836c7025c60cccc` was validated by full CI run
+`31302322332` with conclusion `SUCCESS`. The documentation commit created
+after this validation is not the source commit validated by that run.
 
 | ID | Screen | Route | Persona | Permission / scope | API dependency | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 19.6.1 | Accounting control center | `/admin/accounting` | Accountant, Owner | `accounting.book.read`; tenant | `/v1/accounting/books` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.2 | Books & chart | `/admin/accounting/books` | Accountant | `accounting.account.read`; tenant | `/v1/accounting/accounts` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.3 | Accounting periods | `/admin/accounting/periods` | Accountant | `accounting.period.read`; tenant | `/v1/accounting/periods` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.4 | Journal workbench | `/admin/accounting/journals` | Accountant | `accounting.journal.*`; tenant | `/v1/accounting/journals` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.5 | Posting queue | `/admin/accounting/posting-candidates` | Accountant | `accounting.posting.read`; tenant | `/v1/accounting/posting-candidates` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.6 | Open items | `/admin/accounting/open-items` | Accountant | `accounting.open_item.read`; tenant | `/v1/accounting/open-items` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.7 | Financial reports | `/admin/accounting/reports` | Accountant, Owner | `accounting.report.read`; tenant | `/v1/accounting/reports` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.8 | Bank accounts & imports | `/admin/accounting/reconciliation` | Accountant | `accounting.bank_account.read`; tenant | `/v1/accounting/bank-accounts` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.9 | Statement lines & matching | `/admin/accounting/reconciliation/statement-lines` | Accountant | bank reconciliation; tenant | `/v1/accounting/bank-accounts/:id/statement-lines`, `/v1/accounting/bank-matches` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA; exclusion deferred |
-| 19.6.10 | Reconciliation & exceptions | `/admin/accounting/reconciliation/exceptions` | Accountant | `accounting.bank_reconciliation.read`; tenant | `/v1/accounting/reconciliation-exceptions` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA; adjustment deferred |
-| 19.6.11 | Statement snapshots | `/admin/accounting/statement-snapshots` | Accountant | `accounting.report.read`; tenant | `/v1/accounting/statement-snapshots` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.12 | Billing overview | `/admin/billing` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/subscription` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.13 | Subscription | `/admin/billing/subscription` | Owner | `tenant.billing.manage`; tenant | `/v1/tenant/billing/subscription` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.14 | Plans, entitlements & usage | `/admin/billing/usage` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/usage` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.15 | Invoices & history | `/admin/billing/invoices` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/invoices` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.16 | Invoice detail | `/admin/billing/invoices/:id` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/invoices/:id` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.17 | Payment methods | `/admin/billing/payment-methods` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/payment-methods` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.18 | Tenant support access | `/admin/support-access` | Owner, Manager | tenant support grant permissions | `/v1/tenant/support-access-grants` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.19 | Plan/price/discount catalog | `/platform/plans`, `/platform/prices`, `/platform/discounts` | Platform Admin | platform plan/price read; global | `/v1/platform/plans`, `/v1/platform/prices`, `/v1/platform/discounts` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA; discount mutation deferred |
-| 19.6.20 | Tenant directory | `/platform/tenants` | Platform Admin, Support | platform tenant read; support target only | `/v1/platform/tenants` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.21 | Tenant detail & lifecycle | `/platform/tenants/:id` | Platform Admin, Support | tenant-targeted platform read | `/v1/platform/tenants/:id` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.22 | Tenant subscription | `/platform/tenants/:id/subscription` | Platform Admin, Support | subscription read; target tenant | `/v1/platform/tenants/:id/subscription` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.23 | Tenant entitlements & usage | `/platform/tenants/:id/entitlements` | Platform Admin, Support | subscription/usage read; target tenant | `/v1/platform/tenants/:id/entitlements` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.24 | Tenant invoices & payments | `/platform/tenants/:id/invoices` | Platform Admin, Support | invoice/payment read; target tenant | `/v1/platform/tenants/:id/invoices`, `/v1/platform/tenants/:id/payments` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.25 | Platform invoice/payment operations | `/platform/invoices`, `/platform/payments` | Platform Admin | platform invoice/payment; global or target | `/v1/platform/invoices`, `/v1/platform/payment-intents` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.26 | Refund & reconciliation | `/platform/refunds`, `/platform/reconciliation` | Platform Admin | payment read/reconcile; global or target | `/v1/platform/refunds`, `/v1/platform/reconciliation` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.27 | Dunning & platform reports | `/platform/dunning`, `/platform/reports` | Platform Admin | invoice/tenant read; SaaS-only | `/v1/platform/dunning`, `/v1/platform/reports` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA; manual dunning deferred |
-| 19.6.28 | Platform support access | `/platform/support-access` | Platform Admin | `platform.support_grant.*`; global or current grant | `/v1/platform/support-access-grants` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.29 | Break-glass safety | `/platform/break-glass` | Platform Admin | support grant read | `/v1/platform/break-glass` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA; disabled foundation |
-| 19.6.30 | Analytics command center | `/admin/analytics` | Owner, Manager | `analytics.dashboard.read`; tenant/branch | `/v1/analytics/command-center` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.31 | Sales analytics | `/admin/analytics/sales` | Owner, Manager | `analytics.sales.read`; tenant/branch | `/v1/analytics/trends`, `/v1/analytics/services` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.32 | Booking analytics | `/admin/analytics/bookings` | Owner, Manager | `analytics.booking.read`; tenant/branch | `/v1/analytics/bookings` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.33 | Staff analytics | `/admin/analytics/staff` | Owner, Manager, Technician | `analytics.staff.read` or personal; scope | `/v1/analytics/staff`, `/v1/analytics/staff/me` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
-| 19.6.34 | Data quality, alerts, exports & rebuilds | `/admin/analytics/data-quality` | Owner, Accountant | analytics data-quality/export/rebuild permissions | `/v1/analytics/data-quality`, `/v1/analytics/alerts`, `/v1/analytics/exports`, `/v1/analytics/rebuilds` | REDESIGNED / API_BACKED / IMPLEMENTED_PENDING_QA |
+| 19.6.1 | Accounting control center | `/admin/accounting` | Accountant, Owner | `accounting.book.read`; tenant | `/v1/accounting/books` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.2 | Books & chart | `/admin/accounting/books` | Accountant | `accounting.account.read`; tenant | `/v1/accounting/accounts` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.3 | Accounting periods | `/admin/accounting/periods` | Accountant | `accounting.period.read`; tenant | `/v1/accounting/periods` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.4 | Journal workbench | `/admin/accounting/journals` | Accountant | `accounting.journal.*`; tenant | `/v1/accounting/journals` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.5 | Posting queue | `/admin/accounting/posting-candidates` | Accountant | `accounting.posting.read`; tenant | `/v1/accounting/posting-candidates` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.6 | Open items | `/admin/accounting/open-items` | Accountant | `accounting.open_item.read`; tenant | `/v1/accounting/open-items` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.7 | Financial reports | `/admin/accounting/reports` | Accountant, Owner | `accounting.report.read`; tenant | `/v1/accounting/reports` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.8 | Bank accounts & imports | `/admin/accounting/reconciliation` | Accountant | `accounting.bank_account.read`; tenant | `/v1/accounting/bank-accounts` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.9 | Statement lines & matching | `/admin/accounting/reconciliation/statement-lines` | Accountant | bank reconciliation; tenant | `/v1/accounting/bank-accounts/:id/statement-lines`, `/v1/accounting/bank-matches` | REDESIGNED / API_BACKED / ACCEPTED; exclusion deferred; source `c3c46ab5`; CI `31302322332` |
+| 19.6.10 | Reconciliation & exceptions | `/admin/accounting/reconciliation/exceptions` | Accountant | `accounting.bank_reconciliation.read`; tenant | `/v1/accounting/reconciliation-exceptions` | REDESIGNED / API_BACKED / ACCEPTED; adjustment deferred; source `c3c46ab5`; CI `31302322332` |
+| 19.6.11 | Statement snapshots | `/admin/accounting/statement-snapshots` | Accountant | `accounting.report.read`; tenant | `/v1/accounting/statement-snapshots` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.12 | Billing overview | `/admin/billing` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/subscription` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.13 | Subscription | `/admin/billing/subscription` | Owner | `tenant.billing.manage`; tenant | `/v1/tenant/billing/subscription` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.14 | Plans, entitlements & usage | `/admin/billing/usage` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/usage` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.15 | Invoices & history | `/admin/billing/invoices` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/invoices` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.16 | Invoice detail | `/admin/billing/invoices/:id` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/invoices/:id` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.17 | Payment methods | `/admin/billing/payment-methods` | Owner | `tenant.billing.read`; tenant | `/v1/tenant/billing/payment-methods` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.18 | Tenant support access | `/admin/support-access` | Owner, Manager | tenant support grant permissions | `/v1/tenant/support-access-grants` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.19 | Plan/price/discount catalog | `/platform/plans`, `/platform/prices`, `/platform/discounts` | Platform Admin | platform plan/price read; global | `/v1/platform/plans`, `/v1/platform/prices`, `/v1/platform/discounts` | REDESIGNED / API_BACKED / ACCEPTED; discount mutation deferred; source `c3c46ab5`; CI `31302322332` |
+| 19.6.20 | Tenant directory | `/platform/tenants` | Platform Admin, Support | platform tenant read; support target only | `/v1/platform/tenants` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.21 | Tenant detail & lifecycle | `/platform/tenants/:id` | Platform Admin, Support | tenant-targeted platform read | `/v1/platform/tenants/:id` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.22 | Tenant subscription | `/platform/tenants/:id/subscription` | Platform Admin, Support | subscription read; target tenant | `/v1/platform/tenants/:id/subscription` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.23 | Tenant entitlements & usage | `/platform/tenants/:id/entitlements` | Platform Admin, Support | subscription/usage read; target tenant | `/v1/platform/tenants/:id/entitlements` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.24 | Tenant invoices & payments | `/platform/tenants/:id/invoices` | Platform Admin, Support | invoice/payment read; target tenant | `/v1/platform/tenants/:id/invoices`, `/v1/platform/tenants/:id/payments` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.25 | Platform invoice/payment operations | `/platform/invoices`, `/platform/payments` | Platform Admin | platform invoice/payment; global or target | `/v1/platform/invoices`, `/v1/platform/payment-intents` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.26 | Refund & reconciliation | `/platform/refunds`, `/platform/reconciliation` | Platform Admin | payment read/reconcile; global or target | `/v1/platform/refunds`, `/v1/platform/reconciliation` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.27 | Dunning & platform reports | `/platform/dunning`, `/platform/reports` | Platform Admin | invoice/tenant read; SaaS-only | `/v1/platform/dunning`, `/v1/platform/reports` | REDESIGNED / API_BACKED / ACCEPTED; manual dunning deferred; source `c3c46ab5`; CI `31302322332` |
+| 19.6.28 | Platform support access | `/platform/support-access` | Platform Admin | `platform.support_grant.*`; global or current grant | `/v1/platform/support-access-grants` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.29 | Break-glass safety | `/platform/break-glass` | Platform Admin | support grant read | `/v1/platform/break-glass` | REDESIGNED / API_BACKED / ACCEPTED; disabled foundation; source `c3c46ab5`; CI `31302322332` |
+| 19.6.30 | Analytics command center | `/admin/analytics` | Owner, Manager | `analytics.dashboard.read`; tenant/branch | `/v1/analytics/command-center` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.31 | Sales analytics | `/admin/analytics/sales` | Owner, Manager | `analytics.sales.read`; tenant/branch | `/v1/analytics/trends`, `/v1/analytics/services` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.32 | Booking analytics | `/admin/analytics/bookings` | Owner, Manager | `analytics.booking.read`; tenant/branch | `/v1/analytics/bookings` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.33 | Staff analytics | `/admin/analytics/staff` | Owner, Manager, Technician | `analytics.staff.read` or personal; scope | `/v1/analytics/staff`, `/v1/analytics/staff/me` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
+| 19.6.34 | Data quality, alerts, exports & rebuilds | `/admin/analytics/data-quality` | Owner, Accountant | analytics data-quality/export/rebuild permissions | `/v1/analytics/data-quality`, `/v1/analytics/alerts`, `/v1/analytics/exports`, `/v1/analytics/rebuilds` | REDESIGNED / API_BACKED / ACCEPTED; source `c3c46ab5`; CI `31302322332` |
 
 ```text
-WAVE_6_STATUS=IN_PROGRESS
+WAVE_6_STATUS=COMPLETED
 WAVE_6_STARTED=YES
+SPRINT_19_STATUS=IN_PROGRESS
 WAVE_7_STARTED=NO
+WAVE_7_AUTHORIZED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
