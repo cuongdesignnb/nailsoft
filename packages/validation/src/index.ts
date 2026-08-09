@@ -194,6 +194,8 @@ export const publicCustomerNoteSchema = z
   .string()
   .max(2000)
   .refine(
+    // This explicit range is the security boundary for public customer notes.
+    // eslint-disable-next-line no-control-regex
     (value) => !/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(value),
     "customerNote contains an unsafe control character",
   )
