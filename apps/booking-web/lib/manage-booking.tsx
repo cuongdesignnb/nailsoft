@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   formatSalonDateTime,
   formatSalonTime,
@@ -60,7 +60,7 @@ export default function ManageBooking() {
   const [replacementHold, setReplacementHold] = useState<any>();
   const [packages, setPackages] = useState<any[]>([]);
   const [packageReservation, setPackageReservation] = useState<any>();
-  const [keys, setKeys] = useState({ hold: "", reschedule: "", cancel: "", package: "" });
+  const keys = useRef({ hold: "", reschedule: "", cancel: "", package: "" });
 
   const t = (key: BookingMessageKey) => getMessage(locale, key);
 
@@ -178,11 +178,11 @@ export default function ManageBooking() {
     setState("loading");
     setError("");
     try {
-      const nextKeys = { ...keys, hold: keys.hold || crypto.randomUUID() };
-      setKeys(nextKeys);
+      const nextKeys = { ...keys.current, hold: keys.current.hold || crypto.randomUUID() };
+      keys.current = nextKeys;
       const data = await call(path(`/${reference}/reschedule-holds`), {
         method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": nextKeys.hold },
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": keys.current.hold },
         body: JSON.stringify({
           desiredStartAt: slotValue.startAt,
           availabilityDataVersion: availability.dataVersion,
@@ -207,11 +207,11 @@ export default function ManageBooking() {
     setState("loading");
     setError("");
     try {
-      const nextKeys = { ...keys, reschedule: keys.reschedule || crypto.randomUUID() };
-      setKeys(nextKeys);
+      const nextKeys = { ...keys.current, reschedule: keys.current.reschedule || crypto.randomUUID() };
+      keys.current = nextKeys;
       await call(path(`/${reference}/reschedule`), {
         method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": nextKeys.reschedule },
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": keys.current.reschedule },
         body: JSON.stringify({ version: booking.version, replacementHoldId: replacementHold.holdId, replacementHoldToken: replacementHold.holdToken, reasonCode: "CUSTOMER_REQUEST", note: "Customer self-service reschedule" }),
       });
       setBooking(await loadDetail());
@@ -229,11 +229,11 @@ export default function ManageBooking() {
     setState("loading");
     setError("");
     try {
-      const nextKeys = { ...keys, cancel: keys.cancel || crypto.randomUUID() };
-      setKeys(nextKeys);
+      const nextKeys = { ...keys.current, cancel: keys.current.cancel || crypto.randomUUID() };
+      keys.current = nextKeys;
       const data = await call(path(`/${reference}/cancel`), {
         method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": nextKeys.cancel },
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": keys.current.cancel },
         body: JSON.stringify({ version: booking.version, reasonCode: "CUSTOMER_REQUEST", note: "Cancelled from booking management" }),
       });
       setBooking(data);
@@ -250,11 +250,11 @@ export default function ManageBooking() {
     setState("loading");
     setError("");
     try {
-      const nextKeys = { ...keys, package: keys.package || crypto.randomUUID() };
-      setKeys(nextKeys);
+      const nextKeys = { ...keys.current, package: keys.current.package || crypto.randomUUID() };
+      keys.current = nextKeys;
       const value = await call(`/v1/public/salons/${encodeURIComponent(salonSlug)}/package-reservations`, {
         method: "POST",
-        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": nextKeys.package },
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json", "idempotency-key": keys.current.package },
         body: JSON.stringify({ entitlementId, appointmentItemId }),
       });
       setPackageReservation(value);
