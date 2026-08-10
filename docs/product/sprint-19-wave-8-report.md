@@ -1,19 +1,25 @@
 # Sprint 19 Wave 8 — Owner Mobile
 
 ```text
-STATUS=SPRINT_19_WAVE_8_IN_PROGRESS
-REPORT_STATUS=DRAFT_PENDING_SOURCE_CI
+STATUS=SPRINT_19_WAVE_8_COMPLETED
+REPORT_STATUS=FINAL
 
 START_CHECKPOINT=0ed88c936c9e6ecd8220a5e8b2d214beb337f15a
 
-SCREEN_ROWS_19_8_1_TO_19_8_12=IMPLEMENTED_PENDING_QA
+FINAL_WAVE_8_SOURCE_SHA=ed236b640e38b0162754b09179bf0def773021be
+FINAL_WAVE_8_SOURCE_CI_RUN_ID=31388572654
+FINAL_WAVE_8_SOURCE_CI_CONCLUSION=SUCCESS
+SOURCE_CI=SUCCESS
+BA_PO_SOURCE_ACCEPTANCE=PASS
 
-WAVE8_FOUNDATION=IMPLEMENTED_PENDING_QA
-CLUSTER_1_AUTH_HOME_PROFILE=IMPLEMENTED_PENDING_QA
-CLUSTER_2_OPERATIONS_BOOKINGS=IMPLEMENTED_PENDING_QA
-CLUSTER_3_APPROVALS_FINANCE_WORKFORCE=IMPLEMENTED_PENDING_QA
-CLUSTER_4_INVENTORY_ASSETS_ANALYTICS=IMPLEMENTED_PENDING_QA
-CLUSTER_5_BILLING_SECURITY=IMPLEMENTED_PENDING_QA
+SCREEN_ROWS_19_8_1_TO_19_8_12=ALL_ACCEPTED
+
+WAVE8_FOUNDATION=ACCEPTED
+CLUSTER_1_AUTH_HOME_PROFILE=ACCEPTED
+CLUSTER_2_OPERATIONS_BOOKINGS=ACCEPTED
+CLUSTER_3_APPROVALS_FINANCE_WORKFORCE=ACCEPTED
+CLUSTER_4_INVENTORY_ASSETS_ANALYTICS=ACCEPTED
+CLUSTER_5_BILLING_SECURITY=ACCEPTED
 
 NEW_BUSINESS_API=NO
 NEW_PERMISSION=NO
@@ -21,80 +27,163 @@ MIGRATION_CHANGED=NO
 SEED_CHANGED=NO
 STATE_MACHINE_CHANGED=NO
 
-WAVE8_SOURCE_CI=PENDING
-WAVE8_ACCEPTANCE=PENDING
-
 WAVE_9_STARTED=NO
+WAVE_9_AUTHORIZED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
-## Scope and implementation evidence
+The canonical source commit is `ed236b640e38b0162754b09179bf0def773021be`,
+validated by full CI run `31388572654`. The documentation commit created after
+this validation is not the source commit validated by that run.
 
-Wave 8 modernizes Owner Mobile from the checkpoint above. The implementation
-uses existing Auth Context, permission, branch, booking, operations, finance,
-workforce, inventory, procurement, asset, analytics, billing and security
-contracts. The additive Auth Context capability projection is
-`capabilities.ownerMobileEnabled`; it is a product entitlement signal and does
-not replace server authorization.
+## Accepted logical screens
 
-Foundation work includes login without a production tenant slug, memory-only
-workspace and MFA handoff state, SecureStore refresh-token handling, explicit
-logout cleanup, access-mode recovery navigation, authorized branch context,
-permission-aware route descriptors, stable command intent keys, version-conflict
-handling, and safe field projections for sensitive records. Financial,
-approval, payroll, procurement, asset and support mutations remain online-only
-and server-authoritative.
-
-## Authorized logical screens
-
-| ID | Logical screen | Route group | Offline writes | Current status |
+| ID | Screen | Route or route group | Scope and contract | Acceptance |
 | --- | --- | --- | --- | --- |
-| 19.8.1 | Owner home executive overview | `/` | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.2 | Today operations | `/operationalSummary`, `/walkInQueue`, `/appointmentsToday` | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.3 | Bookings, calendar and availability | `/appointments`, `/appointment`, `/calendarDay`, `/calendarWeek`, `/availability` | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.4 | Federated approval inbox | Existing owning-domain approval routes | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.5 | Financial overview | Existing financial/report routes | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.6 | Workforce and payroll | Existing workforce/payroll routes | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.7 | Inventory and procurement | Existing inventory/procurement routes | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.8 | Fixed assets | Existing asset routes | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.9 | Analytics and alerts | `/analyticsOverview`, `/analyticsBranches`, `/analyticsAlerts` | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.10 | SaaS billing | Existing tenant billing routes | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.11 | Support access and security | Existing support/session routes | DENIED | IMPLEMENTED_PENDING_QA |
-| 19.8.12 | Profile, auth and settings | `/profile`, `/workspace`, `/mfa` | DENIED | IMPLEMENTED_PENDING_QA |
+| 19.8.1 | Owner home executive overview | `/` | Effective permissions; tenant and authorized branches; partial card failure supported | ACCEPTED |
+| 19.8.2 | Today operations | `/operationalSummary`, `/walkInQueue`, `/appointmentsToday` | Server-authoritative operations and branch scope; offline writes denied | ACCEPTED |
+| 19.8.3 | Bookings, calendar and availability | `/appointments`, `/appointment`, `/calendarDay`, `/calendarWeek`, `/availability` | Server-checked appointment permission, calendar scope and availability | ACCEPTED |
+| 19.8.4 | Federated approval inbox | Existing owning-domain approval routes | Owning-domain permission, dual control, version conflict and stable intent | ACCEPTED |
+| 19.8.5 | Financial overview | Existing financial/report routes | Server-authoritative money, tenant/branch scope and sensitive-value permissions | ACCEPTED |
+| 19.8.6 | Workforce and payroll | Existing workforce/payroll routes | Payroll and payout privacy, permission-adaptive, offline mutation denied | ACCEPTED |
+| 19.8.7 | Inventory and procurement | Existing inventory/procurement routes | Branch scope, cost privacy, vendor-payment privacy, offline mutation denied | ACCEPTED |
+| 19.8.8 | Fixed assets | Existing asset routes | Server-authoritative asset economics and permission-gated financial fields | ACCEPTED |
+| 19.8.9 | Analytics and alerts | `/analyticsOverview`, `/analyticsBranches`, `/analyticsAlerts` | Server-authoritative metrics, freshness state and tenant/branch scope | ACCEPTED |
+| 19.8.10 | SaaS billing | Existing tenant billing routes | Subscription boundary separate from salon finance; recovery-safe access | ACCEPTED |
+| 19.8.11 | Support access and security | Existing support/session routes | Tenant-side grants only, dual control, expiry and audit | ACCEPTED |
+| 19.8.12 | Profile, auth and settings | `/profile`, `/workspace`, `/mfa` | Login, workspace selection, MFA, refresh, secure storage and logout | ACCEPTED |
 
-## Local gate status
+Every row is `TARGET_STATE=REDESIGNED`, `IMPLEMENTATION_STATE=API_BACKED`,
+`ACCEPTANCE_STATE=ACCEPTED`, with source
+`ed236b640e38b0162754b09179bf0def773021be` and CI `31388572654 / SUCCESS`.
 
-The affected static and build checks completed locally during implementation:
+## Auth, context and security closure
 
 ```text
-OWNER_MOBILE_TYPECHECK=PASS
-OWNER_MOBILE_LINT=PASS
-OWNER_MOBILE_BUILD=PASS
-API_TYPECHECK=PASS
-API_BUILD=PASS
-ADMIN_WEB_BUILD=PASS
-WAVE8_MOBILE_AND_CONTRACT_TESTS=PASS
-IDENTITY_AND_SESSION_INTEGRATION=PASS
-OWNER_MOBILE_VISUAL_E2E_LOCAL=PASS
-OWNER_MOBILE_VISUAL_REPEATABILITY=3/3_PASS
-METRO_SINGLE_REACT_RUNTIME=PASS
-SECURITY_SCAN=PASS
-SECURITY_EVIDENCE_LOCAL=BLOCKED_PNPM_AUDIT_SHAPE
-DOCKER_COMPOSE_RUNNING_SERVICES=0
+AUTH_CONTEXT=SERVER_AUTHORITATIVE
+OWNER_MOBILE_ENTITLEMENT=capabilities.ownerMobileEnabled
+ENTITLEMENT_IS_NOT_AUTHORIZATION=YES
+PRODUCTION_TENANT_LOGIN_HARDCODE=REMOVED
+REFRESH_TOKEN_SECURE_STORE=YES
+ACCESS_TOKEN_LONG_TERM_PERSISTENCE=NO
+WORKSPACE_HANDOFF=MEMORY_SAFE
+MFA_HANDOFF=MEMORY_SAFE
+LOGOUT_CLEANUP=PASS
+AUTHORIZED_BRANCH_CONTEXT=PASS
+CLIENT_BRANCH_SELECTION=UX_FILTER_ONLY
+SERVER_AUTHORIZATION=AUTHORITATIVE
+EFFECTIVE_PERMISSIONS=AUTHORITATIVE
+RAW_ARBITRARY_BRANCH_AUTHORIZATION=NO
+
+OFFLINE_READ_CACHE=ALLOWED_WHERE_EXISTING_QUERY_CACHE_SUPPORTS_IT
+OFFLINE_FINANCIAL_WRITE=DENIED
+OFFLINE_APPROVAL_WRITE=DENIED
+OFFLINE_PAYROLL_WRITE=DENIED
+OFFLINE_PROCUREMENT_WRITE=DENIED
+OFFLINE_ASSET_WRITE=DENIED
+OFFLINE_SUPPORT_WRITE=DENIED
+
+FINANCIAL_TOTALS=SERVER_AUTHORITATIVE
+PAYROLL=SERVER_AUTHORITATIVE
+PROCUREMENT=SERVER_AUTHORITATIVE
+ASSET_ECONOMICS=SERVER_AUTHORITATIVE
+ANALYTICS=SERVER_AUTHORITATIVE
+APPROVAL_LIFECYCLE=SERVER_AUTHORITATIVE
+
+PAYROLL_PRIVACY=PASS
+VENDOR_PAYMENT_PRIVACY=PASS
+ASSET_FINANCIAL_PRIVACY=PASS
+SUPPORT_ACCESS_SCOPE=PASS
+SENSITIVE_FIELD_PROJECTION=PASS
 ```
 
-These local results do not replace the required exact-source GitHub Actions
-quality, mobile contract, authenticated E2E and visual/accessibility lanes.
-The local `security:evidence` command completed secret/static checks but could
-not complete its dependency-audit adapter because the installed pnpm audit
-output did not contain the shape expected by the repository script. No
-security exception, dependency version, or workflow bypass was added; the CI
-supply-chain lane remains authoritative.
-Wave 8 must remain pending until those lanes pass on one final source commit.
+## Source chain and CI evidence
 
 ```text
-FINAL_WAVE_8_SOURCE_SHA=PENDING
-FINAL_WAVE_8_CI_RUN_ID=PENDING
-FINAL_WAVE_8_CI_CONCLUSION=PENDING
+WAVE8_IMPLEMENTATION_SHA=cf9a44776bbeea2c0115e36d5a3b3b1fbdfce1ca
+OWNER_MOBILE_PEER_LOCKFILE_SHA=fc5bacdb8e1d05d5504188cb1b4688ae80599dd5
+SPRINT5_OPERATIONS_FIXTURE_STABILIZATION_SHA=88a7f53751a09b5b8c6c4664979f6f05d290b81a
+SPRINT5_ADD_SERVICE_FIXTURE_STABILIZATION_SHA=babfaea6763bf46ff2f4c481b115e8c7508ac9a7
+SPRINT13_CLOSURE_DEADLOCK_HOTFIX_SHA=ed236b640e38b0162754b09179bf0def773021be
+TOTAL_COMMITS=5
+
+HOTFIX_CLASSIFICATION=CI_HARNESS_CONCURRENCY_REMEDIATION
+BUSINESS_LOGIC_CHANGED_BY_FINAL_HOTFIX=NO
+API_CHANGED_BY_FINAL_HOTFIX=NO
+STATE_MACHINE_CHANGED_BY_FINAL_HOTFIX=NO
+MIGRATION_CHANGED_BY_FINAL_HOTFIX=NO
+PERMISSION_CHANGED_BY_FINAL_HOTFIX=NO
+CI_EXECUTION_ORDER_CHANGED=YES
+
+FAILED_INTERMEDIATE_RUN_ID=31382247331
+FAILED_STEP_NUMBER=113
+FAILED_STEP=Sprint 13 closure authenticated E2E
+FAILURE=SQLSTATE_40P01_DEADLOCK
+FAILURE_CLASSIFICATION=CI_FIXTURE_WORKER_DB_RESET_RACE
+
+FINAL_SOURCE_CI_RUN=31388572654
+SPRINT13_CLOSURE_STEP_113=SUCCESS
+SPRINT13_CLOSURE_DEADLOCK_HOTFIX=PASS
+QUALITY_JOB=SUCCESS
+VISUAL_JOB=SUCCESS
+WAVE8_AUTH_CONTRACT=SUCCESS
+WAVE8_OWNER_MOBILE_E2E=SUCCESS
+WAVE8_VISUAL_E2E=SUCCESS
+SPRINT18_SUPPLY_CHAIN=SUCCESS
+```
+
+The final visual chain is green for Wave 0 through Wave 8. The Wave 8 visual
+job includes the Owner Mobile build, web startup, visual/accessibility E2E and
+successful teardown. Failure-evidence upload steps were skipped on success as
+expected; they were not test skips.
+
+```text
+WAVE0_VISUAL=SUCCESS
+WAVE1_VISUAL=SUCCESS
+WAVE2_VISUAL=SUCCESS
+WAVE3_VISUAL=SUCCESS
+WAVE4_VISUAL=SUCCESS
+WAVE5_VISUAL=SUCCESS
+WAVE6_VISUAL=SUCCESS
+WAVE7_VISUAL=SUCCESS
+WAVE8_VISUAL=SUCCESS
+
+BUILD_API=SUCCESS
+BUILD_WORKER=SUCCESS
+BUILD_ADMIN_WEB=SUCCESS
+BUILD_BOOKING_WEB=SUCCESS
+BUILD_OWNER_MOBILE=SUCCESS
+BUILD_STAFF_MOBILE=SUCCESS
+STOP_CONTAINERS=SUCCESS
+```
+
+The local security-evidence adapter limitation is retained as a
+`NON_BLOCKING_LOCAL_TOOLING_NOTE`; the authoritative CI supply-chain gate is
+`SUCCESS`. No security exception was modified.
+
+```text
+LOCAL_SECURITY_EVIDENCE_ADAPTER_LIMITATION=NON_BLOCKING_LOCAL_TOOLING_NOTE
+AUTHORITATIVE_CI_SUPPLY_CHAIN_GATE=SUCCESS
+SECURITY_EXCEPTION_CHANGED=NO
+SECURITY_EXCEPTION_ID=SEC-2026-IMAGE-SIZE-METRO
+```
+
+## Final state and handoff
+
+```text
+SPRINT_19_STATUS=IN_PROGRESS
+WAVE_8_STATUS=COMPLETED
+WAVE_9_STARTED=NO
+WAVE_9_AUTHORIZED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+
+DOCUMENTATION_ONLY=YES
+DOCUMENTATION_FILES_CHANGED=3
+DOCUMENTATION_COMMIT_SHA=RECORDED_IN_GIT_AFTER_THIS_UPDATE
+DOCS_ONLY_CI_DOES_NOT_REPLACE_SOURCE_CI=YES
+SOURCE_CI_REMAINS=31388572654
+CURRENT_PHASE=Wave 8 accepted against source CI; Wave 9 not authorized
+NEXT_ACTION=WAIT_FOR_WAVE_9_AUTHORIZATION
 ```

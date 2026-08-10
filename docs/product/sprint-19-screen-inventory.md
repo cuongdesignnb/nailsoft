@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 8 implementation in progress; Wave 9 not authorized
+Current phase: Wave 8 accepted against source CI; Wave 9 not authorized
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -104,39 +104,94 @@ SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
-## Wave 8 — Owner Mobile implementation ledger
+## Wave 8 — Owner Mobile (accepted)
 
-Wave 8 starts from `0ed88c936c9e6ecd8220a5e8b2d214beb337f15a`. The authorized
-Owner Mobile work is implementation-only until exact source CI is available;
-no row below is accepted yet. The twelve logical screens map to existing Expo
-Router route groups and authenticated API contracts. No new business API,
-permission, migration or seed change is part of this phase.
+Wave 8 starts from `0ed88c936c9e6ecd8220a5e8b2d214beb337f15a`. Final source
+validation is commit `ed236b640e38b0162754b09179bf0def773021be`, validated by
+full CI run `31388572654` with conclusion `SUCCESS`. The documentation commit
+created after this validation is not the source commit validated by run
+`31388572654`. The twelve logical screens map to existing Expo Router route
+groups and authenticated API contracts. No new business API, permission,
+migration or seed change is part of this phase.
 
 | ID | Screen | Route group | Permission / scope | API dependency | Required states | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 19.8.1 | Owner home executive overview | `/` | Effective read permissions; tenant/authorized branch | Federated operations, finance, payroll and analytics reads | loading, ready, partial, error, forbidden, stale | IMPLEMENTED_PENDING_QA |
-| 19.8.2 | Today operations | `/operationalSummary`, `/walkInQueue`, `/appointmentsToday` | Operations/walk-in/appointment read; branch | Operations summary, queue and appointments | loading, ready, empty, partial, retry, offline read | IMPLEMENTED_PENDING_QA |
-| 19.8.3 | Bookings, calendar and availability | `/appointments`, `/appointment`, `/calendarDay`, `/calendarWeek`, `/availability` | Appointment/calendar/availability read; branch | Appointment, calendar, availability and block APIs | loading, ready, forbidden, conflict, retry | IMPLEMENTED_PENDING_QA |
-| 19.8.4 | Federated approval inbox | Approval route groups | Owning-domain approval permissions; branch | Refund, loyalty, campaign, workforce, procurement and asset APIs | loading, empty, submitting, conflict, forbidden | IMPLEMENTED_PENDING_QA |
-| 19.8.5 | Financial overview | Financial route groups | Financial/report read; tenant/branch | Financial, refund, commission, benefit and stored-value reads | loading, ready, partial, privacy, stale | IMPLEMENTED_PENDING_QA |
-| 19.8.6 | Workforce and payroll | Workforce route groups | Timesheet/payroll/payout permissions; branch | Attendance, timesheet, payroll and payout APIs | loading, empty, forbidden, conflict, retry | IMPLEMENTED_PENDING_QA |
-| 19.8.7 | Inventory and procurement | Inventory/procurement route groups | Inventory/procurement permissions; branch | Stock, valuation, purchase, AP and vendor payment reads | loading, empty, privacy, forbidden, conflict | IMPLEMENTED_PENDING_QA |
-| 19.8.8 | Fixed assets | Asset route groups | Asset permissions; branch | Register, capitalization, maintenance, transfer and disposal reads | loading, empty, privacy, forbidden, conflict | IMPLEMENTED_PENDING_QA |
-| 19.8.9 | Analytics and alerts | `/analyticsOverview`, `/analyticsBranches`, `/analyticsAlerts` | Analytics permissions; tenant/branch | Command center, comparison and alert APIs | loading, ready, stale, degraded, forbidden | IMPLEMENTED_PENDING_QA |
-| 19.8.10 | SaaS billing | Billing route groups | `tenant.billing.read`; tenant | Subscription, entitlement, invoice and warning APIs | loading, ready, recovery-safe, forbidden | IMPLEMENTED_PENDING_QA |
-| 19.8.11 | Support access and security | Support/session route groups | Support grant, session and organization permissions; tenant | Support grants, sessions, organization, branches and invitations | loading, empty, dual-control, forbidden, conflict | IMPLEMENTED_PENDING_QA |
-| 19.8.12 | Profile, auth and settings | `/profile`, `/workspace`, `/mfa` | User/session/workspace/MFA permissions; user | Auth context, session, MFA and logout contracts | login, workspace, MFA, enrollment, authenticated, expired | IMPLEMENTED_PENDING_QA |
+| 19.8.1 | Owner home executive overview | `/` | Effective read permissions; tenant/authorized branch | Federated operations, finance, payroll and analytics reads | loading, ready, partial, error, forbidden, stale | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.2 | Today operations | `/operationalSummary`, `/walkInQueue`, `/appointmentsToday` | Operations/walk-in/appointment read; branch | Operations summary, queue and appointments | loading, ready, empty, partial, retry, offline read | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.3 | Bookings, calendar and availability | `/appointments`, `/appointment`, `/calendarDay`, `/calendarWeek`, `/availability` | Appointment/calendar/availability read; branch | Appointment, calendar, availability and block APIs | loading, ready, forbidden, conflict, retry | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.4 | Federated approval inbox | Approval route groups | Owning-domain approval permissions; branch | Refund, loyalty, campaign, workforce, procurement and asset APIs | loading, empty, submitting, conflict, forbidden | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.5 | Financial overview | Financial route groups | Financial/report read; tenant/branch | Financial, refund, commission, benefit and stored-value reads | loading, ready, partial, privacy, stale | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.6 | Workforce and payroll | Workforce route groups | Timesheet/payroll/payout permissions; branch | Attendance, timesheet, payroll and payout APIs | loading, empty, forbidden, conflict, retry | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.7 | Inventory and procurement | Inventory/procurement route groups | Inventory/procurement permissions; branch | Stock, valuation, purchase, AP and vendor payment reads | loading, empty, privacy, forbidden, conflict | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.8 | Fixed assets | Asset route groups | Asset permissions; branch | Register, capitalization, maintenance, transfer and disposal reads | loading, empty, privacy, forbidden, conflict | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.9 | Analytics and alerts | `/analyticsOverview`, `/analyticsBranches`, `/analyticsAlerts` | Analytics permissions; tenant/branch | Command center, comparison and alert APIs | loading, ready, stale, degraded, forbidden | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.10 | SaaS billing | Billing route groups | `tenant.billing.read`; tenant | Subscription, entitlement, invoice and warning APIs | loading, ready, recovery-safe, forbidden | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.11 | Support access and security | Support/session route groups | Support grant, session and organization permissions; tenant | Support grants, sessions, organization, branches and invitations | loading, empty, dual-control, forbidden, conflict | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
+| 19.8.12 | Profile, auth and settings | `/profile`, `/workspace`, `/mfa` | User/session/workspace/MFA permissions; user | Auth context, session, MFA and logout contracts | login, workspace, MFA, enrollment, authenticated, expired | REDESIGNED / API_BACKED / ACCEPTED; source `ed236b64`; CI `31388572654` |
 
 ```text
 WAVE_8_START_CHECKPOINT=0ed88c936c9e6ecd8220a5e8b2d214beb337f15a
 WAVE_8_SCREEN_ROWS=19.8.1_TO_19.8.12
-WAVE_8_STATUS=IN_PROGRESS
-WAVE_8_SOURCE_CI=PENDING
-WAVE_8_ACCEPTANCE=PENDING
+WAVE_8_STATUS=COMPLETED
+WAVE_8_SOURCE_SHA=ed236b640e38b0162754b09179bf0def773021be
+WAVE_8_SOURCE_CI_RUN_ID=31388572654
+WAVE_8_SOURCE_CI_CONCLUSION=SUCCESS
+WAVE_8_SOURCE_CI=SUCCESS
+WAVE_8_ACCEPTANCE=PASS
+SCREEN_ROWS_19_8_1_TO_19_8_12=ALL_ACCEPTED
 WAVE_9_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
+
+```text
+AUTH_CONTEXT=SERVER_AUTHORITATIVE
+OWNER_MOBILE_ENTITLEMENT=capabilities.ownerMobileEnabled
+ENTITLEMENT_IS_NOT_AUTHORIZATION=YES
+PRODUCTION_TENANT_LOGIN_HARDCODE=REMOVED
+REFRESH_TOKEN_SECURE_STORE=YES
+ACCESS_TOKEN_LONG_TERM_PERSISTENCE=NO
+WORKSPACE_HANDOFF=MEMORY_SAFE
+MFA_HANDOFF=MEMORY_SAFE
+LOGOUT_CLEANUP=PASS
+AUTHORIZED_BRANCH_CONTEXT=PASS
+CLIENT_BRANCH_SELECTION=UX_FILTER_ONLY
+SERVER_AUTHORIZATION=AUTHORITATIVE
+EFFECTIVE_PERMISSIONS=AUTHORITATIVE
+OFFLINE_FINANCIAL_WRITE=DENIED
+OFFLINE_APPROVAL_WRITE=DENIED
+OFFLINE_PAYROLL_WRITE=DENIED
+OFFLINE_PROCUREMENT_WRITE=DENIED
+OFFLINE_ASSET_WRITE=DENIED
+OFFLINE_SUPPORT_WRITE=DENIED
+FINANCIAL_TOTALS=SERVER_AUTHORITATIVE
+PAYROLL=SERVER_AUTHORITATIVE
+PROCUREMENT=SERVER_AUTHORITATIVE
+ASSET_ECONOMICS=SERVER_AUTHORITATIVE
+ANALYTICS=SERVER_AUTHORITATIVE
+APPROVAL_LIFECYCLE=SERVER_AUTHORITATIVE
+PAYROLL_PRIVACY=PASS
+VENDOR_PAYMENT_PRIVACY=PASS
+ASSET_FINANCIAL_PRIVACY=PASS
+SUPPORT_ACCESS_SCOPE=PASS
+SENSITIVE_FIELD_PROJECTION=PASS
+```
+
+The final hotfix commit `ed236b640e38b0162754b09179bf0def773021be` is a
+`CI_HARNESS_CONCURRENCY_REMEDIATION`, not a product or business change. It
+keeps the durable Worker paused before the Sprint 13 closure database reset,
+preventing the Worker/DB-reset race. The previous run `31382247331` failed at
+step 113 with `SQLSTATE_40P01_DEADLOCK`; it is retained as triage history and
+is not acceptance evidence. The final run validated steps 112 and 113 as
+`SUCCESS`.
+
+The final visual and quality gates were successful for Wave 0 through Wave 8,
+including the Owner Mobile route/permission contract, authenticated E2E,
+visual/accessibility E2E, all six application builds and container teardown.
+The local security evidence adapter limitation is a non-blocking local
+tooling note; the authoritative CI supply-chain gate is `SUCCESS`. The
+documentation commit created after this validation is not the source commit
+validated by run `31388572654`.
 
 | ID | Screen | App | Route | Persona | Permission and scope | API dependency | States | Breakpoints | Evidence / status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -196,7 +251,7 @@ is not the source commit validated by that CI run.
 | 19.2.18 | Tip and commission reversal evidence | Admin Web | `/admin/commission`, `/admin/commission/adjustments` | Manager, Owner, Accountant | commission read/adjustment permissions | commission entries/adjustments | loading, empty, approval, forbidden | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
 
 The following route families remain planned for later waves. Wave 2 and Wave 4
-rows above are accepted; Wave 8 is now in implementation and Wave 9 remains
+rows above are accepted; Wave 8 is accepted against source CI and Wave 9 remains
 unauthorized.
 
 | Wave | Route family | Screen IDs | Primary personas | Permission examples |
@@ -495,7 +550,7 @@ WAVE_7_SOURCE_CI_CONCLUSION=SUCCESS
 SCREEN_ROWS_19_7_1_TO_19_7_13=ALL_ACCEPTED
 BA_PO_WAVE_7_ACCEPTANCE=PASS
 WAVE_8_STARTED=YES
-WAVE_8_STATUS=IN_PROGRESS
+WAVE_8_STATUS=COMPLETED
 WAVE_9_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO

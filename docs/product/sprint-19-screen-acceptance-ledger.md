@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 8 implementation in progress; Wave 9 not authorized
+Current phase: Wave 8 accepted against source CI; Wave 9 not authorized
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -540,42 +540,91 @@ WAVE_7_STATUS=COMPLETED
 BA_PO_WAVE_7_ACCEPTANCE=PASS
 SCREEN_ROWS_19_7_1_TO_19_7_13=ALL_ACCEPTED
 WAVE_8_STARTED=YES
-WAVE_8_STATUS=IN_PROGRESS
+WAVE_8_STATUS=COMPLETED
 WAVE_9_STARTED=NO
 
-## Wave 8 implementation ledger — Owner Mobile
+## Wave 8 acceptance — Owner Mobile
 
 Start checkpoint: `0ed88c936c9e6ecd8220a5e8b2d214beb337f15a`.
 
-The following twelve logical screens are implemented against existing
-authenticated APIs and permission contracts. They remain
-`IMPLEMENTED_PENDING_QA` until a full CI run validates the exact source
-commit. No new business API, permission, migration or seed change is included
-in this phase.
+The following twelve logical screens are accepted against existing
+authenticated APIs and permission contracts. Final source validation is commit
+`ed236b640e38b0162754b09179bf0def773021be`, validated by full CI run
+`31388572654` with conclusion `SUCCESS`. The documentation commit created
+after this validation is not the source commit validated by run `31388572654`.
+No new business API, permission, migration or seed change is included in this
+phase.
 
 | ID | Route / logical surface | Persona | Permission and scope | API / evidence | Required states and QA | Source commit | CI | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19.8.1 | `/` executive overview | Salon Owner | Effective read permissions; tenant/authorized branch | Federated operations, finance, payroll and analytics reads | loading, ready, partial, error, forbidden, stale, i18n | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.2 | Operations summary, walk-in queue, appointments today | Salon Owner | Operations/walk-in/appointment read; branch | Operations, walk-in and appointment APIs | loading, ready, empty, partial, retry, offline read | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.3 | Bookings, calendar and availability | Salon Owner | Appointment/calendar/availability read; branch | Appointment, calendar, availability and block APIs | loading, ready, forbidden, conflict, retry, responsive | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.4 | Federated approval inbox | Salon Owner | Owning-domain approval permissions; branch | Refund, loyalty, campaign, workforce, procurement and asset APIs | loading, empty, submitting, version conflict, idempotency, forbidden | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.5 | Financial overview | Salon Owner | Financial/report read; tenant/branch | Financial, refund, commission, benefit and stored-value reads | server-authoritative money, partial, stale, privacy, forbidden | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.6 | Workforce and payroll | Salon Owner | Timesheet/payroll/payout permissions; branch | Attendance, timesheet, payroll and payout APIs | privacy, loading, empty, conflict, no offline mutation | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.7 | Inventory and procurement | Salon Owner | Inventory/procurement permissions; branch | Stock, valuation, purchase, AP and vendor payment APIs | cost privacy, loading, empty, conflict, no offline mutation | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.8 | Fixed assets | Salon Owner | Asset permissions; branch | Register, capitalization, maintenance, transfer and disposal APIs | economics permission gate, loading, empty, conflict | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.9 | Analytics and alerts | Salon Owner | Analytics permissions; tenant/branch | Command center, comparison and alert APIs | freshness, stale/degraded, loading, forbidden | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.10 | SaaS billing | Salon Owner | `tenant.billing.read`; tenant | Subscription, entitlement, invoice and warning APIs | recovery-safe billing-only mode, loading, forbidden | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.11 | Support access and security | Salon Owner | Support grant/session/organization permissions; tenant | Support grants, sessions, organization, branches, invitations | dual control, expiry, audit, forbidden, conflict | pending | PENDING | IMPLEMENTED_PENDING_QA |
-| 19.8.12 | Profile, auth and settings | Salon Owner | User/session/workspace/MFA permissions; user | Auth context, sessions, MFA and logout contracts | login, workspace, MFA, enrollment, logout, expiry | pending | PENDING | IMPLEMENTED_PENDING_QA |
+| 19.8.1 | `/` executive overview | Salon Owner | Effective read permissions; tenant/authorized branch | Federated operations, finance, payroll and analytics reads | loading, ready, partial, error, forbidden, stale, i18n | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.2 | Operations summary, walk-in queue, appointments today | Salon Owner | Operations/walk-in/appointment read; branch | Operations, walk-in and appointment APIs | loading, ready, empty, partial, retry, offline read | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.3 | Bookings, calendar and availability | Salon Owner | Appointment/calendar/availability read; branch | Appointment, calendar, availability and block APIs | loading, ready, forbidden, conflict, retry, responsive | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.4 | Federated approval inbox | Salon Owner | Owning-domain approval permissions; branch | Refund, loyalty, campaign, workforce, procurement and asset APIs | loading, empty, submitting, version conflict, idempotency, forbidden | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.5 | Financial overview | Salon Owner | Financial/report read; tenant/branch | Financial, refund, commission, benefit and stored-value reads | server-authoritative money, partial, stale, privacy, forbidden | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.6 | Workforce and payroll | Salon Owner | Timesheet/payroll/payout permissions; branch | Attendance, timesheet, payroll and payout APIs | privacy, loading, empty, conflict, no offline mutation | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.7 | Inventory and procurement | Salon Owner | Inventory/procurement permissions; branch | Stock, valuation, purchase, AP and vendor payment APIs | cost privacy, loading, empty, conflict, no offline mutation | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.8 | Fixed assets | Salon Owner | Asset permissions; branch | Register, capitalization, maintenance, transfer and disposal APIs | economics permission gate, loading, empty, conflict | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.9 | Analytics and alerts | Salon Owner | Analytics permissions; tenant/branch | Command center, comparison and alert APIs | freshness, stale/degraded, loading, forbidden | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.10 | SaaS billing | Salon Owner | `tenant.billing.read`; tenant | Subscription, entitlement, invoice and warning APIs | recovery-safe billing-only mode, loading, forbidden | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.11 | Support access and security | Salon Owner | Support grant/session/organization permissions; tenant | Support grants, sessions, organization, branches, invitations | dual control, expiry, audit, forbidden, conflict | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
+| 19.8.12 | Profile, auth and settings | Salon Owner | User/session/workspace/MFA permissions; user | Auth context, sessions, MFA and logout contracts | login, workspace, MFA, enrollment, logout, expiry | `ed236b640e38b0162754b09179bf0def773021be` | `31388572654 / SUCCESS` | ACCEPTED |
 
 ```text
 WAVE_8_START_CHECKPOINT=0ed88c936c9e6ecd8220a5e8b2d214beb337f15a
-SCREEN_ROWS_19_8_1_TO_19_8_12=IMPLEMENTED_PENDING_QA
-WAVE_8_SOURCE_CI=PENDING
-WAVE_8_ACCEPTANCE=PENDING
+SCREEN_ROWS_19_8_1_TO_19_8_12=ALL_ACCEPTED
+WAVE_8_SOURCE_SHA=ed236b640e38b0162754b09179bf0def773021be
+WAVE_8_SOURCE_CI_RUN_ID=31388572654
+WAVE_8_SOURCE_CI_CONCLUSION=SUCCESS
+WAVE_8_SOURCE_CI=SUCCESS
+WAVE_8_STATUS=COMPLETED
+BA_PO_WAVE_8_ACCEPTANCE=PASS
 WAVE_9_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
-SPRINT_20_STARTED=NO
+
+```text
+AUTH_CONTEXT=SERVER_AUTHORITATIVE
+OWNER_MOBILE_ENTITLEMENT=capabilities.ownerMobileEnabled
+ENTITLEMENT_IS_NOT_AUTHORIZATION=YES
+PRODUCTION_TENANT_LOGIN_HARDCODE=REMOVED
+REFRESH_TOKEN_SECURE_STORE=YES
+ACCESS_TOKEN_LONG_TERM_PERSISTENCE=NO
+WORKSPACE_HANDOFF=MEMORY_SAFE
+MFA_HANDOFF=MEMORY_SAFE
+LOGOUT_CLEANUP=PASS
+AUTHORIZED_BRANCH_CONTEXT=PASS
+CLIENT_BRANCH_SELECTION=UX_FILTER_ONLY
+SERVER_AUTHORIZATION=AUTHORITATIVE
+EFFECTIVE_PERMISSIONS=AUTHORITATIVE
+OFFLINE_FINANCIAL_WRITE=DENIED
+OFFLINE_APPROVAL_WRITE=DENIED
+OFFLINE_PAYROLL_WRITE=DENIED
+OFFLINE_PROCUREMENT_WRITE=DENIED
+OFFLINE_ASSET_WRITE=DENIED
+OFFLINE_SUPPORT_WRITE=DENIED
+FINANCIAL_TOTALS=SERVER_AUTHORITATIVE
+PAYROLL=SERVER_AUTHORITATIVE
+PROCUREMENT=SERVER_AUTHORITATIVE
+ASSET_ECONOMICS=SERVER_AUTHORITATIVE
+ANALYTICS=SERVER_AUTHORITATIVE
+APPROVAL_LIFECYCLE=SERVER_AUTHORITATIVE
+PAYROLL_PRIVACY=PASS
+VENDOR_PAYMENT_PRIVACY=PASS
+ASSET_FINANCIAL_PRIVACY=PASS
+SUPPORT_ACCESS_SCOPE=PASS
+SENSITIVE_FIELD_PROJECTION=PASS
 ```
+
+The final hotfix `ed236b640e38b0162754b09179bf0def773021be` is classified as
+`CI_HARNESS_CONCURRENCY_REMEDIATION`; it changed CI execution order only and
+did not change business logic, API, state machines, migrations or permissions.
+Run `31382247331` remains historical triage evidence: step 113 failed with
+`SQLSTATE_40P01_DEADLOCK` because a durable Worker raced the database reset.
+The final run `31388572654` validated steps 112 and 113 successfully.
+
+Wave 0 through Wave 8 visual lanes, the Wave 8 route/permission contract,
+authenticated Owner Mobile E2E, all six builds, Sprint 18 supply-chain gate and
+container teardown are `SUCCESS`. Any local security-evidence adapter note is
+non-blocking tooling context; CI supply-chain evidence is authoritative.
