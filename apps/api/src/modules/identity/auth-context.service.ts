@@ -9,7 +9,7 @@ export class AuthContextService {
 
   async get(auth: AccessClaims): Promise<AuthContext> {
     const platformWithoutGrant = auth.roles.includes("PLATFORM_SUPER_ADMIN") && !auth.supportAccess;
-    const [identity, workspace, permissionRows] = await Promise.all([
+    const [identity, workspace, permissionRows, capability] = await Promise.all([
       this.db.query<{ id: string; display_name: string; locale: "vi-VN" | "en-US" }>(
         'SELECT id,display_name,locale FROM users WHERE id=$1', [auth.userId],
       ),
@@ -25,6 +25,11 @@ export class AuthContextService {
              JOIN role_permissions rp ON rp.role=mr.role
              WHERE mr.membership_id=$1 ORDER BY rp.permission_code`, [auth.membershipId],
           ),
+      this.db.query<{ enabled: boolean | null }>(
+        `SELECT enabled FROM platform_entitlement_projections
+         WHERE tenant_id=$1 AND entitlement_code='owner_mobile.enabled'`,
+        [auth.tenantId],
+      ),
     ]);
     const user = identity.rows[0]!;
     const current = workspace.rows[0]!;
@@ -56,6 +61,9 @@ export class AuthContextService {
         ...(auth.ownStaffId ? { ownStaffId: auth.ownStaffId } : {}),
       },
       branches,
+      capabilities: {
+        ownerMobileEnabled: !platformWithoutGrant && capability.rows[0]?.enabled === true,
+      },
       ...(auth.supportAccess ? { supportAccess: { grantId: auth.supportAccess.grantId, permissions: auth.supportAccess.permissions, branchIds: auth.supportAccess.branchIds } } : {}),
     };
   }

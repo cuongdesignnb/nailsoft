@@ -1,96 +1,26 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { Link, useLocalSearchParams } from "expo-router";
+import { Link, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { io } from "socket.io-client";
-import {
-  ActivityIndicator,
-  Button,
-  SafeAreaView,
-  ScrollView,
-  Text,
-  View,
-} from "react-native";
-import { api, apiFetch, getSession } from "../lib/session";
+import { useQuery } from "@tanstack/react-query";
+import { NativeButton, NativeStatePanel } from "@nailsoft/ui-native";
+import { tokens } from "@nailsoft/design-tokens";
+import { api, apiFetch, getAuthContext, getSession } from "../lib/session";
+import { getActiveBranchId, getOwnerBranchContext, selectActiveBranch, syncBranchContext } from "../lib/wave8/branch-context";
+import { accessModeAllowsRoute, canReadRoute, routeDescriptor } from "../lib/wave8/permissions";
+import { useIntentKey } from "../lib/wave8/intent-key";
+import { displayRecordValue, safeRecord } from "../lib/wave8/privacy";
+import { formatMinor } from "../lib/wave8/formatters";
+import { logoutOwner } from "../lib/wave8/auth-flow";
+import { useQueryClient } from "@tanstack/react-query";
 
-const branch = "20000000-0000-4000-8000-000000000001",
-  service = "50000000-0000-4000-8000-000000000001";
-const titles: Record<string, string> = {
-  analyticsOverview: "Business intelligence overview",
-  analyticsBranches: "Branch comparison",
-  analyticsAlerts: "Analytics alerts",
-  appointmentsToday: "Appointments today",
-  appointments: "Appointment list",
-  appointment: "Appointment detail",
-  organization: "Organization summary",
-  branches: "Branch list",
-  team: "Team list",
-  sessions: "Active sessions",
-  profile: "Profile",
-  services: "Service summary",
-  service: "Service detail",
-  staff: "Staff list",
-  staffDetail: "Staff detail",
-  shifts: "Shift summary",
-  leave: "Pending leave requests",
-  leaveReview: "Review leave request",
-  calendarDay: "Calendar day",
-  calendarWeek: "Calendar week",
-  availability: "Availability",
-  explain: "Availability explain",
-  blocks: "Busy blocks",
-  createBlock: "Create manual block",
-  operationalSummary: "Operational summary",
-  walkInQueue: "Walk-in queue",
-  financialSummary: "Today financial summary",
-  pendingRefunds: "Pending refund approvals",
-  refundTotals: "Refund totals",
-  commissionPeriods: "Commission period summary",
-  commissionReadiness: "Commission lock readiness",
-  benefitSummary: "Customer benefit summary",
-  benefitLiability: "Benefit liability",
-  voucherUsage: "Voucher effectiveness",
-  membershipCounts: "Membership counts",
-  pendingLoyaltyAdjustments: "Pending loyalty adjustments",
-  expiringBenefits: "Expiring customer benefits",
-  inventoryLowStock: "Low-stock inventory",
-  inventoryExpiry: "Expiring inventory lots",
-  inventoryApprovals: "Purchase order approvals",
-  inventoryVariances: "Inventory variances",
-  inventoryValuation: "Inventory valuation",
-  storedValueLiability: "Stored-value liability",
-  storedValueIssuance: "Gift-card issuance",
-  storedValueRedemption: "Stored-value redemption",
-  customerCreditOutstanding: "Customer credit outstanding",
-  storedValueApprovals: "Pending credit adjustments",
-  storedValueExceptions: "Stored-value reconciliation exceptions",
-  campaignApprovals: "Campaign approvals",
-  lowRatingAlerts: "Low-rating alerts",
-  recoverySla: "Recovery and SLA",
-  compensationApprovals: "Compensation approvals",
-  attendanceSummary: "Attendance summary",
-  missingPunchAlerts: "Missing punch alerts",
-  timesheetApprovals: "Timesheet approvals",
-  payrollApprovals: "Payroll approvals and finalization",
-  payoutApprovals: "Payout approvals",
-  payrollFailures: "Payroll and payout exceptions",
-  billingPlan: "Nailsoft plan and status",
-  billingQuotas: "Plan usage and quotas",
-  billingInvoices: "Platform invoices",
-  billingWarnings: "Billing and payment warning",
-  supportAccess: "Support access grants",
-  procurementVendors: "Procurement vendors",
-  procurementRequests: "Purchase requests",
-  procurementOrders: "Purchase orders",
-  procurementBills: "Vendor bills and three-way match",
-  procurementAp: "Accounts payable aging",
-  procurementPayments: "Vendor payment approvals",
-  assetSummary: "Fixed asset summary",
-  assetApprovals: "Asset approvals",
-  assetMaintenance: "Maintenance due",
-  assetTransfers: "Asset transfers",
-  assetDisposals: "Disposal approvals",
-};
-function endpoint(screen: string, id?: string) {
+const today = () => new Date().toISOString().slice(0, 10);
+const tomorrow = () => new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+const monthAgo = () => new Date(Date.now() - 31 * 86_400_000).toISOString().slice(0, 10);
+const monthAhead = () => new Date(Date.now() + 31 * 86_400_000).toISOString().slice(0, 10);
+
+export function endpoint(screen: string, id?: string, branchId?: string, serviceId?: string) {
+  const branch = branchId ? `branchId=${encodeURIComponent(branchId)}` : "";
   if (screen === "analyticsOverview") return "/v1/analytics/command-center";
   if (screen === "analyticsBranches") return "/v1/analytics/branches/compare";
   if (screen === "analyticsAlerts") return "/v1/analytics/alerts";
@@ -99,8 +29,7 @@ function endpoint(screen: string, id?: string) {
   if (screen === "assetMaintenance") return "/v1/assets/reports/maintenance-due";
   if (screen === "assetTransfers") return "/v1/assets/transfers";
   if (screen === "assetDisposals") return "/v1/assets/disposals";
-  if (screen === "billingPlan" || screen === "billingWarnings")
-    return "/v1/tenant/billing/subscription";
+  if (screen === "billingPlan" || screen === "billingWarnings") return "/v1/tenant/billing/subscription";
   if (screen === "billingQuotas") return "/v1/tenant/billing/entitlements";
   if (screen === "billingInvoices") return "/v1/tenant/billing/invoices";
   if (screen === "supportAccess") return "/v1/tenant/support-access-grants";
@@ -116,667 +45,169 @@ function endpoint(screen: string, id?: string) {
   if (screen === "payrollApprovals") return "/v1/payroll/runs";
   if (screen === "payoutApprovals") return "/v1/payout-batches";
   if (screen === "payrollFailures") return "/v1/payroll/reports/exceptions";
-  if (screen === "operationalSummary")
-    return `/v1/operations/summary?branchId=${branch}`;
-  if (screen === "walkInQueue") return `/v1/walk-ins?branchId=${branch}`;
-  if (screen === "financialSummary")
-    return `/v1/financial/summary?branchId=${branch}`;
-  if (screen === "pendingRefunds")
-    return `/v1/refunds?branchId=${branch}&status=PENDING_APPROVAL`;
-  if (screen === "refundTotals")
-    return `/v1/financial/refunds?branchId=${branch}`;
-  if (screen === "commissionPeriods" || screen === "commissionReadiness")
-    return "/v1/commission-periods";
-  if (screen === "benefitSummary" || screen === "benefitLiability")
-    return "/v1/benefits/reports/liability";
+  if (screen === "operationalSummary") return `/v1/operations/summary?${branch}`;
+  if (screen === "walkInQueue") return `/v1/walk-ins?${branch}`;
+  if (screen === "financialSummary") return `/v1/financial/summary?${branch}`;
+  if (screen === "pendingRefunds") return branchId ? `/v1/refunds?branchId=${encodeURIComponent(branchId)}&status=PENDING_APPROVAL` : null;
+  if (screen === "refundTotals") return branchId ? `/v1/financial/refunds?branchId=${encodeURIComponent(branchId)}` : null;
+  if (screen === "commissionPeriods" || screen === "commissionReadiness") return "/v1/commission-periods";
+  if (screen === "benefitSummary" || screen === "benefitLiability") return "/v1/benefits/reports/liability";
   if (screen === "voucherUsage") return "/v1/benefits/reports/vouchers";
   if (screen === "membershipCounts") return "/v1/benefits/reports/membership";
   if (screen === "pendingLoyaltyAdjustments") return "/v1/loyalty-adjustments";
   if (screen === "expiringBenefits") return "/v1/benefits/reports/expiring";
-  if (screen === "inventoryLowStock" || screen === "inventoryExpiry")
-    return `/v1/inventory/alerts?branchId=${branch}`;
-  if (screen === "inventoryApprovals")
-    return `/v1/inventory/purchase-orders?branchId=${branch}`;
-  if (screen === "inventoryVariances")
-    return `/v1/inventory/adjustments?branchId=${branch}`;
-  if (screen === "inventoryValuation")
-    return `/v1/inventory/reports/valuation?branchId=${branch}`;
-  if (screen === "storedValueLiability")
-    return "/v1/stored-value/reports/liability";
-  if (screen === "storedValueIssuance")
-    return "/v1/stored-value/reports/issuance";
-  if (screen === "storedValueRedemption")
-    return "/v1/stored-value/reports/redemption";
-  if (screen === "customerCreditOutstanding")
-    return "/v1/stored-value/reports/customer-credit";
+  if (screen === "inventoryLowStock" || screen === "inventoryExpiry") return `/v1/inventory/alerts?${branch}`;
+  if (screen === "inventoryApprovals") return `/v1/inventory/purchase-orders?${branch}`;
+  if (screen === "inventoryVariances") return `/v1/inventory/adjustments?${branch}`;
+  if (screen === "inventoryValuation") return `/v1/inventory/reports/valuation?${branch}`;
+  if (screen === "storedValueLiability") return "/v1/stored-value/reports/liability";
+  if (screen === "storedValueIssuance") return "/v1/stored-value/reports/issuance";
+  if (screen === "storedValueRedemption") return "/v1/stored-value/reports/redemption";
+  if (screen === "customerCreditOutstanding") return "/v1/stored-value/reports/customer-credit";
   if (screen === "storedValueApprovals") return "/v1/stored-value-adjustments";
-  if (screen === "storedValueExceptions")
-    return "/v1/stored-value/reports/exceptions";
+  if (screen === "storedValueExceptions") return "/v1/stored-value/reports/exceptions";
   if (screen === "campaignApprovals") return "/v1/marketing-campaigns";
-  if (screen === "compensationApprovals")
-    return "/v1/service-recovery/compensations";
-  if (["lowRatingAlerts", "recoverySla"].includes(screen))
-    return "/v1/service-recovery/cases";
-  if (screen === "appointmentsToday")
-    return `/v1/appointments?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-11T00:00:00%2B07:00`;
-  if (screen === "appointments")
-    return `/v1/appointments?branchId=${branch}&from=2026-07-01T00:00:00%2B07:00&to=2026-09-01T00:00:00%2B07:00`;
-  if (screen === "appointment") return `/v1/appointments/${id ?? ""}`;
-  if (screen === "services")
-    return "/v1/services?status=ACTIVE&page=1&pageSize=50";
-  if (screen === "service") return `/v1/services/${id ?? ""}`;
+  if (screen === "compensationApprovals") return "/v1/service-recovery/compensations";
+  if (["lowRatingAlerts", "recoverySla"].includes(screen)) return "/v1/service-recovery/cases";
+  if (screen === "appointmentsToday") return `/v1/appointments?${branch}&from=${today()}T00:00:00&to=${tomorrow()}T00:00:00`;
+  if (screen === "appointments") return `/v1/appointments?${branch}&from=${monthAgo()}T00:00:00&to=${monthAhead()}T00:00:00`;
+  if (screen === "appointment") return `/v1/appointments/${encodeURIComponent(id ?? "")}`;
+  if (screen === "services") return "/v1/services?status=ACTIVE&page=1&pageSize=50";
+  if (screen === "service") return `/v1/services/${encodeURIComponent(id ?? "")}`;
   if (screen === "staff") return "/v1/staff?status=ACTIVE";
-  if (screen === "staffDetail") return `/v1/staff/${id ?? ""}`;
+  if (screen === "staffDetail") return `/v1/staff/${encodeURIComponent(id ?? "")}`;
   if (screen === "shifts") return "/v1/shifts";
   if (screen === "leave") return "/v1/leave-requests?status=PENDING";
-  if (screen === "leaveReview") return `/v1/leave-requests/${id ?? ""}`;
-  if (screen === "calendarDay")
-    return `/v1/calendar/events?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-11T00:00:00%2B07:00`;
-  if (screen === "calendarWeek")
-    return `/v1/calendar/summary?branchId=${branch}&from=2026-08-10T00:00:00%2B07:00&to=2026-08-17T00:00:00%2B07:00`;
-  if (screen === "availability" || screen === "explain")
-    return `/v1/availability?branchId=${branch}&serviceId=${service}&dateFrom=2026-08-10&dateTo=2026-08-10`;
-  if (screen === "blocks" || screen === "createBlock")
-    return `/v1/availability-blocks?branchId=${branch}&from=2026-08-01T00:00:00%2B07:00&to=2026-09-01T00:00:00%2B07:00`;
+  if (screen === "leaveReview") return `/v1/leave-requests/${encodeURIComponent(id ?? "")}`;
+  if (screen === "calendarDay") return `/v1/calendar/events?${branch}&from=${today()}T00:00:00&to=${tomorrow()}T00:00:00`;
+  if (screen === "calendarWeek") return `/v1/calendar/summary?${branch}&from=${today()}T00:00:00&to=${monthAhead()}T00:00:00`;
+  if (screen === "availability" || screen === "explain") return branchId && serviceId ? `/v1/availability?${branch}&serviceId=${encodeURIComponent(serviceId)}&dateFrom=${today()}&dateTo=${today()}` : null;
+  if (screen === "blocks" || screen === "createBlock") return `/v1/availability-blocks?${branch}&from=${monthAgo()}T00:00:00&to=${monthAhead()}T00:00:00`;
   if (screen === "organization") return "/v1/organization";
   if (screen === "branches") return "/v1/branches";
   if (screen === "team") return "/v1/users";
   if (screen === "sessions") return "/v1/auth/sessions";
+  if (screen === "profile" || screen === "workspace" || screen === "mfa") return "/v1/auth/context";
   return null;
 }
 
-export default function OwnerScreen() {
-  const params = useLocalSearchParams<{ screen: string; id?: string }>(),
-    screen = params.screen;
-  const [state, setState] = useState<
-      "loading" | "ready" | "empty" | "error" | "forbidden"
-    >("loading"),
-    [data, setData] = useState<any[]>([]),
-    [message, setMessage] = useState("");
-  const load = useCallback(async () => {
-    const path = endpoint(screen, params.id);
-    if (!path) {
-      setState("empty");
-      return;
-    }
-    setState("loading");
+type JsonObject = Record<string, unknown>;
+function asObject(value: unknown): JsonObject | null { return value && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : null; }
+function toRows(value: unknown): JsonObject[] {
+  if (Array.isArray(value)) return value.map(asObject).filter((row): row is JsonObject => !!row);
+  const object = asObject(value);
+  if (!object) return [];
+  for (const key of ["rows", "events", "days", "items", "data"]) if (Array.isArray(object[key])) return object[key].map(asObject).filter((row): row is JsonObject => !!row);
+  return [object];
+}
+function stringValue(row: JsonObject, key: string) { const value = row[key]; return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : ""; }
+
+function BranchPicker({ onChanged }: { onChanged: () => void }) {
+  const branchContext = getOwnerBranchContext();
+  if (branchContext.authorizedBranches.length <= 1) return null;
+  return <View style={styles.branchBox}><Text style={styles.label}>Branch</Text><Text style={styles.copy}>{branchContext.activeBranchId ? branchContext.authorizedBranches.find((branch) => branch.id === branchContext.activeBranchId)?.name : "All authorized branches"}</Text><View style={styles.branchOptions}><NativeButton label="All authorized branches" variant={!branchContext.activeBranchId ? "primary" : "secondary"} onPress={() => { selectActiveBranch(undefined); onChanged(); }} />{branchContext.authorizedBranches.map((branch) => <NativeButton key={branch.id} label={branch.name} variant={branch.id === branchContext.activeBranchId ? "primary" : "secondary"} onPress={() => { selectActiveBranch(branch.id); onChanged(); }} />)}</View></View>;
+}
+
+function StableCommandButton({ domain, entityId, action, label, path, body, onComplete, allowWrites = true }: { domain: string; entityId: string; action: string; label: string; path: string; body?: JsonObject; onComplete: (message: string) => void; allowWrites?: boolean }) {
+  const intent = useIntentKey(domain, entityId, action);
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) { onComplete(domain === "support" ? "Support decisions are not queued while offline." : "Internet connection required. Approval was not queued."); return; }
+    setBusy(true);
     try {
-      const response = await apiFetch(path);
-      if (response.status === 401 || response.status === 403) {
-        setState("forbidden");
-        return;
-      }
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error?.message ?? "Unable to load");
-      const raw = body.data,
-        value = Array.isArray(raw)
-          ? raw
-          : (raw?.rows ?? raw?.events ?? raw?.days ?? [raw]);
-      setData(value.filter(Boolean));
-      setState(value.filter(Boolean).length ? "ready" : "empty");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to load");
-      setState("error");
-    }
-  }, [screen, params.id]);
+      const response = await apiFetch(path, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": intent.key }, body: JSON.stringify(body ?? {}) });
+      const payload = await response.json().catch(() => ({} as { error?: { code?: string; message?: string } }));
+      if (response.status === 409 || payload.error?.code?.includes("CONFLICT")) { onComplete("This record changed since you opened it. Refresh before deciding again."); return; }
+      onComplete(response.ok ? `${label} completed.` : payload.error?.message ?? "Command failed safely.");
+      if (response.ok) intent.reset();
+    } finally { setBusy(false); }
+  }
+  return <NativeButton label={label} disabled={busy || !allowWrites} onPress={() => void run()} />;
+}
+
+export default function OwnerScreen() {
+  const params = useLocalSearchParams<{ screen?: string | string[]; id?: string | string[]; serviceId?: string | string[] }>();
+  const screen = Array.isArray(params.screen) ? params.screen[0] ?? "" : params.screen ?? "";
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const serviceId = Array.isArray(params.serviceId) ? params.serviceId[0] : params.serviceId;
+  const route = routeDescriptor(screen);
+  const contextQuery = useQuery({ queryKey: ["owner-auth-context", "screen"], queryFn: getAuthContext, staleTime: 30_000 });
+  const context = contextQuery.data;
+  const [, setBranchVersion] = useState(0);
+  const branchId = getActiveBranchId();
+  const path = endpoint(screen, id, branchId, serviceId);
+  const permitted = !!context && !!route && canReadRoute(context, screen) && accessModeAllowsRoute(context.workspace.accessMode, route);
+  const allowWrites = !!context && (context.workspace.accessMode === "FULL" || context.workspace.accessMode === "GRACE") && !!route?.writePermissions?.length && route.writePermissions.some((permission) => context.authorization.permissions.includes(permission));
+  const needsBranch = route?.scope === "BRANCH_REQUIRED";
+  const query = useQuery({ queryKey: ["owner-screen", screen, id, branchId, serviceId], queryFn: async () => { const response = await apiFetch(path as string); const body = await response.json().catch(() => ({} as { error?: { message?: string }; data?: unknown })); if (response.status === 401 || response.status === 403) throw new Error("Permission denied for this workspace."); if (!response.ok) throw new Error(body.error?.message ?? "Unable to load"); return body.data; }, enabled: !!context && permitted && !!path && (!needsBranch || !!branchId), staleTime: 30_000 });
+  const [message, setMessage] = useState("");
+  const load = useCallback(() => { void query.refetch(); }, [query]);
+  useEffect(() => { if (context) { syncBranchContext(context); setBranchVersion((value) => value + 1); } }, [context]);
   useEffect(() => {
-    void load();
-  }, [load]);
-  useEffect(() => {
-    if (
-      ![
-        "operationalSummary",
-        "walkInQueue",
-        "financialSummary",
-        "benefitSummary",
-        "benefitLiability",
-        "voucherUsage",
-        "membershipCounts",
-        "pendingLoyaltyAdjustments",
-        "expiringBenefits",
-        "inventoryLowStock",
-        "inventoryExpiry",
-        "inventoryApprovals",
-        "inventoryVariances",
-        "inventoryValuation",
-        "storedValueLiability",
-        "storedValueIssuance",
-        "storedValueRedemption",
-        "customerCreditOutstanding",
-        "storedValueApprovals",
-        "storedValueExceptions",
-        "billingPlan",
-        "billingQuotas",
-        "billingInvoices",
-        "billingWarnings",
-        "supportAccess",
-        "procurementVendors",
-        "procurementRequests",
-        "procurementOrders",
-        "procurementBills",
-        "procurementAp",
-        "procurementPayments",
-      ].includes(screen)
-    )
-      return;
+    if (!path || !permitted) return;
     const token = getSession().accessToken;
     if (!token) return;
-    const socket = io(`${api}/scheduling`, {
-      auth: { token },
-      transports: ["websocket"],
-    });
-    [
-      "operations.invalidated",
-      "walkin.updated",
-      "appointment.updated",
-      "pos.order.updated",
-      "cash_session.updated",
-      "refund.updated",
-      "credit_note.updated",
-      "commission.updated",
-      "financial.updated",
-      "voucher.updated",
-      "loyalty.updated",
-      "membership.updated",
-      "package.updated",
-      "benefits.wallet_invalidated",
-      "gift_card.updated",
-      "customer_credit.updated",
-      "stored_value.wallet_invalidated",
-      "stored_value.liability_invalidated",
-      "stored_value.reconciliation_invalidated",
-    ].forEach((event) => socket.on(event, () => void load()));
-    return () => {
-      socket.disconnect();
-    };
-  }, [load, screen]);
-  async function review(action: "approve" | "reject") {
-    if (!params.id) return;
-    const response = await apiFetch(
-      `/v1/leave-requests/${params.id}/${action}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": `${action}-${params.id}`,
-        },
-        body: JSON.stringify(
-          action === "reject" ? { reviewNote: "Reviewed in Owner Mobile" } : {},
-        ),
-      },
-    );
-    setMessage(
-      response.ok ? `Leave ${action}d.` : "The request could not be completed.",
-    );
-    await load();
-  }
-  async function engagementAction(action: "approve" | "triage", item: any) {
-    if (!navigator.onLine) {
-      setMessage("Internet connection required. Approval was not queued.");
-      return;
-    }
-    const path =
-      action === "approve"
-        ? `/v1/marketing-campaigns/${item.id}/approve`
-        : `/v1/service-recovery/cases/${item.id}/triage`;
-    const response = await apiFetch(path, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": crypto.randomUUID(),
-      },
-      body: JSON.stringify({
-        version: item.version,
-        reason: "Reviewed in Owner Mobile",
-      }),
-    });
-    const body = await response.json().catch(() => ({}));
-    setMessage(
-      response.ok
-        ? `${action} completed.`
-        : (body.error?.message ?? "Command failed safely."),
-    );
-    await load();
-  }
-  async function compensationDecision(action: "approve" | "reject", item: any) {
-    if (!navigator.onLine) {
-      setMessage("Internet connection required. Decision was not queued.");
-      return;
-    }
-    const response = await apiFetch(
-      `/v1/service-recovery/compensations/${item.id}/${action}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": crypto.randomUUID(),
-        },
-        body: JSON.stringify({
-          version: item.version,
-          reason: `${action === "approve" ? "Approved" : "Rejected"} in Owner Mobile`,
-        }),
-      },
-    );
-    const body = await response.json().catch(() => ({}));
-    setMessage(
-      response.ok
-        ? `Compensation ${action}d.`
-        : (body.error?.message ?? "Decision failed safely."),
-    );
-    await load();
-  }
-  async function workforceDecision(path: string, item: any) {
-    if (!navigator.onLine) {
-      setMessage("Internet connection required. Approval was not queued.");
-      return;
-    }
-    const response = await apiFetch(`/v1/${path}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": crypto.randomUUID(),
-      },
-      body: JSON.stringify({
-        version: item.version,
-        reason: "Independently reviewed in Owner Mobile",
-      }),
-    });
-    const body = await response.json().catch(() => ({}));
-    setMessage(
-      response.ok
-        ? "Workforce approval completed."
-        : (body.error?.message ?? "Decision failed safely."),
-    );
-    await load();
-  }
-  async function supportDecision(action: "approve" | "revoke", item: any) {
-    if (!navigator.onLine) {
-      setMessage("Internet connection required. Support decisions are not queued.");
-      return;
-    }
-    const response = await apiFetch(`/v1/tenant/support-access-grants/${item.id}/${action}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
-      body: JSON.stringify({ reason: `${action} by tenant Owner in Owner Mobile` }),
-    });
-    const body = await response.json().catch(() => ({}));
-    setMessage(response.ok ? `Support grant ${action}d.` : (body.error?.message ?? "Decision failed safely."));
-    await load();
-  }
-  async function bookingCommand(
-    action: "confirm" | "cancel" | "waive-deposit",
-  ) {
-    const current = data[0];
-    if (!current) return;
-    setMessage("");
-    try {
-      const payload =
-        action === "confirm"
-          ? { version: current.version }
-          : action === "cancel"
-            ? { version: current.version, reasonCode: "CUSTOMER_REQUEST" }
-            : { version: current.version, reason: "Approved by salon owner" };
-      const response = await apiFetch(
-          `/v1/appointments/${current.id}/${action}`,
-          {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "idempotency-key": crypto.randomUUID(),
-            },
-            body: JSON.stringify(payload),
-          },
-        ),
-        body = await response.json().catch(() => ({}));
-      if (!response.ok)
-        throw new Error(
-          body.error?.code === "BOOKING_VERSION_CONFLICT"
-            ? "Version conflict. Refresh before retrying."
-            : (body.error?.message ?? "Internet connection required"),
-        );
-      setMessage("Booking command completed.");
-      await load();
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Internet connection required",
-      );
-    }
-  }
-  async function refundDecision(action: "approve" | "reject", item: any) {
-    if (!navigator.onLine) {
-      setMessage(
-        "Internet connection required. Refund decisions are not queued.",
-      );
-      return;
-    }
-    const response = await apiFetch(`/v1/refunds/${item.id}/${action}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "idempotency-key": crypto.randomUUID(),
-      },
-      body: JSON.stringify({
-        version: item.version,
-        reason:
-          action === "approve"
-            ? "Approved in Owner Mobile"
-            : "Rejected in Owner Mobile",
-      }),
-    });
-    const body = await response.json().catch(() => ({}));
-    setMessage(
-      response.ok
-        ? `Refund ${action}d.`
-        : (body.error?.message ?? "Decision failed safely."),
-    );
-    await load();
-  }
-  async function approvePurchaseOrder(item: any) {
-    if (!navigator.onLine) {
-      setMessage("Internet connection required. Approval was not queued.");
-      return;
-    }
-    const response = await apiFetch(
-      `/v1/inventory/purchase-orders/${item.id}/approve`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "idempotency-key": crypto.randomUUID(),
-        },
-        body: JSON.stringify({
-          version: item.version,
-          reason: "Approved in Owner Mobile",
-        }),
-      },
-    );
-    const body = await response.json().catch(() => ({}));
-    setMessage(
-      response.ok
-        ? "Purchase order approved."
-        : (body.error?.message ?? "Approval failed safely."),
-    );
-    await load();
-  }
-  async function procurementApprove(kind: "purchase-requests" | "vendor-payments", item: any) {
-    if (!navigator.onLine) {
-      setMessage("Internet connection required. Approval was not queued.");
-      return;
-    }
-    const response = await apiFetch(`/v1/procurement/${kind}/${item.id}/approve`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
-      body: JSON.stringify({ version: item.version, reason: "Approved in Owner Mobile" }),
-    });
-    const body = await response.json().catch(() => ({}));
-    setMessage(response.ok ? "Procurement approval completed." : (body.error?.message ?? "Approval failed safely."));
-    await load();
-  }
-  return (
-    <SafeAreaView>
-      <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }}>
-        <Text style={{ color: "#6D28D9", fontWeight: "700" }}>
-          OWNER · SPRINT 6
-        </Text>
-        <Text style={{ fontSize: 30, fontWeight: "700" }}>
-          {titles[screen] ?? "Workspace"}
-        </Text>
-        {message && <Text accessibilityRole="alert">{message}</Text>}
-        {state === "loading" && (
-          <ActivityIndicator accessibilityLabel="Loading" />
-        )}
-        {state === "forbidden" && (
-          <Text accessibilityRole="alert">
-            Permission denied for this workspace.
-          </Text>
-        )}
-        {state === "error" && (
-          <View>
-            <Text accessibilityRole="alert">{message}</Text>
-            <Button title="Retry" onPress={() => void load()} />
-          </View>
-        )}
-        {state === "empty" && (
-          <View>
-            <Text>No records are available.</Text>
-            <Button title="Refresh" onPress={() => void load()} />
-          </View>
-        )}
-        {state === "ready" && (
-          <View style={{ gap: 12 }}>
-            {data.map((item, index) => (
-              <View
-                key={item.id ?? index}
-                style={{
-                  padding: 16,
-                  backgroundColor: "#F3EEFF",
-                  borderRadius: 12,
-                  gap: 6,
-                }}
-              >
-                <Text style={{ fontWeight: "700" }}>
-                  {item.bookingReference ??
-                    item.displayName ??
-                    item.code ??
-                    item.name?.["vi-VN"] ??
-                    item.status ??
-                    item.id}
-                </Text>
-                <Text>
-                  {item.startAt
-                    ? `${item.startAt} – ${item.endAt}`
-                    : (item.status ?? "Active")}
-                </Text>
-                {(screen === "appointments" ||
-                  screen === "appointmentsToday") &&
-                  item.id && (
-                    <Link href={`/appointment?id=${item.id}` as never}>
-                      Open appointment
-                    </Link>
-                  )}
-                {screen === "leave" && item.id && (
-                  <Link href={`/leaveReview?id=${item.id}` as never}>
-                    Review request
-                  </Link>
-                )}
-                {screen === "pendingRefunds" && item.id && (
-                  <View style={{ gap: 8 }}>
-                    <Text>
-                      {item.refundReference} · {item.requestedMinor}{" "}
-                      {item.currency}
-                    </Text>
-                    <Button
-                      title="Approve"
-                      onPress={() => void refundDecision("approve", item)}
-                    />
-                    <Button
-                      title="Reject"
-                      onPress={() => void refundDecision("reject", item)}
-                    />
-                  </View>
-                )}
-                {screen === "inventoryApprovals" &&
-                  item.status === "SUBMITTED" && (
-                    <Button
-                      title="Approve purchase order"
-                      onPress={() => void approvePurchaseOrder(item)}
-                    />
-                  )}
-                {screen === "procurementRequests" && item.status === "SUBMITTED" && (
-                  <Button title="Approve request" onPress={() => void procurementApprove("purchase-requests", item)} />
-                )}
-                {screen === "procurementPayments" && item.status === "PENDING_APPROVAL" && (
-                  <Button title="Approve vendor payment" onPress={() => void procurementApprove("vendor-payments", item)} />
-                )}
-                {screen === "campaignApprovals" &&
-                  item.status === "PENDING_APPROVAL" && (
-                    <Button
-                      title="Approve campaign"
-                      onPress={() => void engagementAction("approve", item)}
-                    />
-                  )}
-                {["lowRatingAlerts", "recoverySla"].includes(screen) &&
-                  item.status === "OPEN" && (
-                    <Button
-                      title="Triage recovery case"
-                      onPress={() => void engagementAction("triage", item)}
-                    />
-                  )}
-                {screen === "compensationApprovals" &&
-                  item.status === "PENDING_APPROVAL" && (
-                    <View style={{ gap: 8 }}>
-                      <Text>
-                        {item.compensationType} · {item.reason}
-                      </Text>
-                      <Button
-                        title="Approve compensation"
-                        onPress={() =>
-                          void compensationDecision("approve", item)
-                        }
-                      />
-                      <Button
-                        title="Reject compensation"
-                        onPress={() =>
-                          void compensationDecision("reject", item)
-                        }
-                      />
-                    </View>
-                  )}
-                {screen === "timesheetApprovals" &&
-                  item.state === "SUBMITTED" && (
-                    <Button
-                      title="Approve timesheet"
-                      onPress={() =>
-                        void workforceDecision(
-                          `timesheets/${item.id}/approve`,
-                          item,
-                        )
-                      }
-                    />
-                  )}
-                {screen === "payrollApprovals" &&
-                  item.state === "PENDING_APPROVAL" && (
-                    <Button
-                      title="Approve payroll"
-                      onPress={() =>
-                        void workforceDecision(
-                          `payroll/runs/${item.id}/approve`,
-                          item,
-                        )
-                      }
-                    />
-                  )}
-                {screen === "payrollApprovals" && item.state === "APPROVED" && (
-                  <Button
-                    title="Finalize payroll"
-                    onPress={() =>
-                      void workforceDecision(
-                        `payroll/runs/${item.id}/finalize`,
-                        item,
-                      )
-                    }
-                  />
-                )}
-                {screen === "payoutApprovals" &&
-                  item.state === "PENDING_APPROVAL" && (
-                    <Button
-                      title="Approve payout"
-                      onPress={() =>
-                        void workforceDecision(
-                          `payout-batches/${item.id}/approve`,
-                          item,
-                        )
-                      }
-                    />
-                  )}
-                {screen === "supportAccess" && item.state === "REQUESTED" && (
-                  <Button title="Approve scoped support access" onPress={() => void supportDecision("approve", item)} />
-                )}
-                {screen === "supportAccess" && ["APPROVED", "ACTIVE"].includes(item.state) && (
-                  <Button title="Revoke support access" onPress={() => void supportDecision("revoke", item)} />
-                )}
-              </View>
-            ))}
-          </View>
-        )}
-        {screen === "appointment" && data[0] && (
-          <View style={{ gap: 10 }}>
-            <Text>Customer: {data[0].contact?.displayName}</Text>
-            <Text>
-              Services:{" "}
-              {data[0].items
-                ?.map(
-                  (item: any) =>
-                    item.service?.name?.["vi-VN"] ?? item.service?.code,
-                )
-                .join(", ")}
-            </Text>
-            {data[0].status === "PENDING_CONFIRMATION" && (
-              <Button
-                title="Confirm"
-                onPress={() => void bookingCommand("confirm")}
-              />
-            )}{" "}
-            {data[0].status === "PENDING_DEPOSIT" && (
-              <Button
-                title="Waive deposit"
-                onPress={() => void bookingCommand("waive-deposit")}
-              />
-            )}{" "}
-            {!String(data[0].status).startsWith("CANCELLED") && (
-              <Button
-                title="Cancel"
-                onPress={() => void bookingCommand("cancel")}
-              />
-            )}
-            <Text>
-              Reschedule uses a review flow; the old schedule remains until the
-              server confirms.
-            </Text>
-          </View>
-        )}
-        {screen === "operationalSummary" && data[0] && (
-          <View style={{ gap: 12 }}>
-            <Text style={{ fontSize: 22, fontWeight: "700" }}>Today now</Text>
-            <Text>Waiting: {data[0].waitingCount}</Text>
-            <Text>In service: {data[0].inServiceCount}</Text>
-            <Text>Ready checkout: {data[0].readyCheckoutCount}</Text>
-            <Text>Current delays: {data[0].currentDelayCount}</Text>
-            <Text>
-              Active staff:{" "}
-              {data[0].staffUtilization?.activeStaffIds?.length ?? 0}
-            </Text>
-            <Text>
-              Live updates are refetch signals; server data remains
-              authoritative.
-            </Text>
-          </View>
-        )}
-        {screen === "financialSummary" && data[0]?.totals && (
-          <View style={{ gap: 12 }}>
-            <Text style={{ fontSize: 22, fontWeight: "700" }}>Today sales</Text>
-            <Text>Sales: {data[0].totals.todaySalesMinor} minor units</Text>
-            <Text>Paid orders: {data[0].totals.paidOrders}</Text>
-            <Text>Tips: {data[0].totals.tipsMinor} minor units</Text>
-            <Text>Open cash sessions: {data[0].totals.openCashSessions}</Text>
-            <Text>
-              Cash variance: {data[0].totals.cashVarianceMinor} minor units
-            </Text>
-            <Text>Partial orders: {data[0].totals.partialOrders}</Text>
-            <Text>
-              Read-only. Payment capture is unavailable on Owner Mobile.
-            </Text>
-          </View>
-        )}
-        {screen === "leaveReview" && params.id && (
-          <View style={{ flexDirection: "row", gap: 12 }}>
-            <Button title="Approve" onPress={() => void review("approve")} />
-            <Button title="Reject" onPress={() => void review("reject")} />
-          </View>
-        )}
-        <Link href="/">Back to home</Link>
-      </ScrollView>
-    </SafeAreaView>
-  );
+    const excluded = ["operationalSummary", "walkInQueue", "financialSummary", "benefitSummary", "benefitLiability", "voucherUsage", "membershipCounts", "pendingLoyaltyAdjustments", "expiringBenefits", "inventoryLowStock", "inventoryExpiry", "inventoryApprovals", "inventoryVariances", "inventoryValuation", "storedValueLiability", "storedValueIssuance", "storedValueRedemption", "customerCreditOutstanding", "storedValueApprovals", "storedValueExceptions", "billingPlan", "billingQuotas", "billingInvoices", "billingWarnings", "supportAccess", "procurementVendors", "procurementRequests", "procurementOrders", "procurementBills", "procurementAp", "procurementPayments"];
+    if (excluded.includes(screen)) return;
+    const socket = io(`${api}/scheduling`, { auth: { token }, transports: ["websocket"] });
+    const events = ["operations.invalidated", "walkin.updated", "appointment.updated", "pos.order.updated", "cash_session.updated", "refund.updated", "credit_note.updated", "commission.updated", "financial.updated", "voucher.updated", "loyalty.updated", "membership.updated", "package.updated", "benefits.wallet_invalidated", "gift_card.updated", "customer_credit.updated", "stored_value.wallet_invalidated", "stored_value.liability_invalidated", "stored_value.reconciliation_invalidated"];
+    events.forEach((event) => socket.on(event, () => void query.refetch()));
+    socket.on("connect", () => void query.refetch());
+    socket.on("reconnect", () => void query.refetch());
+    return () => { socket.disconnect(); };
+  }, [path, permitted, query, screen]);
+
+  if (contextQuery.isPending) return <Page><NativeStatePanel state="loading" title="Loading" /></Page>;
+  if (contextQuery.isError || !context) return <Page><NativeStatePanel state="error" title="Unable to load workspace" detail="Check the connection and retry." onRetry={() => void contextQuery.refetch()} /></Page>;
+  if (!route || !permitted) return <Page><Text accessibilityRole="alert">Permission denied for this workspace.</Text><Link href="/">Back to home</Link></Page>;
+  if (screen === "profile") return <ProfileSettings context={context} />;
+  if (needsBranch && !branchId) return <Page><BranchPicker onChanged={() => setBranchVersion((value) => value + 1)} /><NativeStatePanel state="empty" title="Select an authorized branch" detail="A branch is required for this screen." /></Page>;
+  const rows = toRows(query.data);
+  const locale = context.user.locale;
+  return <Page><BranchPicker onChanged={() => { setBranchVersion((value) => value + 1); void query.refetch(); }} /><Text accessibilityRole="header" style={styles.title}>{screen}</Text>{message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}{query.isPending && <ActivityIndicator accessibilityLabel="Loading" />}{query.isError && <NativeStatePanel state="error" title="Unable to load" detail={query.error instanceof Error ? query.error.message : "Request failed safely."} onRetry={load} />}{query.isFetching && rows.length > 0 ? <Text style={styles.stale}>Data may be stale. Refreshing...</Text> : null}{!query.isPending && !query.isError && rows.length === 0 && <View><Text>No records are available.</Text><NativeButton label="Retry" variant="secondary" icon="refresh" onPress={load} /></View>}{rows.map((raw, index) => <SafeRow key={stringValue(raw, "id") || `${screen}-${index}`} screen={screen} raw={raw} locale={locale} id={stringValue(raw, "id")} onMessage={setMessage} allowWrites={allowWrites} />)}<Link href="/">Back to home</Link></Page>;
 }
+
+function Page({ children }: { children: React.ReactNode }) { return <SafeAreaView style={styles.safe}><ScrollView contentContainerStyle={styles.content}>{children}</ScrollView></SafeAreaView>; }
+
+function ProfileSettings({ context }: { context: import("@nailsoft/domain-types").AuthContext }) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const sessions = useQuery({ queryKey: ["owner-sessions"], queryFn: () => apiFetch("/v1/auth/sessions").then(async (response) => { const body = await response.json().catch(() => ({} as { data?: unknown })); if (!response.ok) throw new Error("Unable to load sessions"); return toRows(body.data); }) });
+  const mfa = useQuery({ queryKey: ["owner-mfa-status"], queryFn: () => apiFetch("/v1/auth/mfa/status").then(async (response) => { const body = await response.json().catch(() => ({} as { data?: unknown })); if (!response.ok) throw new Error("Unable to load MFA status"); return asObject(body.data) ?? {}; }) });
+  async function logout() { await logoutOwner(); queryClient.clear(); router.replace("/"); }
+  return <Page><Text accessibilityRole="header" style={styles.title}>Profile</Text><View style={styles.card}><Text style={styles.cardTitle}>{context.user.displayName}</Text><Text style={styles.copy}>{context.workspace.tenantName}</Text><Text style={styles.copy}>Locale: {context.user.locale}</Text><Text style={styles.copy}>Access mode: {context.workspace.accessMode}</Text><Text style={styles.copy}>Owner Mobile: {context.capabilities?.ownerMobileEnabled ? "Enabled" : "Unavailable"}</Text><Text style={styles.copy}>MFA: {String(mfa.data?.enabled ?? "Unknown")}</Text></View><Text style={styles.title}>Active sessions</Text>{sessions.isPending ? <ActivityIndicator accessibilityLabel="Loading" /> : null}{sessions.isError ? <NativeStatePanel state="error" title="Unable to load sessions" onRetry={() => void sessions.refetch()} /> : null}{sessions.data?.map((session, index) => <SessionRow key={stringValue(session, "id") || `session-${index}`} session={session} />)}<NativeButton label="Sign out" variant="danger" icon="logout" onPress={() => void logout()} /><Link href="/">Back to home</Link></Page>;
+}
+
+function SessionRow({ session }: { session: JsonObject }) {
+  const sessionId = stringValue(session, "id");
+  const current = session.isCurrent === true || stringValue(session, "isCurrent") === "true";
+  const intent = useIntentKey("session", sessionId, "revoke");
+  const [busy, setBusy] = useState(false);
+  async function revoke() {
+    if (!sessionId || current) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch(`/v1/auth/sessions/${encodeURIComponent(sessionId)}/revoke`, { method: "POST", headers: { "idempotency-key": intent.key } });
+      if (response.ok) intent.reset();
+    } finally { setBusy(false); }
+  }
+  return <View style={styles.card}><Text style={styles.cardTitle}>{stringValue(session, "deviceName") || "Owner Mobile session"}</Text><Text style={styles.copy}>{stringValue(session, "platform")}</Text>{current ? <Text style={styles.copy}>Current session</Text> : <NativeButton label="Revoke session" variant="secondary" disabled={busy} onPress={() => void revoke()} />}</View>;
+}
+
+function SafeRow({ screen, raw, locale, id, onMessage, allowWrites }: { screen: string; raw: JsonObject; locale: "vi-VN" | "en-US"; id: string; onMessage: (value: string) => void; allowWrites: boolean }) {
+  const record = safeRecord(raw);
+  const status = String(record.status ?? record.state ?? "");
+  const branchId = String(record.branchId ?? "");
+  const version = typeof record.version === "number" ? record.version : undefined;
+  const money = record.totalMinor ?? record.amountMinor ?? record.requestedMinor ?? record.completedMinor;
+  const moneyValue = typeof money === "string" || typeof money === "number" ? money : undefined;
+  const currency = String(record.currency ?? "VND");
+  return <View style={styles.card}><Text style={styles.cardTitle}>{displayRecordValue(record)}</Text>{status ? <Text style={styles.copy}>Status: {status}</Text> : null}{branchId ? <Text style={styles.copy}>Branch: {branchId}</Text> : null}{moneyValue !== undefined ? <Text style={styles.copy}>Amount: {formatMinor(moneyValue, currency, locale)}</Text> : null}{record.startAt ? <Text style={styles.copy}>Start: {String(record.startAt)}</Text> : null}{screen === "appointment" && raw.contact && typeof raw.contact === "object" ? <Text style={styles.copy}>Customer: {String((raw.contact as JsonObject).displayName ?? "Customer")}</Text> : null}{screen === "operationalSummary" ? <OperationalSummary raw={raw} /> : null}{screen === "financialSummary" ? <FinancialSummary raw={raw} locale={locale} /> : null}{screen === "appointment" && id && (status === "PENDING_CONFIRMATION" || status === "PENDING_DEPOSIT" || !status.startsWith("CANCELLED")) ? <View style={styles.actions}>{status === "PENDING_CONFIRMATION" ? <StableCommandButton allowWrites={allowWrites} domain="booking" entityId={id} action="confirm" label="Confirm" path={`/v1/appointments/${id}/confirm`} body={{ version }} onComplete={onMessage} /> : null}{status === "PENDING_DEPOSIT" ? <StableCommandButton allowWrites={allowWrites} domain="booking" entityId={id} action="waive-deposit" label="Waive deposit" path={`/v1/appointments/${id}/waive-deposit`} body={{ version, reason: "Approved by salon owner" }} onComplete={onMessage} /> : null}{!status.startsWith("CANCELLED") ? <StableCommandButton allowWrites={allowWrites} domain="booking" entityId={id} action="cancel" label="Cancel" path={`/v1/appointments/${id}/cancel`} body={{ version, reasonCode: "CUSTOMER_REQUEST" }} onComplete={onMessage} /> : null}<Text style={styles.copy}>Version conflict requires refresh; mutations are never retried automatically.</Text></View> : null}{screen === "pendingRefunds" && id ? <View style={styles.actions}>{<StableCommandButton allowWrites={allowWrites} domain="refund" entityId={id} action="approve" label="Approve" path={`/v1/refunds/${id}/approve`} body={{ version, reason: "Approved in Owner Mobile" }} onComplete={onMessage} />}<StableCommandButton allowWrites={allowWrites} domain="refund" entityId={id} action="reject" label="Reject" path={`/v1/refunds/${id}/reject`} body={{ version, reason: "Rejected in Owner Mobile" }} onComplete={onMessage} /></View> : null}{screen === "inventoryApprovals" && id && status === "SUBMITTED" ? <StableCommandButton allowWrites={allowWrites} domain="inventory" entityId={id} action="approve" label="Approve purchase order" path={`/v1/inventory/purchase-orders/${id}/approve`} body={{ version, reason: "Approved in Owner Mobile" }} onComplete={onMessage} /> : null}{screen === "procurementRequests" && id && status === "SUBMITTED" ? <StableCommandButton allowWrites={allowWrites} domain="procurement" entityId={id} action="approve-request" label="Approve request" path={`/v1/procurement/purchase-requests/${id}/approve`} body={{ version, reason: "Approved in Owner Mobile" }} onComplete={onMessage} /> : null}{screen === "procurementPayments" && id && status === "PENDING_APPROVAL" ? <StableCommandButton allowWrites={allowWrites} domain="procurement" entityId={id} action="approve-payment" label="Approve vendor payment" path={`/v1/procurement/vendor-payments/${id}/approve`} body={{ version, reason: "Approved in Owner Mobile" }} onComplete={onMessage} /> : null}{screen === "campaignApprovals" && id && status === "PENDING_APPROVAL" ? <StableCommandButton allowWrites={allowWrites} domain="engagement" entityId={id} action="approve-campaign" label="Approve campaign" path={`/v1/marketing-campaigns/${id}/approve`} body={{ version, reason: "Approved in Owner Mobile" }} onComplete={onMessage} /> : null}{["lowRatingAlerts", "recoverySla"].includes(screen) && id && status === "OPEN" ? <StableCommandButton allowWrites={allowWrites} domain="recovery" entityId={id} action="triage" label="Triage recovery case" path={`/v1/service-recovery/cases/${id}/triage`} body={{ version, reason: "Reviewed in Owner Mobile" }} onComplete={onMessage} /> : null}{screen === "compensationApprovals" && id && status === "PENDING_APPROVAL" ? <View style={styles.actions}><StableCommandButton allowWrites={allowWrites} domain="recovery" entityId={id} action="approve-compensation" label="Approve compensation" path={`/v1/service-recovery/compensations/${id}/approve`} body={{ version, reason: "Approved in Owner Mobile" }} onComplete={onMessage} /><StableCommandButton allowWrites={allowWrites} domain="recovery" entityId={id} action="reject-compensation" label="Reject compensation" path={`/v1/service-recovery/compensations/${id}/reject`} body={{ version, reason: "Rejected in Owner Mobile" }} onComplete={onMessage} /></View> : null}{screen === "timesheetApprovals" && id && status === "SUBMITTED" ? <StableCommandButton allowWrites={allowWrites} domain="workforce" entityId={id} action="approve-timesheet" label="Approve timesheet" path={`/v1/timesheets/${id}/approve`} body={{ version, reason: "Independently reviewed in Owner Mobile" }} onComplete={onMessage} /> : null}{screen === "payrollApprovals" && id && status === "PENDING_APPROVAL" ? <StableCommandButton allowWrites={allowWrites} domain="workforce" entityId={id} action="approve-payroll" label="Approve payroll" path={`/v1/payroll/runs/${id}/approve`} body={{ version, reason: "Independently reviewed in Owner Mobile" }} onComplete={onMessage} /> : null}{screen === "payrollApprovals" && id && status === "APPROVED" ? <StableCommandButton allowWrites={allowWrites} domain="workforce" entityId={id} action="finalize-payroll" label="Finalize payroll" path={`/v1/payroll/runs/${id}/finalize`} body={{ version, reason: "Independently reviewed in Owner Mobile" }} onComplete={onMessage} /> : null}{screen === "payoutApprovals" && id && status === "PENDING_APPROVAL" ? <StableCommandButton allowWrites={allowWrites} domain="workforce" entityId={id} action="approve-payout" label="Approve payout" path={`/v1/payout-batches/${id}/approve`} body={{ version, reason: "Independently reviewed in Owner Mobile" }} onComplete={onMessage} /> : null}{screen === "leaveReview" && id ? <View style={styles.actions}><StableCommandButton allowWrites={allowWrites} domain="leave" entityId={id} action="approve" label="Approve" path={`/v1/leave-requests/${id}/approve`} body={{}} onComplete={onMessage} /><StableCommandButton allowWrites={allowWrites} domain="leave" entityId={id} action="reject" label="Reject" path={`/v1/leave-requests/${id}/reject`} body={{ reviewNote: "Reviewed in Owner Mobile" }} onComplete={onMessage} /></View> : null}{screen === "supportAccess" && id && status === "REQUESTED" ? <StableCommandButton allowWrites={allowWrites} domain="support" entityId={id} action="approve" label="Approve scoped support access" path={`/v1/tenant/support-access-grants/${id}/approve`} body={{ reason: "Approved by tenant Owner in Owner Mobile" }} onComplete={onMessage} /> : null}{screen === "supportAccess" && id && ["APPROVED", "ACTIVE"].includes(status) ? <StableCommandButton allowWrites={allowWrites} domain="support" entityId={id} action="revoke" label="Revoke support access" path={`/v1/tenant/support-access-grants/${id}/revoke`} body={{ reason: "Revoked by tenant Owner in Owner Mobile" }} onComplete={onMessage} /> : null}</View>;
+}
+
+function OperationalSummary({ raw }: { raw: JsonObject }) { const staff = asObject(raw.staffUtilization); return <View style={styles.metricBox}><Text style={styles.metric}>Waiting: {String(raw.waitingCount ?? "—")}</Text><Text style={styles.metric}>In service: {String(raw.inServiceCount ?? "—")}</Text><Text style={styles.metric}>Ready checkout: {String(raw.readyCheckoutCount ?? "—")}</Text><Text style={styles.metric}>Current delays: {String(raw.currentDelayCount ?? "—")}</Text><Text style={styles.copy}>Active staff: {Array.isArray(staff?.activeStaffIds) ? staff.activeStaffIds.length : "—"}</Text><Text style={styles.copy}>Live updates are refetch signals; server data remains authoritative.</Text></View>; }
+function FinancialSummary({ raw, locale }: { raw: JsonObject; locale: "vi-VN" | "en-US" }) { const totals = asObject(raw.totals) ?? raw; const currency = String(totals.currency ?? "VND"); const sales = typeof totals.todaySalesMinor === "string" || typeof totals.todaySalesMinor === "number" ? totals.todaySalesMinor : undefined; const tips = typeof totals.tipsMinor === "string" || typeof totals.tipsMinor === "number" ? totals.tipsMinor : undefined; return <View style={styles.metricBox}><Text style={styles.metric}>Sales: {formatMinor(sales, currency, locale)}</Text><Text style={styles.metric}>Paid orders: {String(totals.paidOrders ?? "—")}</Text><Text style={styles.metric}>Tips: {formatMinor(tips, currency, locale)}</Text><Text style={styles.copy}>Read-only. Payment capture is unavailable on Owner Mobile.</Text></View>; }
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: tokens.color.canvas }, content: { padding: tokens.space[4], gap: tokens.space[4] }, title: { color: tokens.color.textPrimary, fontSize: 28, fontWeight: "700" }, label: { color: tokens.color.textSecondary, fontWeight: "700" }, copy: { color: tokens.color.textSecondary, lineHeight: 21 }, message: { color: tokens.color.actionPrimary, lineHeight: 21 }, stale: { color: tokens.color.warning ?? tokens.color.textSecondary, lineHeight: 21 }, card: { gap: tokens.space[2], padding: tokens.space[4], borderRadius: tokens.radius.lg, backgroundColor: tokens.color.surface, borderWidth: 1, borderColor: tokens.color.borderDefault }, cardTitle: { color: tokens.color.textPrimary, fontSize: 17, fontWeight: "700" }, actions: { gap: tokens.space[2], marginTop: tokens.space[2] }, metricBox: { gap: tokens.space[1], padding: tokens.space[3], borderRadius: tokens.radius.md, backgroundColor: "#F2F7FA" }, metric: { color: tokens.color.textPrimary, fontWeight: "700" }, branchBox: { gap: tokens.space[2], padding: tokens.space[3], borderRadius: tokens.radius.md, backgroundColor: tokens.color.surface, borderWidth: 1, borderColor: tokens.color.borderDefault }, branchOptions: { gap: tokens.space[2] },
+});

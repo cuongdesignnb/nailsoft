@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": { "@expo/vector-icons": "^14.1.0", "@nailsoft/design-tokens": "workspace:*", "@nailsoft/icons": "workspace:*", "react": "19.0.0", "react-native": "0.79.4" },
+  "dependencies": { "@expo/vector-icons": "^14.1.0", "@nailsoft/design-tokens": "workspace:*", "@nailsoft/icons": "workspace:*" },
+  "peerDependencies": { "react": "19.0.0", "react-native": "0.79.4" },
   "devDependencies": { "@types/react": "~19.0.10", "eslint": "^9.29.0", "typescript": "^5.8.3", "vitest": "^3.2.4" }
 }

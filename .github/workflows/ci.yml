@@ -579,6 +579,27 @@ jobs:
             pnpm db:seed
             pnpm exec playwright test "$spec" --config=playwright.config.ts --workers=1
           done
+      - name: Sprint 19 Wave 8 Owner Mobile route permission and auth contract
+        run: pnpm exec vitest run tests/contract/sprint19-wave8-owner-mobile-auth-context.test.ts tests/mobile/sprint19-wave8-owner-mobile.test.ts
+      - name: Build Owner Mobile for Sprint 19 Wave 8 authenticated and contract E2E
+        run: pnpm --filter @nailsoft/owner-mobile build
+      - name: Start Owner Mobile web for Sprint 19 Wave 8 authenticated and contract E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 3003 --directory apps/owner-mobile/dist > owner-mobile-e2e.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3003/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat owner-mobile-e2e.log
+          exit 1
+      - name: Sprint 19 Wave 8 Owner Mobile authenticated and contract E2E
+        run: pnpm exec playwright test tests/e2e/sprint19-wave8-owner-mobile.spec.ts --config=playwright.config.ts --workers=1
+      - name: Stop Owner Mobile web after Wave 8 E2E
+        if: always()
+        shell: bash
+        run: pkill -TERM -f "http.server 3003" || true
       - name: Sprint 12 authenticated workforce payroll and payout E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint12-workforce-payroll.spec.ts --config=playwright.api.config.ts
       - name: Sprint 12 closure authenticated deep E2E
@@ -852,6 +873,8 @@ jobs:
         run: pnpm exec vitest run tests/mobile/sprint11-engagement-mobile-smoke.test.ts apps/worker/test/sprint11-email-provider.test.ts
       - name: Sprint 12 Owner and Staff Mobile functional smoke
         run: pnpm exec vitest run tests/mobile/sprint12-workforce-mobile-smoke.test.ts apps/api/test/sprint12-ui-contract.test.ts
+      - name: Sprint 19 Wave 8 Owner Mobile route permission and auth contract
+        run: pnpm exec vitest run tests/contract/sprint19-wave8-owner-mobile-auth-context.test.ts tests/mobile/sprint19-wave8-owner-mobile.test.ts
       - name: Scheduling and booking load smoke
         env:
           LOAD_DURATION_SECONDS: 2
@@ -1104,9 +1127,40 @@ jobs:
             test-results/**/*.md
           if-no-files-found: warn
           retention-days: 5
+      - name: Build Owner Mobile for Sprint 19 Wave 8 visual E2E
+        run: pnpm --filter @nailsoft/owner-mobile build
+      - name: Start Owner Mobile web for Sprint 19 Wave 8 visual E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 3003 --directory apps/owner-mobile/dist > owner-mobile-visual.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3003/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat owner-mobile-visual.log
+          exit 1
+      - name: Sprint 19 Wave 8 Owner Mobile visual and accessibility E2E
+        id: sprint19_wave8_visual
+        run: >
+          pnpm exec playwright test
+          tests/e2e/sprint19-wave8-owner-mobile-visual.spec.ts
+          --config=playwright.config.ts
+          --workers=1
+      - name: Upload Sprint 19 Wave 8 visual failure evidence
+        if: ${{ failure() && steps.sprint19_wave8_visual.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint19-wave8-owner-mobile-visual-linux-${{ github.run_id }}-attempt-${{ github.run_attempt }}
+          path: |
+            test-results/**/*.png
+            test-results/**/*.md
+          if-no-files-found: warn
+          retention-days: 5
       - name: Stop visual services
         if: always()
         shell: bash
         run: |
+          pkill -TERM -f "http.server 3003" || true
           pkill -TERM -f "@nailsoft/api dev" || true
           pkill -TERM -f "@nailsoft/worker dev" || true

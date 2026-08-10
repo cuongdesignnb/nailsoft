@@ -6363,6 +6363,12 @@ components:
                   id: { type: string, format: uuid }
                   name: { type: string }
                   status: { type: string }
+            capabilities:
+              type: object
+              description: Additive product capability projection; not an authorization boundary.
+              required: [ownerMobileEnabled]
+              properties:
+                ownerMobileEnabled: { type: boolean }
             supportAccess:
               type: object
               required: [grantId, permissions, branchIds]

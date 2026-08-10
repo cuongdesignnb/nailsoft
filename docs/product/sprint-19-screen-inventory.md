@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 7 accepted against source CI; Wave 8 not authorized
+Current phase: Wave 8 implementation in progress; Wave 9 not authorized
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -104,6 +104,40 @@ SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
+## Wave 8 — Owner Mobile implementation ledger
+
+Wave 8 starts from `0ed88c936c9e6ecd8220a5e8b2d214beb337f15a`. The authorized
+Owner Mobile work is implementation-only until exact source CI is available;
+no row below is accepted yet. The twelve logical screens map to existing Expo
+Router route groups and authenticated API contracts. No new business API,
+permission, migration or seed change is part of this phase.
+
+| ID | Screen | Route group | Permission / scope | API dependency | Required states | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 19.8.1 | Owner home executive overview | `/` | Effective read permissions; tenant/authorized branch | Federated operations, finance, payroll and analytics reads | loading, ready, partial, error, forbidden, stale | IMPLEMENTED_PENDING_QA |
+| 19.8.2 | Today operations | `/operationalSummary`, `/walkInQueue`, `/appointmentsToday` | Operations/walk-in/appointment read; branch | Operations summary, queue and appointments | loading, ready, empty, partial, retry, offline read | IMPLEMENTED_PENDING_QA |
+| 19.8.3 | Bookings, calendar and availability | `/appointments`, `/appointment`, `/calendarDay`, `/calendarWeek`, `/availability` | Appointment/calendar/availability read; branch | Appointment, calendar, availability and block APIs | loading, ready, forbidden, conflict, retry | IMPLEMENTED_PENDING_QA |
+| 19.8.4 | Federated approval inbox | Approval route groups | Owning-domain approval permissions; branch | Refund, loyalty, campaign, workforce, procurement and asset APIs | loading, empty, submitting, conflict, forbidden | IMPLEMENTED_PENDING_QA |
+| 19.8.5 | Financial overview | Financial route groups | Financial/report read; tenant/branch | Financial, refund, commission, benefit and stored-value reads | loading, ready, partial, privacy, stale | IMPLEMENTED_PENDING_QA |
+| 19.8.6 | Workforce and payroll | Workforce route groups | Timesheet/payroll/payout permissions; branch | Attendance, timesheet, payroll and payout APIs | loading, empty, forbidden, conflict, retry | IMPLEMENTED_PENDING_QA |
+| 19.8.7 | Inventory and procurement | Inventory/procurement route groups | Inventory/procurement permissions; branch | Stock, valuation, purchase, AP and vendor payment reads | loading, empty, privacy, forbidden, conflict | IMPLEMENTED_PENDING_QA |
+| 19.8.8 | Fixed assets | Asset route groups | Asset permissions; branch | Register, capitalization, maintenance, transfer and disposal reads | loading, empty, privacy, forbidden, conflict | IMPLEMENTED_PENDING_QA |
+| 19.8.9 | Analytics and alerts | `/analyticsOverview`, `/analyticsBranches`, `/analyticsAlerts` | Analytics permissions; tenant/branch | Command center, comparison and alert APIs | loading, ready, stale, degraded, forbidden | IMPLEMENTED_PENDING_QA |
+| 19.8.10 | SaaS billing | Billing route groups | `tenant.billing.read`; tenant | Subscription, entitlement, invoice and warning APIs | loading, ready, recovery-safe, forbidden | IMPLEMENTED_PENDING_QA |
+| 19.8.11 | Support access and security | Support/session route groups | Support grant, session and organization permissions; tenant | Support grants, sessions, organization, branches and invitations | loading, empty, dual-control, forbidden, conflict | IMPLEMENTED_PENDING_QA |
+| 19.8.12 | Profile, auth and settings | `/profile`, `/workspace`, `/mfa` | User/session/workspace/MFA permissions; user | Auth context, session, MFA and logout contracts | login, workspace, MFA, enrollment, authenticated, expired | IMPLEMENTED_PENDING_QA |
+
+```text
+WAVE_8_START_CHECKPOINT=0ed88c936c9e6ecd8220a5e8b2d214beb337f15a
+WAVE_8_SCREEN_ROWS=19.8.1_TO_19.8.12
+WAVE_8_STATUS=IN_PROGRESS
+WAVE_8_SOURCE_CI=PENDING
+WAVE_8_ACCEPTANCE=PENDING
+WAVE_9_STARTED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
 | ID | Screen | App | Route | Persona | Permission and scope | API dependency | States | Breakpoints | Evidence / status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 19.1.1 | Today dashboard | Admin Web | `/admin/dashboard` | Owner, Manager, Receptionist | `operations.board.read`, branch scope | `/v1/operations/summary`, `/v1/operations/board` | Loading, ready, empty, error/retry, forbidden, offline | 1440, 1280, 1024, 768, 390, 360 | `tests/e2e/sprint19-wave1-booking-operations.spec.ts`; REDESIGNED / API_BACKED / ACCEPTED |
@@ -162,7 +196,8 @@ is not the source commit validated by that CI run.
 | 19.2.18 | Tip and commission reversal evidence | Admin Web | `/admin/commission`, `/admin/commission/adjustments` | Manager, Owner, Accountant | commission read/adjustment permissions | commission entries/adjustments | loading, empty, approval, forbidden | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
 
 The following route families remain planned for later waves. Wave 2 and Wave 4
-rows above are accepted; Wave 6 and later screens remain unauthorized.
+rows above are accepted; Wave 8 is now in implementation and Wave 9 remains
+unauthorized.
 
 | Wave | Route family | Screen IDs | Primary personas | Permission examples |
 | --- | --- | --- | --- | --- |
@@ -459,7 +494,9 @@ WAVE_7_SOURCE_CI=SUCCESS
 WAVE_7_SOURCE_CI_CONCLUSION=SUCCESS
 SCREEN_ROWS_19_7_1_TO_19_7_13=ALL_ACCEPTED
 BA_PO_WAVE_7_ACCEPTANCE=PASS
-WAVE_8_STARTED=NO
+WAVE_8_STARTED=YES
+WAVE_8_STATUS=IN_PROGRESS
+WAVE_9_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```

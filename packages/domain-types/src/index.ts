@@ -74,6 +74,10 @@ export interface AuthContext {
     ownStaffId?: string;
   };
   branches: Array<{ id: string; name: string; status: string }>;
+  /** Additive product capability projection; authorization remains permission-based. */
+  capabilities?: {
+    ownerMobileEnabled: boolean;
+  };
   supportAccess?: { grantId: string; permissions: string[]; branchIds: string[] };
 }
 export interface ApiFailure {
