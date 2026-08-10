@@ -684,12 +684,14 @@ jobs:
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-payment-provider-lease-boundary.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 13 usage semantic deduplication
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-usage-replay-semantic-dedupe.test.ts --maxWorkers=1 --minWorkers=1
-      - name: Resume durable Worker after provider and usage integrations
+      - name: Keep durable Worker paused before Sprint 13 closure reset
         shell: bash
         run: |
           set -euo pipefail
-          setsid pnpm --filter @nailsoft/worker dev > worker-e2e.log 2>&1 &
-          echo $! > worker-e2e.pid
+          if [[ -f worker-e2e.pid ]]; then
+            kill -- -"$(cat worker-e2e.pid)" || true
+            rm -f worker-e2e.pid
+          fi
       - name: Sprint 13 closure authenticated E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint13-authenticated-platform-billing-e2e.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 13 Owner Mobile smoke
