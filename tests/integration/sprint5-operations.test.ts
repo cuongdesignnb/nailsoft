@@ -7,11 +7,17 @@ const tenant = "10000000-0000-4000-8000-000000000001",
   run = `s5-${Date.now()}`;
 let app: Awaited<ReturnType<typeof createApp>>,
   token = "",
+  managerToken = "",
   techToken = "",
   targetTechToken = "",
   convertedAppointmentId = "";
 const headers = (k = crypto.randomUUID()) => ({
   authorization: `Bearer ${token}`,
+  "x-tenant-id": tenant,
+  "idempotency-key": k,
+});
+const managerHeaders = (k = crypto.randomUUID()) => ({
+  authorization: `Bearer ${managerToken}`,
   "x-tenant-id": tenant,
   "idempotency-key": k,
 });
@@ -34,6 +40,20 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
     });
     expect(r.statusCode, r.body).toBe(200);
     token = r.json().data.accessToken;
+    const manager = await app.inject({
+      method: "POST",
+      url: "/v1/auth/login",
+      payload: {
+        tenantSlug: "nailsoft-demo",
+        email: "staff2@example.test",
+        password: "DemoPass123!",
+        deviceId: `${run}-manager`,
+        deviceName: "Sprint 5 manager",
+        platform: "web",
+      },
+    });
+    expect(manager.statusCode, manager.body).toBe(200);
+    managerToken = manager.json().data.accessToken;
     const tech = await app.inject({
       method: "POST",
       url: "/v1/auth/login",
@@ -197,6 +217,11 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
       first.json().data.appointmentId,
     );
     convertedAppointmentId = first.json().data.appointmentId;
+    const scheduleDb = app.get(DatabaseService);
+    await scheduleDb.query(
+      "UPDATE shifts SET start_at=now()-interval '15 minutes',end_at=now()+interval '6 hours' WHERE tenant_id=$1 AND branch_id=$2 AND staff_id=$3 AND status='PUBLISHED'",
+      [tenant, branch, slot.staffCandidates[0].staffId],
+    );
     const db = app.get(DatabaseService),
       evidence = await db.query<{
         appointments: number;
@@ -215,8 +240,11 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
     const checked = await app.inject({
       method: "POST",
       url: `/v1/appointments/${convertedAppointmentId}/check-in`,
-      headers: headers(`${run}-extension-checkin`),
-      payload: { version: 1 },
+      headers: managerHeaders(`${run}-extension-checkin`),
+      payload: {
+        version: 1,
+        overrideReason: "Deterministic late-fixture approval",
+      },
     });
     expect(checked.statusCode, checked.body).toBe(201);
     const before = await app.inject({
