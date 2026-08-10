@@ -3,12 +3,54 @@ import { close, headers, login } from "./helpers/api-client";
 
 const branchId = "20000000-0000-4000-8000-000000000001";
 const serviceId = "50000000-0000-4000-8000-000000000001";
+const fixtureStartAt = new Date();
+fixtureStartAt.setUTCDate(fixtureStartAt.getUTCDate() + 1);
+fixtureStartAt.setUTCHours(3, 0, 0, 0);
+const fixtureDate = fixtureStartAt.toISOString().slice(0, 10);
 
 test("add-service revalidates a Booking Engine hold and preserves existing price snapshots", async () => {
   const owner = await login("owner@example.test");
+  const manager = await login("staff2@example.test");
   try {
+    const shifts = await owner.api.get(`/v1/shifts?branchId=${branchId}`, {
+      headers: headers(owner),
+    });
+    const publishedShift = (await shifts.json()).data.find(
+      (shift: any) =>
+        shift.status === "PUBLISHED" &&
+        String(shift.startAt).startsWith("2026-08-10"),
+    );
+    expect(publishedShift).toBeTruthy();
+    const staffId = publishedShift.staffId;
+    const cancelledShift = await owner.api.post(
+      `/v1/shifts/${publishedShift.id}/cancel`,
+      { headers: headers(owner, "e2e-s5-add-cancel-seed-shift") },
+    );
+    expect(cancelledShift.status(), await cancelledShift.text()).toBe(201);
+    const fixtureShift = await owner.api.post("/v1/shifts", {
+      headers: headers(owner, "e2e-s5-add-create-future-shift"),
+      data: {
+        branchId,
+        staffId,
+        startAt: fixtureStartAt.toISOString(),
+        endAt: new Date(
+          fixtureStartAt.getTime() + 6 * 60 * 60 * 1000,
+        ).toISOString(),
+        breakMinutes: 0,
+        source: "MANUAL",
+      },
+    });
+    expect(fixtureShift.status(), await fixtureShift.text()).toBe(201);
+    const publishedFixtureShift = await owner.api.post(
+      `/v1/shifts/${(await fixtureShift.json()).data.id}/publish`,
+      { headers: headers(owner, "e2e-s5-add-publish-future-shift") },
+    );
+    expect(
+      publishedFixtureShift.status(),
+      await publishedFixtureShift.text(),
+    ).toBe(201);
     const availability = await owner.api.get(
-      `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
+      `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&dateFrom=${fixtureDate}&dateTo=${fixtureDate}&slotIntervalMin=5`,
       { headers: headers(owner) },
     );
     const slot = (await availability.json()).data.days.flatMap(
@@ -58,8 +100,11 @@ test("add-service revalidates a Booking Engine hold and preserves existing price
     const checked = await owner.api.post(
       `/v1/appointments/${appointmentId}/check-in`,
       {
-        headers: headers(owner, "e2e-s5-add-checkin"),
-        data: { version: 1 },
+        headers: headers(manager, "e2e-s5-add-checkin"),
+        data: {
+          version: 1,
+          overrideReason: "Deterministic late-fixture approval",
+        },
       },
     );
     expect(checked.status(), await checked.text()).toBe(201);
@@ -109,6 +154,7 @@ test("add-service revalidates a Booking Engine hold and preserves existing price
     expect(after.items).toHaveLength(2);
     expect(after.items[0].price).toEqual(before.items[0].price);
   } finally {
+    await close(manager);
     await close(owner);
   }
 });

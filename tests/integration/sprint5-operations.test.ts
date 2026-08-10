@@ -5,6 +5,10 @@ const tenant = "10000000-0000-4000-8000-000000000001",
   branch = "20000000-0000-4000-8000-000000000001",
   service = "50000000-0000-4000-8000-000000000001",
   run = `s5-${Date.now()}`;
+const fixtureStartAt = new Date();
+fixtureStartAt.setUTCDate(fixtureStartAt.getUTCDate() + 1);
+fixtureStartAt.setUTCHours(3, 0, 0, 0);
+const fixtureDate = fixtureStartAt.toISOString().slice(0, 10);
 let app: Awaited<ReturnType<typeof createApp>>,
   token = "",
   managerToken = "",
@@ -82,6 +86,10 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
     });
     expect(target.statusCode, target.body).toBe(200);
     targetTechToken = target.json().data.accessToken;
+    await app.get(DatabaseService).query(
+      "UPDATE shifts SET start_at=$3::timestamptz,end_at=$3::timestamptz+interval '6 hours' WHERE id=(SELECT id FROM shifts WHERE tenant_id=$1 AND branch_id=$2 AND status='PUBLISHED' ORDER BY start_at DESC LIMIT 1)",
+      [tenant, branch, fixtureStartAt.toISOString()],
+    );
   });
   afterAll(async () => {
     if (app) await app.close();
@@ -153,7 +161,7 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
   it("converts a walk-in once through Booking Planner, hold, and reservation consumption", async () => {
     const availability = await app.inject({
       method: "GET",
-      url: `/v1/availability?branchId=${branch}&serviceId=${service}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
+      url: `/v1/availability?branchId=${branch}&serviceId=${service}&dateFrom=${fixtureDate}&dateTo=${fixtureDate}&slotIntervalMin=5`,
       headers: headers(),
     });
     expect(availability.statusCode, availability.body).toBe(200);
@@ -217,11 +225,6 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
       first.json().data.appointmentId,
     );
     convertedAppointmentId = first.json().data.appointmentId;
-    const scheduleDb = app.get(DatabaseService);
-    await scheduleDb.query(
-      "UPDATE shifts SET start_at=now()-interval '15 minutes',end_at=now()+interval '6 hours' WHERE tenant_id=$1 AND branch_id=$2 AND staff_id=$3 AND status='PUBLISHED'",
-      [tenant, branch, slot.staffCandidates[0].staffId],
-    );
     const db = app.get(DatabaseService),
       evidence = await db.query<{
         appointments: number;
