@@ -1,8 +1,8 @@
 import { Stack, usePathname, useRouter } from "expo-router";
-import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { MobileShell } from "@nailsoft/ui-native";
-import { getAuthContext, getSession } from "../lib/session";
+import { getAuthContext, getSession, registerSessionCacheClear } from "../lib/session";
 import { staffTabForPath, visibleStaffTabs } from "../lib/wave9/permissions";
 import { staffText } from "../lib/wave9/i18n";
 
@@ -12,10 +12,12 @@ export default function Layout() {
 }
 
 function StaffNavigator() {
+  const queryClient = useQueryClient();
   const pathname = usePathname();
   const router = useRouter();
   const publicRoute = pathname === "/" || ["/workspace", "/mfa", "/invitation"].includes(pathname);
   const stack = <Stack screenOptions={{ headerShown: false }} />;
+  useEffect(() => { registerSessionCacheClear(() => queryClient.clear()); return () => registerSessionCacheClear(undefined); }, [queryClient]);
   const contextQuery = useQuery({ queryKey: ["staff-shell-context"], queryFn: getAuthContext, enabled: !publicRoute && !!getSession().accessToken, staleTime: 60_000 });
   if (publicRoute) return stack;
   if (!contextQuery.data || contextQuery.data.capabilities?.staffMobileEnabled !== true) return stack;

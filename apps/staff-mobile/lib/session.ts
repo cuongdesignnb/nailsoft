@@ -5,6 +5,7 @@ export const api = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3001";
 let accessToken: string | undefined;
 let tenantId: string | undefined;
 let refreshHandler: (() => Promise<boolean>) | undefined;
+let clearCacheHandler: (() => Promise<void> | void) | undefined;
 
 export function setSession(token: string | undefined, tenant?: string) {
   accessToken = token;
@@ -22,6 +23,14 @@ export function getSession() {
 
 export function registerSessionRefresh(handler: (() => Promise<boolean>) | undefined) {
   refreshHandler = handler;
+}
+
+export function registerSessionCacheClear(handler: (() => Promise<void> | void) | undefined) {
+  clearCacheHandler = handler;
+}
+
+export async function clearSessionCache() {
+  await clearCacheHandler?.();
 }
 
 async function request(path: string, init: RequestInit, token: string | undefined) {

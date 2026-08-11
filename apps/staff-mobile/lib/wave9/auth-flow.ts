@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { createRefreshSingleFlight } from "@nailsoft/api-client";
-import { clearSession, api, getSession, registerSessionRefresh, setSession } from "../session";
+import { clearSession, clearSessionCache, api, getSession, registerSessionRefresh, setSession } from "../session";
 import { clearStaffBranchContext } from "./branch-context";
 import { clearStaffLocalDrafts } from "./drafts";
 
@@ -139,6 +139,7 @@ export function clearPendingAuth() { pendingWorkspaceState = undefined; pendingM
 
 export async function clearStaffSession() {
   clearSession();
+  await clearSessionCache();
   clearPendingAuth();
   clearStaffBranchContext();
   await SecureStore.deleteItemAsync("refreshToken").catch(() => undefined);
