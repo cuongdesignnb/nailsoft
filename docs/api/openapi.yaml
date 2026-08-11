@@ -6369,6 +6369,7 @@ components:
               required: [ownerMobileEnabled]
               properties:
                 ownerMobileEnabled: { type: boolean }
+                staffMobileEnabled: { type: boolean, description: Staff Mobile product capability; effective permissions and own/assigned scope remain authoritative. }
             supportAccess:
               type: object
               required: [grantId, permissions, branchIds]

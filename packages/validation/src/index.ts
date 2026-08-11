@@ -9,7 +9,7 @@ export const authContextSchema = z.object({
     ownStaffId: z.string().uuid().optional(),
   }),
   branches: z.array(z.object({ id: z.string().uuid(), name: z.string(), status: z.string() })),
-  capabilities: z.object({ ownerMobileEnabled: z.boolean() }).optional(),
+  capabilities: z.object({ ownerMobileEnabled: z.boolean(), staffMobileEnabled: z.boolean().optional() }).optional(),
   supportAccess: z.object({ grantId: z.string().uuid(), permissions: z.array(z.string()), branchIds: z.array(z.string().uuid()) }).optional(),
 });
 export const workforceMoneyMinorSchema = z.string().regex(/^\d+$/);

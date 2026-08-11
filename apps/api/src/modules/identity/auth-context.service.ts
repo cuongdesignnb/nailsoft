@@ -25,9 +25,9 @@ export class AuthContextService {
              JOIN role_permissions rp ON rp.role=mr.role
              WHERE mr.membership_id=$1 ORDER BY rp.permission_code`, [auth.membershipId],
           ),
-      this.db.query<{ enabled: boolean | null }>(
-        `SELECT enabled FROM platform_entitlement_projections
-         WHERE tenant_id=$1 AND entitlement_code='owner_mobile.enabled'`,
+      this.db.query<{ entitlement_code: string; enabled: boolean | null }>(
+        `SELECT entitlement_code,enabled FROM platform_entitlement_projections
+         WHERE tenant_id=$1 AND entitlement_code IN ('owner_mobile.enabled','staff_mobile.enabled')`,
         [auth.tenantId],
       ),
     ]);
@@ -62,7 +62,8 @@ export class AuthContextService {
       },
       branches,
       capabilities: {
-        ownerMobileEnabled: !platformWithoutGrant && capability.rows[0]?.enabled === true,
+        ownerMobileEnabled: !platformWithoutGrant && capability.rows.some((row) => row.entitlement_code === "owner_mobile.enabled" && row.enabled === true),
+        staffMobileEnabled: !platformWithoutGrant && capability.rows.some((row) => row.entitlement_code === "staff_mobile.enabled" && row.enabled === true),
       },
       ...(auth.supportAccess ? { supportAccess: { grantId: auth.supportAccess.grantId, permissions: auth.supportAccess.permissions, branchIds: auth.supportAccess.branchIds } } : {}),
     };

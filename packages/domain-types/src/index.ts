@@ -77,6 +77,8 @@ export interface AuthContext {
   /** Additive product capability projection; authorization remains permission-based. */
   capabilities?: {
     ownerMobileEnabled: boolean;
+    /** Staff Mobile product access; never a substitute for effective permissions or own scope. */
+    staffMobileEnabled?: boolean;
   };
   supportAccess?: { grantId: string; permissions: string[]; branchIds: string[] };
 }
