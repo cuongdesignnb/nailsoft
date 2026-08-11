@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 9 accepted against source CI; Sprint 19 final closure gate pending
+Current phase: Sprint 19 completed; Sprint 20 not authorized
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -77,9 +77,8 @@ FONT_RENDER_DETERMINISM=PASS
 
 Business rows are appended one screen at a time after Wave 0 acceptance. Wave 1
 and Wave 2 rows below are accepted only for the evidence explicitly listed.
-Wave 4 through Wave 7 rows are accepted against their exact source CI evidence.
-Wave 8 is accepted against source CI; Wave 9 is implementation-only until its
-exact source CI is successful.
+Wave 4 through Wave 9 rows are accepted against their exact source CI evidence;
+deferred scopes remain explicitly recorded below.
 
 ## Wave 4 acceptance
 
@@ -357,18 +356,22 @@ SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
-## Wave 3 Cluster 4 acceptance
+## Wave 3 Cluster 4 historical detail
 
 Cluster 4 covers the Admin Web communications, marketing, reviews and service
 recovery routes. It uses existing APIs and keeps email consent, suppression,
 dual-control and owning-domain compensation rules on the server. Acceptance is
 validated by the exact final Wave 3 source CI run.
 
-| ID | Route / surface | Persona | Permission and scope | API / evidence | Required states and QA | Source commit | CI | Acceptance |
+The canonical rows `19.3.13`–`19.3.15` are recorded in the Wave 3 table above.
+The following cluster-detail records preserve historical evidence without
+creating duplicate screen IDs for machine reconciliation.
+
+| Historical detail | Route / surface | Persona | Permission and scope | API / evidence | Required states and QA | Source commit | CI | Acceptance |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19.3.13 | Communications, segments and email campaigns | Owner, Manager, Marketing | `communication.*`, `marketing.*`, tenant/branch scope | Existing communication, segment and campaign APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, offline, submitting, version conflict, consent/suppression, dual control | `6b054d57363091c45756aaa54e430b5305b2281f` | `31168662060 / SUCCESS` | ACCEPTED |
-| 19.3.14 | Reviews and review requests | Owner, Manager, Receptionist | `review.*`, branch scope | Existing review and request APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, immutable customer content, response validation | `6b054d57363091c45756aaa54e430b5305b2281f` | `31168662060 / SUCCESS` | ACCEPTED |
-| 19.3.15 | Service recovery, compensation and timeline | Owner, Manager, Receptionist, assigned Technician | `service_recovery.*`, branch/assigned-task scope | Existing recovery case, task and compensation APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, version conflict, dual control, owning-domain handoff | `6b054d57363091c45756aaa54e430b5305b2281f` | `31168662060 / SUCCESS` | ACCEPTED |
+| Cluster 4 / communications | Communications, segments and email campaigns | Owner, Manager, Marketing | `communication.*`, `marketing.*`, tenant/branch scope | Existing communication, segment and campaign APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, offline, submitting, version conflict, consent/suppression, dual control | `6b054d57363091c45756aaa54e430b5305b2281f` | `31168662060 / SUCCESS` | ACCEPTED |
+| Cluster 4 / reviews | Reviews and review requests | Owner, Manager, Receptionist | `review.*`, branch scope | Existing review and request APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, immutable customer content, response validation | `6b054d57363091c45756aaa54e430b5305b2281f` | `31168662060 / SUCCESS` | ACCEPTED |
+| Cluster 4 / service recovery | Service recovery, compensation and timeline | Owner, Manager, Receptionist, assigned Technician | `service_recovery.*`, branch/assigned-task scope | Existing recovery case, task and compensation APIs; Cluster 4 E2E | loading, ready, empty, retry, forbidden, version conflict, dual control, owning-domain handoff | `6b054d57363091c45756aaa54e430b5305b2281f` | `31168662060 / SUCCESS` | ACCEPTED |
 
 ```text
 WAVE_3_CLUSTER_4_STATUS=ACCEPTED
@@ -482,10 +485,40 @@ the source commit validated by that run.
 
 | Rows | Cluster | Source / API evidence | Source CI | Acceptance |
 | --- | --- | --- | --- | --- |
-| 19.6.1-19.6.11 | Accounting and banking | `/v1/accounting/*`; statement-line, match and exception reads | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
-| 19.6.12-19.6.18 | Tenant billing and support | `/v1/tenant/billing/*`; support grant API | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
-| 19.6.19-19.6.29 | Platform commerce and support | `/v1/platform/*`; support target scope; break-glass disabled read | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
-| 19.6.30-19.6.34 | Analytics | `/v1/analytics/*`; dedicated Wave 6 renderer | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.1 | Accounting control center | `/v1/accounting/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.2 | Books and chart | `/v1/accounting/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.3 | Accounting periods | `/v1/accounting/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.4 | Journal workbench | `/v1/accounting/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.5 | Posting queue | `/v1/accounting/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.6 | Open items | `/v1/accounting/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.7 | Financial reports | `/v1/accounting/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.8 | Bank accounts and imports | `/v1/accounting/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.9 | Statement lines and matching | `/v1/accounting/*`; exclusion deferred | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED_WITH_DEFERRED_SCOPE |
+| 19.6.10 | Reconciliation and exceptions | `/v1/accounting/*`; adjustment deferred | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED_WITH_DEFERRED_SCOPE |
+| 19.6.11 | Statement snapshots | `/v1/accounting/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.12 | Billing overview | `/v1/tenant/billing/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.13 | Subscription | `/v1/tenant/billing/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.14 | Plans, entitlements and usage | `/v1/tenant/billing/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.15 | Invoices and history | `/v1/tenant/billing/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.16 | Invoice detail | `/v1/tenant/billing/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.17 | Payment methods | `/v1/tenant/billing/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.18 | Tenant support access | `/v1/tenant/billing/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.19 | Plan, price and discount catalog | `/v1/platform/*`; discount mutation deferred | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED_WITH_DEFERRED_SCOPE |
+| 19.6.20 | Tenant directory | `/v1/platform/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.21 | Tenant detail and lifecycle | `/v1/platform/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.22 | Tenant subscription | `/v1/platform/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.23 | Tenant entitlements and usage | `/v1/platform/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.24 | Tenant invoices and payments | `/v1/platform/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.25 | Platform invoice and payment operations | `/v1/platform/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.26 | Refund and reconciliation | `/v1/platform/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.27 | Dunning and platform reports | `/v1/platform/*`; manual dunning deferred | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED_WITH_DEFERRED_SCOPE |
+| 19.6.28 | Platform support access | `/v1/platform/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.29 | Break-glass safety | `/v1/platform/*`; disabled foundation | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED_DISABLED_FOUNDATION |
+| 19.6.30 | Analytics command center | `/v1/analytics/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.31 | Sales analytics | `/v1/analytics/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.32 | Booking analytics | `/v1/analytics/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.33 | Staff analytics | `/v1/analytics/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.34 | Data quality, alerts, exports and rebuilds | `/v1/analytics/*` | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
 
 ```text
 WAVE_6_STATUS=COMPLETED
@@ -663,8 +696,8 @@ ACCEPTED_WITH_DEFERRED_SUB_SCOPE_SCREEN_ROWS=2
 BA_PO_WAVE_9_ACCEPTANCE=PASS_WITH_DOCUMENTED_DEFERRED_SUB_SCOPES
 SERVICE_EXECUTION_MEDIA_ATTACHMENT=DEFERRED_NATIVE_CLIENT_SUB_SCOPE
 STAFF_STORED_VALUE_BROWSER=DEFERRED_FOR_PRIVACY
-SPRINT_19_STATUS=READY_FOR_FINAL_CLOSURE_GATE
-SPRINT_19_FINAL_CLOSURE_GATE_STARTED=NO
+SPRINT_19_STATUS=COMPLETED
+SPRINT_19_FINAL_CLOSURE_GATE_STARTED=YES
 WAVE_10_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
@@ -676,3 +709,44 @@ Wave 9 acceptance notes:
 - Materials, material usage and assigned asset tasks are accepted; a global Staff stored-value browser remains disabled for privacy and assigned-context boundaries.
 - The intermediate run `31454643176` failed at step 15 because of temporal test-fixture drift. Hotfix `15bcffaa` changed only test fixture date resolution; it did not change runtime business logic, API contracts, permissions or migrations.
 - The local `pnpm security:evidence` adapter output-shape note is non-blocking tooling context. The authoritative CI supply-chain gate is `SUCCESS`.
+
+## Sprint 19 final reconciliation
+
+The canonical acceptance rows contain 181 distinct screen IDs: 13 Wave 0
+foundations and 168 business-screen units across Waves 1–9. The previous total
+of 180 was stale documentation arithmetic and is corrected here without
+deleting or merging an accepted row.
+
+```text
+TOTAL_UNITS=181
+ACCEPTED=174
+ACCEPTED_WITH_DEFERRED_SCOPE=7
+UNACCEPTED=0
+INVENTORY_DISTINCT_SCREEN_ID_COUNT=181
+LEDGER_DISTINCT_SCREEN_ID_COUNT=181
+EXPECTED_RANGE_ID_COUNT=181
+DUPLICATE_ID_COUNT=0
+MISSING_ID_COUNT=0
+UNEXPECTED_ID_COUNT=0
+WAVE_0_COUNT=13
+WAVE_1_COUNT=16
+WAVE_2_COUNT=18
+WAVE_3_COUNT=15
+WAVE_4_COUNT=14
+WAVE_5_COUNT=36
+WAVE_6_COUNT=34
+WAVE_7_COUNT=13
+WAVE_8_COUNT=12
+WAVE_9_COUNT=10
+SPRINT_19_STATUS=COMPLETED
+SPRINT_19_FINAL_CLOSURE_GATE=PASS_PENDING_FINAL_DOCS_CI
+SPRINT_20_STARTED=NO
+SPRINT_20_AUTHORIZED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+The seven deferred rows contain eight deliberate backlog items: Customer
+Update and Customer Merge (Wave 3); four accounting/platform-billing items
+(Wave 6); native Staff Mobile media attachment and the global Staff stored-value
+browser (Wave 9). Break-glass remains an intentionally disabled foundation,
+not a deferred P0.

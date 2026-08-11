@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 9 accepted against source CI; Sprint 19 final closure gate pending
+Current phase: Sprint 19 completed; Sprint 20 not authorized
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -16,19 +16,19 @@ Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 | ID | Screen or foundation | App | Route | Persona | Permission and scope | API dependency | States | Breakpoints | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 19.0.1 | Screen inventory | Shared | Documentation | Delivery | N/A | N/A | Ready | All | In progress |
-| 19.0.2 | Role usability matrix | Shared | Documentation | All personas | N/A | N/A | Ready | All | In progress |
-| 19.0.3 | Semantic design tokens | Shared | Package gallery | All authenticated users | Client presentation | N/A | Ready | All | In progress |
-| 19.0.4 | Typography and formatters | Shared | Package gallery | All authenticated users | Client presentation | N/A | Ready | All | In progress |
-| 19.0.5 | Forms and validation | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Loading, ready, error | All | In progress |
-| 19.0.6 | Buttons and actions | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Ready, forbidden | All | In progress |
-| 19.0.7 | Tables and responsive lists | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Empty, ready, error | All | In progress |
-| 19.0.8 | Modal, drawer, toast and banner | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Ready, keyboard | All | In progress |
-| 19.0.9 | UI state panels | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Loading, empty, error, retry, forbidden, stale, offline, partial | All | In progress |
-| 19.0.10 | Charts and table fallback | Web and Mobile | Package gallery | Owner, Manager, Accountant | Existing analytics permissions | Existing analytics APIs | Loading, empty, ready | All | In progress |
-| 19.0.11 | Component gallery | Admin Web | `/admin/design-system` | Developer and test operator | Development/test configuration | `/v1/auth/context` | Full state gallery | 1440, 1280, 1024, 768, 390, 360 | In progress |
-| 19.0.12 | Admin shell | Admin Web | `/admin/**` | Role adaptive | Effective server permissions and branch scope | `/v1/auth/context` | Loading, ready, forbidden, retry | 1440, 1280, 1024, 768, 390, 360 | In progress |
-| 19.0.13 | Mobile shell | Owner and Staff Mobile | `/` and tab routes | Owner, Technician | Effective server permissions and own staff scope | `/v1/auth/context` | Loading, ready, forbidden, offline | 390, 360, Expo Web | In progress |
+| 19.0.1 | Screen inventory | Shared | Documentation | Delivery | N/A | N/A | Ready | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.2 | Role usability matrix | Shared | Documentation | All personas | N/A | N/A | Ready | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.3 | Semantic design tokens | Shared | Package gallery | All authenticated users | Client presentation | N/A | Ready | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.4 | Typography and formatters | Shared | Package gallery | All authenticated users | Client presentation | N/A | Ready | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.5 | Forms and validation | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Loading, ready, error | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.6 | Buttons and actions | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Ready, forbidden | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.7 | Tables and responsive lists | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Empty, ready, error | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.8 | Modal, drawer, toast and banner | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Ready, keyboard | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.9 | UI state panels | Web and Mobile | Package gallery | All authenticated users | Existing endpoint permissions | Existing APIs | Loading, empty, error, retry, forbidden, stale, offline, partial | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.10 | Charts and table fallback | Web and Mobile | Package gallery | Owner, Manager, Accountant | Existing analytics permissions | Existing analytics APIs | Loading, empty, ready | All | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.11 | Component gallery | Admin Web | `/admin/design-system` | Developer and test operator | Development/test configuration | `/v1/auth/context` | Full state gallery | 1440, 1280, 1024, 768, 390, 360 | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.12 | Admin shell | Admin Web | `/admin/**` | Role adaptive | Effective server permissions and branch scope | `/v1/auth/context` | Loading, ready, forbidden, retry | 1440, 1280, 1024, 768, 390, 360 | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
+| 19.0.13 | Mobile shell | Owner and Staff Mobile | `/` and tab routes | Owner, Technician | Effective server permissions and own staff scope | `/v1/auth/context` | Loading, ready, forbidden, offline | 390, 360, Expo Web | ACCEPTED; source `0a6afb5d`; CI `30892119845` |
 
 ## Wave 1  -  Booking and daily salon operations
 
@@ -138,8 +138,8 @@ ACCEPTED_WITH_DEFERRED_SUB_SCOPE_SCREEN_ROWS=2
 BA_PO_WAVE_9_ACCEPTANCE=PASS_WITH_DOCUMENTED_DEFERRED_SUB_SCOPES
 SERVICE_EXECUTION_MEDIA_ATTACHMENT=DEFERRED_NATIVE_CLIENT_SUB_SCOPE
 STAFF_STORED_VALUE_BROWSER=DEFERRED_FOR_PRIVACY
-SPRINT_19_STATUS=READY_FOR_FINAL_CLOSURE_GATE
-SPRINT_19_FINAL_CLOSURE_GATE_STARTED=NO
+SPRINT_19_STATUS=COMPLETED
+SPRINT_19_FINAL_CLOSURE_GATE_STARTED=YES
 WAVE_10_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
@@ -291,9 +291,9 @@ is not the source commit validated by that CI run.
 | 19.2.17 | Credit note and refund detail | Admin Web | `/admin/credit-notes`, `/admin/credit-notes/:id` | Manager, Accountant, Owner | `credit_note.read/print`, branch | credit-note detail/delivery | loading, immutable ready, forbidden, retry | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
 | 19.2.18 | Tip and commission reversal evidence | Admin Web | `/admin/commission`, `/admin/commission/adjustments` | Manager, Owner, Accountant | commission read/adjustment permissions | commission entries/adjustments | loading, empty, approval, forbidden | 1280, 390 | REDESIGNED / API_BACKED / ACCEPTED; source `83474b1f`; CI `31085184446` |
 
-The following route families remain planned for later waves. Wave 2 and Wave 4
-rows above are accepted; Wave 8 is accepted against source CI and Wave 9 remains
-unauthorized.
+The route-family index below is retained for scope reference. Waves 0–9 are
+closed against their canonical source CI; deferred scopes remain explicitly
+recorded in the acceptance ledger.
 
 | Wave | Route family | Screen IDs | Primary personas | Permission examples |
 | --- | --- | --- | --- | --- |
@@ -307,8 +307,20 @@ unauthorized.
 | 8 | Owner Mobile | 19.8.1-19.8.12 | Owner | Effective owner permissions |
 | 9 | Staff Mobile | 19.9.1-19.9.10 | Technician | Own staff and assigned-session scope |
 
-Total planned units: 180 (13 foundations and 167 business screens, including
-separately tracked staff assignment and transfer units).
+Total accepted units: 181 (13 foundations and 168 business screen units).
+
+```text
+TOTAL_ACCEPTED_UNITS=181
+FOUNDATION_UNITS=13
+BUSINESS_SCREEN_UNITS=168
+FULLY_ACCEPTED_OR_ACCEPTED_DISABLED=174
+ACCEPTED_WITH_DOCUMENTED_DEFERRED_SCOPE=7
+UNACCEPTED=0
+PREVIOUS_DECLARED_TOTAL_180=CORRECTED_AS_STALE_DOCUMENTATION_ARITHMETIC
+SPRINT_19_STATUS=COMPLETED
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
 
 ## Wave 4  -  Staff, workforce and payroll (accepted)
 
