@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 8 accepted against source CI; Wave 9 not authorized
+Current phase: Wave 8 accepted against source CI; Wave 9 implementation in progress
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -30,11 +30,11 @@ Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 | 19.0.12 | Admin shell | Admin Web | `/admin/**` | Role adaptive | Effective server permissions and branch scope | `/v1/auth/context` | Loading, ready, forbidden, retry | 1440, 1280, 1024, 768, 390, 360 | In progress |
 | 19.0.13 | Mobile shell | Owner and Staff Mobile | `/` and tab routes | Owner, Technician | Effective server permissions and own staff scope | `/v1/auth/context` | Loading, ready, forbidden, offline | 390, 360, Expo Web | In progress |
 
-## Wave 1 — Booking and daily salon operations
+## Wave 1  -  Booking and daily salon operations
 
 Wave 1 keeps the existing business contracts and route families. The four
 overview surfaces below use the Wave 1 API-backed presentation layer; command
-surfaces continue to use the accepted Sprint 3–5 domain components and APIs.
+surfaces continue to use the accepted Sprint 3-5 domain components and APIs.
 
 Final source validation is commit
 `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`, validated by full CI run
@@ -48,7 +48,7 @@ CI_RUN=30985009361
 CI_CONCLUSION=SUCCESS
 ```
 
-## Wave 6 — Accounting, platform billing and analytics (accepted)
+## Wave 6  -  Accounting, platform billing and analytics (accepted)
 
 Wave 6 starts from `290e9ae24775ad89ffc9af9e982dad161878633a`. Phase 0A
 hardens Support Access to a target-tenant boundary and Phase 0B adds the
@@ -104,7 +104,40 @@ SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
-## Wave 8 — Owner Mobile (accepted)
+## Wave 9 - Staff Mobile
+
+Wave 9 starts from `da8591553640b23e935bdf2084dd8f1163d9dafc`. The source
+implementation is being delivered in five local clusters. Until the exact
+Wave 9 source CI is successful, every row remains `IMPLEMENTED_PENDING_QA`.
+No new business API, permission, migration, seed or state machine is included.
+
+| ID | Screen | Route group | Permission / scope | API dependency | Required states | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| 19.9.1 | Staff home | `/` and `staffToday` | `service_session.read_own`; own staff/assigned session | `/v1/staff/me/today`, auth context | loading, ready, no shift, partial, error, forbidden, offline read | IMPLEMENTED_PENDING_QA |
+| 19.9.2 | Schedule, shifts and availability | `myCalendar`, `myBusy`, `myAvailability`, `shifts` | Own staff and authorized branch permissions | calendar, busy, availability and shifts APIs | loading, ready, empty, error, forbidden, stale | IMPLEMENTED_PENDING_QA |
+| 19.9.3 | Assigned appointments | `upcomingAppointments`, `appointment`, `packageCoverage` | Assigned appointment/own staff permissions | appointments, appointment detail and benefits APIs | loading, ready, empty, forbidden, privacy | IMPLEMENTED_PENDING_QA |
+| 19.9.4 | Service execution | `staffToday` command panel | Assigned session plus service-session command permissions | service-session commands and notes | loading, ready, submitting, conflict, offline, error | IMPLEMENTED_PENDING_QA; native media attachment deferred |
+| 19.9.5 | Time clock and attendance | `timeClock`, `attendanceHistory` | `time_clock.self.use`, `timesheet.self.read`; own staff/authorized branch | time-clock and attendance APIs | loading, ready, conflict, forbidden, offline | IMPLEMENTED_PENDING_QA |
+| 19.9.6 | Leave and timesheets | `leave`, `createLeave`, `leaveDetail`, `myTimesheets` | Own leave/timesheet permissions | leave and own-timesheet APIs | loading, ready, validation, conflict, forbidden, offline | IMPLEMENTED_PENDING_QA |
+| 19.9.7 | Earnings, tips and pay statements | `myPerformance`, `myEarnings`, `commissionHistory`, `netTips`, `payStatements` | Own analytics/commission/payroll permissions | personal performance, commission, tips and statements APIs | loading, ready, empty, forbidden, privacy | IMPLEMENTED_PENDING_QA |
+| 19.9.8 | Materials, stored value and assigned assets | `myMaterials`, `materialUsage`, `storedValueAccess`, asset task routes | Assigned session/task and safe masked context | materials and assigned asset APIs | loading, ready, empty, forbidden, privacy | IMPLEMENTED_PENDING_QA; stored-value browser deferred if no safe projection |
+| 19.9.9 | Recovery tasks | `recoveryTasks`, `recoveryContact` | Assigned task/case plus contact permission | `/v1/service-recovery/tasks/me` and safe contact command | loading, ready, empty, conflict, forbidden, offline | IMPLEMENTED_PENDING_QA |
+| 19.9.10 | Profile, authentication and settings | `profile`, `branches`, `skills`, `/workspace`, `/mfa` | User/auth contracts; own staff context | auth, context, profile, session and MFA APIs | login, workspace, MFA, authenticated, expired, logout | IMPLEMENTED_PENDING_QA |
+
+```text
+WAVE_9_START_CHECKPOINT=da8591553640b23e935bdf2084dd8f1163d9dafc
+WAVE_9_SCREEN_ROWS=19.9.1_TO_19.9.10
+WAVE_9_STATUS=IN_PROGRESS
+WAVE_9_SOURCE_CI=PENDING
+SCREEN_ROWS_19_9_1_TO_19_9_10=IMPLEMENTED_PENDING_QA
+SERVICE_EXECUTION_MEDIA_ATTACHMENT=DEFERRED_NATIVE_CLIENT_SUB_SCOPE
+STAFF_STORED_VALUE_BROWSER=DEFERRED_FOR_PRIVACY_IF_NO_SAFE_PROJECTION
+WAVE_10_STARTED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+## Wave 8  -  Owner Mobile (accepted)
 
 Wave 8 starts from `0ed88c936c9e6ecd8220a5e8b2d214beb337f15a`. Final source
 validation is commit `ed236b640e38b0162754b09179bf0def773021be`, validated by
@@ -217,9 +250,9 @@ report. No unverified screenshot is claimed as acceptance evidence.
 
 ## Business route inventory for later waves
 
-## Wave 2 — POS, payment and cash operations (accepted)
+## Wave 2  -  POS, payment and cash operations (accepted)
 
-Wave 2 keeps the existing Sprint 6–7 APIs and permission guards. The new
+Wave 2 keeps the existing Sprint 6-7 APIs and permission guards. The new
 Admin Web surface is additive and server-authoritative; no migration or
 business state-machine change is part of this wave. Each row is tracked
 separately even where the catch-all route shares a renderer.
@@ -269,7 +302,7 @@ unauthorized.
 Total planned units: 180 (13 foundations and 167 business screens, including
 separately tracked staff assignment and transfer units).
 
-## Wave 4 — Staff, workforce and payroll (accepted)
+## Wave 4  -  Staff, workforce and payroll (accepted)
 
 The Wave 4 Admin Web renderer is API-backed and preserves existing Sprint 2 and
 Sprint 12 contracts. All rows below are accepted against the exact source CI
@@ -450,7 +483,7 @@ Customer Merge remain deferred; this inventory does not claim either mutation
 is implemented. The deferred item belongs to a future customer mutation
 addendum or product backlog, not Wave 4.
 
-## Wave 5 — Inventory, procurement and fixed assets (accepted)
+## Wave 5  -  Inventory, procurement and fixed assets (accepted)
 
 Final Wave 5 source validation is commit
 `7d01aa86d94ebf4a7e6406082d3aeb176cac884c`, validated by full CI run
@@ -518,7 +551,7 @@ SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
-## Wave 7 — Public Booking Web (accepted against source CI)
+## Wave 7  -  Public Booking Web (accepted against source CI)
 
 Wave 7 starts from `97ca6c643fcc427076948cbba4f827cce7ab3b95`. Final source
 validation is commit `214e90e58b1c8b25438b170c82622a77342de24b`, validated by

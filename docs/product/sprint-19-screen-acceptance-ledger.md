@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 8 accepted against source CI; Wave 9 not authorized
+Current phase: Wave 8 accepted against source CI; Wave 9 implementation in progress
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -78,7 +78,8 @@ FONT_RENDER_DETERMINISM=PASS
 Business rows are appended one screen at a time after Wave 0 acceptance. Wave 1
 and Wave 2 rows below are accepted only for the evidence explicitly listed.
 Wave 4 through Wave 7 rows are accepted against their exact source CI evidence.
-Wave 8 is in implementation; Wave 9 remains unauthorized.
+Wave 8 is accepted against source CI; Wave 9 is implementation-only until its
+exact source CI is successful.
 
 ## Wave 4 acceptance
 
@@ -259,7 +260,7 @@ EN_US=PASS
 MOJIBAKE=0
 ```
 
-The Wave 2 renderer consumes the existing Sprint 6–7 API contracts and
+The Wave 2 renderer consumes the existing Sprint 6-7 API contracts and
 idempotency headers. No state machine, currency semantics, tenant isolation,
 branch scope, permission guard, audit/outbox behavior, migration or business
 logic was changed for this documentation closure.
@@ -400,7 +401,7 @@ WAVE_4_STARTED=NO
 SPRINT_20_STARTED=NO
 ```
 
-## Wave 5 acceptance — inventory, procurement and fixed assets
+## Wave 5 acceptance  -  inventory, procurement and fixed assets
 
 Final Wave 5 source validation is commit
 `7d01aa86d94ebf4a7e6406082d3aeb176cac884c`, validated by full CI run
@@ -469,7 +470,7 @@ FIXED_ASSETS_CLUSTER=ACCEPTED
 ADDENDUM_A_FOUNDATION=ACCEPTED
 ```
 
-## Wave 6 acceptance ledger — source CI complete
+## Wave 6 acceptance ledger  -  source CI complete
 
 Start checkpoint: `290e9ae24775ad89ffc9af9e982dad161878633a`.
 
@@ -481,10 +482,10 @@ the source commit validated by that run.
 
 | Rows | Cluster | Source / API evidence | Source CI | Acceptance |
 | --- | --- | --- | --- | --- |
-| 19.6.1–19.6.11 | Accounting and banking | `/v1/accounting/*`; statement-line, match and exception reads | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
-| 19.6.12–19.6.18 | Tenant billing and support | `/v1/tenant/billing/*`; support grant API | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
-| 19.6.19–19.6.29 | Platform commerce and support | `/v1/platform/*`; support target scope; break-glass disabled read | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
-| 19.6.30–19.6.34 | Analytics | `/v1/analytics/*`; dedicated Wave 6 renderer | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.1-19.6.11 | Accounting and banking | `/v1/accounting/*`; statement-line, match and exception reads | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.12-19.6.18 | Tenant billing and support | `/v1/tenant/billing/*`; support grant API | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.19-19.6.29 | Platform commerce and support | `/v1/platform/*`; support target scope; break-glass disabled read | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
+| 19.6.30-19.6.34 | Analytics | `/v1/analytics/*`; dedicated Wave 6 renderer | `c3c46ab5` / `31302322332` / SUCCESS | ACCEPTED |
 
 ```text
 WAVE_6_STATUS=COMPLETED
@@ -507,7 +508,7 @@ DEFERRED_SCOPE_4=MANUAL_DUNNING_ACTIONS
 BREAK_GLASS=INTENTIONALLY_DISABLED_FOUNDATION
 ```
 
-## Wave 7 acceptance ledger — accepted against exact source CI
+## Wave 7 acceptance ledger  -  accepted against exact source CI
 
 Start checkpoint: `97ca6c643fcc427076948cbba4f827cce7ab3b95`.
 
@@ -543,7 +544,7 @@ WAVE_8_STARTED=YES
 WAVE_8_STATUS=COMPLETED
 WAVE_9_STARTED=NO
 
-## Wave 8 acceptance — Owner Mobile
+## Wave 8 acceptance  -  Owner Mobile
 
 Start checkpoint: `0ed88c936c9e6ecd8220a5e8b2d214beb337f15a`.
 
@@ -628,3 +629,35 @@ Wave 0 through Wave 8 visual lanes, the Wave 8 route/permission contract,
 authenticated Owner Mobile E2E, all six builds, Sprint 18 supply-chain gate and
 container teardown are `SUCCESS`. Any local security-evidence adapter note is
 non-blocking tooling context; CI supply-chain evidence is authoritative.
+
+## Wave 9 implementation ledger - Staff Mobile
+
+Start checkpoint: `da8591553640b23e935bdf2084dd8f1163d9dafc`.
+
+The following rows are implementation evidence only. They must not be marked
+`ACCEPTED` until a full CI run validates the exact final Wave 9 source SHA.
+
+| ID | Logical surface | Scope / permission boundary | Source | CI | Acceptance |
+| --- | --- | --- | --- | --- | --- |
+| 19.9.1 | Staff home | Own staff and assigned session | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.2 | Schedule, shifts and availability | Own staff / authorized branch | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.3 | Assigned appointments | Assigned appointment only | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.4 | Service execution | Assigned session; native media deferred | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.5 | Time clock and attendance | Own staff / authorized branch | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.6 | Leave and timesheets | Own staff | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.7 | Earnings, tips and pay statements | Own staff and permission-scoped money | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.8 | Materials, stored value and assigned assets | Assigned session/task; stored-value browser may be deferred for privacy | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.9 | Recovery tasks | Assigned task/case only | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.10 | Profile, authentication and settings | User/auth context | pending | pending | IMPLEMENTED_PENDING_QA |
+
+```text
+WAVE_9_START_CHECKPOINT=da8591553640b23e935bdf2084dd8f1163d9dafc
+WAVE_9_STATUS=IN_PROGRESS
+SCREEN_ROWS_19_9_1_TO_19_9_10=IMPLEMENTED_PENDING_QA
+SOURCE_CI=PENDING
+ACCEPTANCE=PENDING
+SERVICE_EXECUTION_MEDIA_ATTACHMENT=DEFERRED_NATIVE_CLIENT_SUB_SCOPE
+WAVE_10_STARTED=NO
+SPRINT_20_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```

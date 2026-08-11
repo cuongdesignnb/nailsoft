@@ -13,6 +13,13 @@ import { staffText } from "../lib/wave9/i18n";
 /** Compatibility export for existing smoke tests; authorization uses descriptors in wave9/permissions.ts. */
 export const staffOwnRouteRegistry = staffRouteRegistry.map((route) => route.screen);
 
+// Legacy route names remain explicit so existing mobile smoke contracts continue to audit the same owning APIs.
+export const staffLegacyScreenNames = [
+  "staffToday", "myCalendar", "myBusy", "myAvailability", "upcomingAppointments", "packageCoverage",
+  "myEarnings", "netTips", "myMaterials", "storedValueAccess", "recoveryTasks", "recoveryContact",
+  "timeClock", "attendanceHistory", "myTimesheets", "payStatements",
+] as const;
+
 type AuthState = "restoring" | "login" | "submitting" | "authenticated" | "error";
 
 export default function StaffHome() {
@@ -26,6 +33,9 @@ export default function StaffHome() {
   useEffect(() => {
     void restoreStaffSession().then((restored) => setState(restored ? "authenticated" : "login")).catch(() => setState("login"));
   }, []);
+  useEffect(() => {
+    if (contextQuery.data) syncStaffBranchContext(contextQuery.data);
+  }, [contextQuery.data]);
 
   async function submitLogin() {
     setState("submitting");
@@ -36,25 +46,25 @@ export default function StaffHome() {
       else if (result.authenticationState) router.replace("/mfa");
       else setState("authenticated");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to sign in safely.");
+      setMessage(error instanceof Error ? error.message : staffText(undefined, "signInFailed"));
       setState("error");
     }
   }
 
-  if (state === "restoring" || state === "submitting") return <AuthPanel title={staffText(undefined, "loading")} detail="Checking your secure session." />;
+  if (state === "restoring" || state === "submitting") return <AuthPanel title={staffText(undefined, "loading")} detail={staffText(undefined, "checkingSession")} />;
   if (state !== "authenticated") return <LoginPanel email={email} password={password} message={message} onEmail={setEmail} onPassword={setPassword} onSubmit={() => void submitLogin()} />;
-  if (contextQuery.isPending) return <AuthPanel title={staffText(undefined, "loading")} detail="Checking permissions and assigned work." />;
-  if (contextQuery.isError || !contextQuery.data) return <AuthPanel title="Unable to load workspace" detail="Check the connection and retry." retry={() => void contextQuery.refetch()} />;
+  if (contextQuery.isPending) return <AuthPanel title={staffText(undefined, "loading")} detail={staffText(undefined, "checkingWork")} />;
+  if (contextQuery.isError || !contextQuery.data) return <AuthPanel title={staffText(undefined, "loadWorkspaceFailed")} detail={staffText(undefined, "connectionRetry")} retry={() => void contextQuery.refetch()} />;
 
   const context = contextQuery.data;
   const locale = context.user.locale;
-  syncStaffBranchContext(context);
   const capability = context.capabilities?.staffMobileEnabled === true;
   const ownStaffId = context.authorization.ownStaffId;
   const accessMode = context.workspace.accessMode;
-  if (!capability) return <UnavailablePanel text={staffText(locale, "unavailable")} />;
-  if (!ownStaffId) return <UnavailablePanel text={staffText(locale, "missingStaff")} />;
-  if (["BILLING_ONLY", "SUSPENDED", "TERMINATED"].includes(accessMode)) return <UnavailablePanel text={staffText(locale, "unavailable")} />;
+  const signOut = () => void clearStaffSession().then(() => router.replace("/"));
+  if (!capability) return <UnavailablePanel text={staffText(locale, "unavailable")} onSignOut={signOut} />;
+  if (!ownStaffId) return <UnavailablePanel text={staffText(locale, "missingStaff")} onSignOut={signOut} />;
+  if (["BILLING_ONLY", "SUSPENDED", "TERMINATED"].includes(accessMode)) return <UnavailablePanel text={staffText(locale, "unavailable")} onSignOut={signOut} />;
 
   const tabs = (() => {
     const visible = visibleStaffTabs(context);
@@ -81,15 +91,15 @@ export default function StaffHome() {
 }
 
 function LoginPanel({ email, password, message, onEmail, onPassword, onSubmit }: { email: string; password: string; message: string; onEmail: (value: string) => void; onPassword: (value: string) => void; onSubmit: () => void }) {
-  return <SafeAreaView style={styles.safe}><View style={styles.authCard}><Text style={styles.eyebrow}>NAILSOFT STAFF</Text><Text accessibilityRole="header" style={styles.authTitle}>{staffText(undefined, "signIn")}</Text><Text style={styles.copy}>Open assigned work for your active workspace.</Text><TextInput accessibilityLabel={staffText(undefined, "email")} autoCapitalize="none" autoComplete="email" value={email} onChangeText={onEmail} style={styles.input} placeholder="name@salon.com" /><TextInput accessibilityLabel={staffText(undefined, "password")} autoComplete="password" value={password} onChangeText={onPassword} secureTextEntry style={styles.input} placeholder={staffText(undefined, "password")} /><NativeButton label={staffText(undefined, "signIn")} icon="arrowRight" onPress={onSubmit} />{message ? <Text accessibilityRole="alert" style={styles.error}>{message}</Text> : null}</View></SafeAreaView>;
+  return <SafeAreaView style={styles.safe}><View style={styles.authCard}><Text style={styles.eyebrow}>NAILSOFT STAFF</Text><Text accessibilityRole="header" style={styles.authTitle}>{staffText(undefined, "signIn")}</Text><Text style={styles.copy}>{staffText(undefined, "activeWorkspaceCopy")}</Text><TextInput accessibilityLabel={staffText(undefined, "email")} autoCapitalize="none" autoComplete="email" value={email} onChangeText={onEmail} style={styles.input} placeholder={staffText(undefined, "emailPlaceholder")} /><TextInput accessibilityLabel={staffText(undefined, "password")} autoComplete="password" value={password} onChangeText={onPassword} secureTextEntry style={styles.input} placeholder={staffText(undefined, "password")} /><NativeButton label={staffText(undefined, "signIn")} icon="arrowRight" onPress={onSubmit} />{message ? <Text accessibilityRole="alert" style={styles.error}>{message}</Text> : null}</View></SafeAreaView>;
 }
 
 function AuthPanel({ title, detail, retry }: { title: string; detail: string; retry?: () => void }) {
   return <SafeAreaView style={styles.safe}><NativeStatePanel state={retry ? "error" : "loading"} title={title} detail={detail} onRetry={retry} /></SafeAreaView>;
 }
 
-function UnavailablePanel({ text }: { text: string }) {
-  return <SafeAreaView style={styles.safe}><View style={styles.authCard}><NativeStatePanel state="forbidden" title={text} detail={staffText(undefined, "noPermission")} /><NativeButton label={staffText(undefined, "signOut")} variant="secondary" icon="logout" onPress={() => void clearStaffSession()} /></View></SafeAreaView>;
+function UnavailablePanel({ text, onSignOut }: { text: string; onSignOut: () => void }) {
+  return <SafeAreaView style={styles.safe}><View style={styles.authCard}><NativeStatePanel state="forbidden" title={text} detail={staffText(undefined, "noPermission")} /><NativeButton label={staffText(undefined, "signOut")} variant="secondary" icon="logout" onPress={onSignOut} /></View></SafeAreaView>;
 }
 
 const styles = StyleSheet.create({

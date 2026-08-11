@@ -600,6 +600,27 @@ jobs:
         if: always()
         shell: bash
         run: pkill -TERM -f "http.server 3003" || true
+      - name: Sprint 19 Wave 9 Staff Mobile auth scope and permission contract
+        run: pnpm exec vitest run tests/contract/sprint19-wave9-staff-mobile-auth-scope.test.ts tests/contract/sprint19-wave9-route-ownership.test.ts tests/mobile/sprint19-wave9-staff-mobile.test.ts
+      - name: Build Staff Mobile for Sprint 19 Wave 9 authenticated and contract E2E
+        run: pnpm --filter @nailsoft/staff-mobile build
+      - name: Start Staff Mobile web for Sprint 19 Wave 9 authenticated and contract E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 3004 --directory apps/staff-mobile/dist > staff-mobile-e2e.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3004/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat staff-mobile-e2e.log
+          exit 1
+      - name: Sprint 19 Wave 9 Staff Mobile authenticated and contract E2E
+        run: pnpm exec playwright test tests/e2e/sprint19-wave9-staff-mobile.spec.ts --config=playwright.config.ts --workers=1
+      - name: Stop Staff Mobile web after Wave 9 E2E
+        if: always()
+        shell: bash
+        run: pkill -TERM -f "http.server 3004" || true
       - name: Sprint 12 authenticated workforce payroll and payout E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint12-workforce-payroll.spec.ts --config=playwright.api.config.ts
       - name: Sprint 12 closure authenticated deep E2E
@@ -1157,6 +1178,41 @@ jobs:
           path: |
             test-results/**/*.png
             test-results/**/*.md
+          if-no-files-found: warn
+          retention-days: 5
+      - name: Build Staff Mobile for Sprint 19 Wave 9 visual E2E
+        run: pnpm --filter @nailsoft/staff-mobile build
+      - name: Start Staff Mobile web for Sprint 19 Wave 9 visual E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 3004 --directory apps/staff-mobile/dist > staff-mobile-visual.log 2>&1 &
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3004/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat staff-mobile-visual.log
+          exit 1
+      - name: Sprint 19 Wave 9 Staff Mobile visual and accessibility E2E
+        id: sprint19_wave9_visual
+        run: >
+          pnpm exec playwright test
+          tests/e2e/sprint19-wave9-staff-mobile-visual.spec.ts
+          --config=playwright.config.ts
+          --workers=1
+      - name: Stop Staff Mobile web after Wave 9 visual E2E
+        if: always()
+        shell: bash
+        run: pkill -TERM -f "http.server 3004" || true
+      - name: Upload Sprint 19 Wave 9 visual failure evidence
+        if: failure() && steps.sprint19_wave9_visual.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sprint19-wave9-staff-mobile-visual-failure
+          path: |
+            test-results/**
+            playwright-report/**
+            staff-mobile-visual.log
           if-no-files-found: warn
           retention-days: 5
       - name: Stop visual services

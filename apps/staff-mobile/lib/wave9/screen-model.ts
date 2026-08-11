@@ -35,8 +35,8 @@ export function pathForStaffScreen(screen: string, params: { id?: string; branch
   if (screen === "recoveryTasks") return "/v1/service-recovery/tasks/me";
   if (screen === "recoveryContact") return "/v1/service-recovery/tasks/me";
   if (["profile", "branches", "skills"].includes(screen)) return "/v1/staff/me";
-  if (screen === "shifts") return "/v1/shifts";
-  if (screen === "leave") return "/v1/leave-requests";
+  if (screen === "shifts") return branchId ? `/v1/shifts?branchId=${encodeURIComponent(branchId)}&from=${encodeURIComponent(range(14).from)}&to=${encodeURIComponent(range(14).to)}` : null;
+  if (screen === "leave") return branchId ? `/v1/leave-requests?branchId=${encodeURIComponent(branchId)}` : null;
   if (screen === "leaveDetail") return params.id ? `/v1/leave-requests/${encodeURIComponent(params.id)}` : null;
   if (screen === "myCalendar") return branchId ? `/v1/calendar/events?branchId=${encodeURIComponent(branchId)}&from=${encodeURIComponent(range(7).from)}&to=${encodeURIComponent(range(7).to)}` : null;
   if (screen === "myBusy") return branchId ? `/v1/availability-blocks?branchId=${encodeURIComponent(branchId)}&from=${encodeURIComponent(range(30).from)}&to=${encodeURIComponent(range(30).to)}` : null;
