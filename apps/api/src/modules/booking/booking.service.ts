@@ -17,6 +17,7 @@ import {
   customerDirectoryCursorSchema,
   customerDirectoryQuerySchema,
   customerIdParamSchema,
+  customerUpdateSchema,
   createAppointmentSchema,
   createSlotHoldSchema,
   depositWaiverSchema,
@@ -109,7 +110,7 @@ export class BookingService {
     const { customerId } = customerIdParamSchema.parse({ customerId: input });
     const customer = (
       await this.db.query<any>(
-        `SELECT id,display_name,phone_normalized,email_normalized,preferred_locale,status,is_guest,created_at
+        `SELECT id,display_name,phone_normalized,email_normalized,preferred_locale,status,is_guest,created_at,version
          FROM customers
          WHERE tenant_id=$1 AND id=$2`,
         [auth.tenantId, customerId],
@@ -163,6 +164,7 @@ export class BookingService {
         status: customer.status,
         isGuest: customer.is_guest,
         createdAt: customer.created_at,
+        version: Number(customer.version),
       },
       contact: {
         access: "FULL",
@@ -246,6 +248,198 @@ export class BookingService {
       }),
     );
     return { ...result.data, idempotencyReplayed: result.replayed };
+  }
+
+  async updateCustomer(
+    auth: AccessClaims,
+    input: unknown,
+    bodyInput: unknown,
+    key: string,
+    requestId: string,
+  ) {
+    this.assertCustomerPiiAccess(auth);
+    const { customerId } = customerIdParamSchema.parse({ customerId: input });
+    const body = customerUpdateSchema.parse(bodyInput);
+    const normalizedPhone =
+      body.phone === undefined
+        ? undefined
+        : body.phone === null
+          ? null
+          : this.normalizePhone(body.phone);
+    const normalizedEmail =
+      body.email === undefined
+        ? undefined
+        : body.email === null
+          ? null
+          : this.normalizeEmail(body.email);
+    const request = {
+      ...body,
+      ...(body.phone !== undefined ? { phone: normalizedPhone } : {}),
+      ...(body.email !== undefined ? { email: normalizedEmail } : {}),
+    };
+
+    try {
+      const result = await this.db.transaction((client) =>
+        this.idempotency.execute(client, {
+          tenantId: auth.tenantId,
+          actorScope: `user:${auth.userId}`,
+          command: "customer.update",
+          key,
+          request,
+          work: async () => {
+            const current = (
+              await client.query<any>(
+                `SELECT id,display_name,phone_normalized,email_normalized,preferred_locale,status,is_guest,created_at,updated_at,version,contact_verification_version
+                 FROM customers
+                 WHERE tenant_id=$1 AND id=$2
+                 FOR UPDATE`,
+                [auth.tenantId, customerId],
+              )
+            ).rows[0];
+            if (!current)
+              throw new NotFoundException({
+                code: "CUSTOMER_NOT_FOUND",
+                message: "Customer was not found",
+              });
+
+            const currentVersion = Number(current.version);
+            if (currentVersion !== body.version)
+              throw new ConflictException({
+                code: "VERSION_CONFLICT",
+                message: "The customer was changed by another request",
+              });
+
+            const next = {
+              displayName: body.displayName ?? current.display_name,
+              phone:
+                body.phone === undefined
+                  ? current.phone_normalized
+                  : normalizedPhone,
+              email:
+                body.email === undefined
+                  ? current.email_normalized
+                  : normalizedEmail,
+              preferredLocale:
+                body.preferredLocale ?? current.preferred_locale,
+            };
+            const changedFields = [
+              next.displayName !== current.display_name ? "displayName" : null,
+              next.phone !== current.phone_normalized ? "phone" : null,
+              next.email !== current.email_normalized ? "email" : null,
+              next.preferredLocale !== current.preferred_locale
+                ? "preferredLocale"
+                : null,
+            ].filter((field): field is string => field !== null);
+
+            if (!changedFields.length) return this.customerView(current);
+
+            if (next.phone !== current.phone_normalized || next.email !== current.email_normalized) {
+              const duplicate = (
+                await client.query<{ id: string }>(
+                  `SELECT id
+                   FROM customers
+                   WHERE tenant_id=$1 AND status='ACTIVE' AND id<>$2
+                     AND (($3::text IS NOT NULL AND phone_normalized=$3)
+                       OR ($4::text IS NOT NULL AND lower(email_normalized)=lower($4)))
+                   LIMIT 1`,
+                  [auth.tenantId, customerId, next.phone, next.email],
+                )
+              ).rows[0];
+              if (duplicate)
+                throw new ConflictException({
+                  code: "CUSTOMER_DUPLICATE_CONFLICT",
+                  message: "Another active customer already uses this contact",
+                });
+            }
+
+            const updated = (
+              await client.query<any>(
+                `UPDATE customers
+                 SET display_name=$3,
+                     phone_normalized=$4,
+                     email_normalized=$5,
+                     preferred_locale=$6,
+                     contact_verification_version=CASE
+                       WHEN phone_normalized IS DISTINCT FROM $4::text
+                         OR email_normalized IS DISTINCT FROM $5::text
+                       THEN contact_verification_version+1
+                       ELSE contact_verification_version
+                     END,
+                     version=version+1,
+                     updated_at=now()
+                 WHERE tenant_id=$1 AND id=$2 AND version=$7
+                 RETURNING id,display_name,phone_normalized,email_normalized,preferred_locale,status,is_guest,created_at,updated_at,version,contact_verification_version`,
+                [
+                  auth.tenantId,
+                  customerId,
+                  next.displayName,
+                  next.phone,
+                  next.email,
+                  next.preferredLocale,
+                  body.version,
+                ],
+              )
+            ).rows[0];
+            if (!updated)
+              throw new ConflictException({
+                code: "VERSION_CONFLICT",
+                message: "The customer was changed by another request",
+              });
+
+            await client.query(
+              `INSERT INTO audit_logs(tenant_id,actor_user_id,action,entity_type,entity_id,before_json,after_json,request_id)
+               VALUES($1,$2,'customer.updated','customer',$3,$4,$5,$6)`,
+              [
+                auth.tenantId,
+                auth.userId,
+                customerId,
+                JSON.stringify(this.customerAuditProjection(current)),
+                JSON.stringify({
+                  ...this.customerAuditProjection(updated),
+                  changedFields,
+                }),
+                requestId,
+              ],
+            );
+            await client.query(
+              `INSERT INTO outbox_events(tenant_id,event_type,aggregate_type,aggregate_id,aggregate_version,payload_json,actor_json,metadata_json)
+               VALUES($1,'customer.updated','customer',$2,$3,$4,$5,$6)`,
+              [
+                auth.tenantId,
+                customerId,
+                Number(updated.version),
+                JSON.stringify({
+                  customerId,
+                  changedFields,
+                  version: Number(updated.version),
+                  refetch: true,
+                }),
+                JSON.stringify({ type: "USER", id: auth.userId }),
+                JSON.stringify({
+                  schemaVersion: 1,
+                  requestId,
+                  idempotencyKeyHash: this.idempotency.subject(key),
+                }),
+              ],
+            );
+            return this.customerView(updated);
+          },
+        }),
+      );
+      return { ...result.data, idempotencyReplayed: result.replayed };
+    } catch (error: any) {
+      const constraint = String(error?.constraint ?? "");
+      if (
+        error?.code === "23505" &&
+        (constraint === "customers_tenant_phone_unique" ||
+          constraint === "customers_tenant_email_unique")
+      )
+        throw new ConflictException({
+          code: "CUSTOMER_DUPLICATE_CONFLICT",
+          message: "Another active customer already uses this contact",
+        });
+      throw error;
+    }
   }
 
   async createHold(
@@ -1928,6 +2122,26 @@ export class BookingService {
       status: row.status,
       isGuest: row.is_guest,
       createdAt: row.created_at,
+      version: Number(row.version ?? 1),
+    };
+  }
+  private customerAuditProjection(row: any) {
+    return {
+      displayNameFingerprint: row.display_name
+        ? this.contactHash(row.display_name)
+        : null,
+      phoneFingerprint: row.phone_normalized
+        ? this.contactHash(row.phone_normalized)
+        : null,
+      emailFingerprint: row.email_normalized
+        ? this.contactHash(row.email_normalized)
+        : null,
+      preferredLocale: row.preferred_locale,
+      status: row.status,
+      version: Number(row.version ?? 1),
+      contactVerificationVersion: Number(
+        row.contact_verification_version ?? 1,
+      ),
     };
   }
   private async resolveCustomer(

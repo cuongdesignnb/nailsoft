@@ -2235,6 +2235,68 @@ paths:
             "404": { description: CUSTOMER_NOT_FOUND, including cross-tenant IDs },
           },
       }
+    patch:
+      {
+        tags: [appointments],
+        summary: Update a tenant-scoped customer profile,
+        description: |
+          Requires customer.update. Only displayName, phone, email and
+          preferredLocale are mutable. The request version is optimistic
+          concurrency control and Idempotency-Key is required for replay-safe
+          mutation. Customer merge and financial/benefit fields are not part
+          of this operation.
+        security: [{ bearerAuth: [] }]
+        parameters:
+          [
+            {
+              name: customerId,
+              in: path,
+              required: true,
+              schema: { type: string, format: uuid },
+            },
+            { $ref: "#/components/parameters/IdempotencyKey" },
+          ]
+        requestBody:
+          {
+            required: true,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/CustomerUpdateInput" } },
+              },
+          }
+        responses:
+          {
+            "200":
+              {
+                description: Updated customer profile,
+                content:
+                  {
+                    application/json:
+                      {
+                        schema:
+                          {
+                            type: object,
+                            required: [success, data, meta],
+                            properties:
+                              {
+                                success: { const: true },
+                                data: { $ref: "#/components/schemas/BookingCustomer" },
+                                meta: { type: object },
+                              },
+                          },
+                      },
+                  },
+              },
+            "400": { description: Invalid UUID or strict update payload },
+            "403": { description: Missing customer.update permission or support PII denial },
+            "404": { description: CUSTOMER_NOT_FOUND, including cross-tenant IDs },
+            "409":
+              {
+                description: VERSION_CONFLICT, CUSTOMER_DUPLICATE_CONFLICT or idempotency key reuse,
+              },
+          },
+      }
   /appointments:
     get:
       {
@@ -6123,7 +6185,7 @@ components:
         locale: { enum: [vi-VN, en-US] }
     BookingCustomer:
       type: object
-      required: [id, displayName, locale, status, isGuest]
+      required: [id, displayName, locale, status, isGuest, version]
       properties:
         id: { type: string, format: uuid }
         displayName: { type: string }
@@ -6132,7 +6194,18 @@ components:
         locale: { enum: [vi-VN, en-US] }
         status: { enum: [ACTIVE, INACTIVE, MERGED] }
         isGuest: { type: boolean }
+        version: { type: integer, minimum: 1 }
         idempotencyReplayed: { type: boolean }
+    CustomerUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: { type: integer, minimum: 1 }
+        displayName: { type: string, minLength: 1, maxLength: 200 }
+        phone: { type: string, minLength: 1, maxLength: 32, nullable: true }
+        email: { type: string, format: email, maxLength: 254, nullable: true }
+        preferredLocale: { enum: [vi-VN, en-US] }
     CustomerDirectoryPagination:
       type: object
       required: [limit, nextCursor, hasMore]
@@ -6162,7 +6235,7 @@ components:
             - { $ref: "#/components/schemas/Customer360RefundSection" }
     Customer360Profile:
       type: object
-      required: [id, displayName, preferredLocale, status, isGuest, createdAt]
+      required: [id, displayName, preferredLocale, status, isGuest, createdAt, version]
       properties:
         id: { type: string, format: uuid }
         displayName: { type: string }
@@ -6170,6 +6243,7 @@ components:
         status: { enum: [ACTIVE, INACTIVE, MERGED] }
         isGuest: { type: boolean }
         createdAt: { type: string, format: date-time }
+        version: { type: integer, minimum: 1 }
     Customer360Contact:
       type: object
       required: [access, phone, email]

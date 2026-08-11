@@ -14,7 +14,7 @@ decision before the corresponding wave can start.
 
 | ID | Contract | Current evidence | Permission status | Migration status | Privacy/security status | Implementation authorized |
 |---|---|---|---|---|---|---|
-| 20.CUSTOMER_UPDATE | `PATCH /v1/customers/:customerId` is proposed; duplicate phone/email rejects; optimistic concurrency and idempotency required | Read/detail/create exist; update missing; customer has `updated_at` but no entity version | **BLOCKED**; no existing update permission; propose `customer.update`; role defaults pending | **CONDITIONAL**; role-permission data migration required if new code is approved | **PARTIAL**; PII redaction/audit shape defined, version and field authorization pending | NO |
+| 20.CUSTOMER_UPDATE | `PATCH /v1/customers/:customerId` implemented for display name, phone, email and preferred locale; duplicate phone/email rejects; optimistic concurrency and idempotency required | Read/detail/create plus additive update route; customer version and contact verification increment are server-controlled | `customer.update`; default rollout to SALON_OWNER, BRANCH_MANAGER and RECEPTIONIST | `0035_customer_update`; additive customer version and role-permission rollout | PII values are normalized, excluded from audit/outbox payloads and represented by fingerprints; tenant scope and strict field allowlist enforced | YES — IMPLEMENTED_PENDING_SOURCE_CI |
 | 20.STATEMENT_EXCLUSION | Exclude only an eligible unmatched statement line; no client period override; reversal policy pending | `match_state=EXCLUDED` already exists; controller has no exclusion command | Existing `accounting.bank_reconciliation.manage` proposed; BA/PO confirm | **NO schema change expected** for enum; contract still blocked by row-version/reversal decision | **BLOCKED**; financial audit, period lock and event semantics pending | NO |
 | 20.RECONCILIATION_ADJUSTMENT | DRAFT → PENDING_APPROVAL → APPROVED → POSTED, with reject/cancel terminal paths and journal posting | Table and states exist; read projection exists; commands absent; no version/idempotency/history fields | Existing reconciliation/journal permissions proposed; exact split pending | **CONDITIONAL** if version/history fields are required | **BLOCKED**; posting source, idempotency and evidence contract pending | NO |
 | 20.STAFF_MEDIA | Presign → private upload → complete → read → soft delete; native client remains conditional | Backend endpoints and constraints exist; native picker/camera and retention are absent | Existing `service_session.media`; assigned-session scope | NO current migration required for backend foundation | **BLOCKED**; retention, object deletion, native permissions and storage soak missing | NO |
@@ -24,10 +24,10 @@ decision before the corresponding wave can start.
 
 | Field | Ordinary update | Normalization | Audit | Version conflict | Notes |
 |---|---|---|---|---|---|
-| `display_name` | Proposed | trim, max 200 | redacted before/after | required | no merge behavior |
-| `phone_normalized` | Proposed | existing phone normalizer | redacted/fingerprint | required | duplicate conflict |
-| `email_normalized` | Proposed | lowercase/email normalizer | redacted/fingerprint | required | duplicate conflict |
-| `preferred_locale` | Proposed | `vi-VN`/`en-US` | yes | required | no mixed locale state |
+| `display_name` | Implemented | trim, max 200 | redacted/fingerprint before/after | required | no merge behavior |
+| `phone_normalized` | Implemented | existing phone normalizer; null clears | redacted/fingerprint | required | duplicate conflict; increments contact verification version |
+| `email_normalized` | Implemented | lowercase/email normalizer; null clears | redacted/fingerprint | required | duplicate conflict; increments contact verification version |
+| `preferred_locale` | Implemented | `vi-VN`/`en-US` | yes | required | no mixed locale state |
 | `status` | No | lifecycle-owned | domain audit | domain-owned | includes `MERGED`; not a normal edit |
 | `is_guest` | No | booking-owned | domain audit | domain-owned | not client-controlled |
 | `contact_verification_version` | No | server increment | security audit | required | contact change invalidates stale verification |
@@ -94,9 +94,9 @@ AUDIT_POLICY=presign/complete/delete security events exist; retention evidence m
 ## Wave 0 decision ledger
 
 ```text
-CUSTOMER_UPDATE_CONTRACT=BLOCKED
-CUSTOMER_UPDATE_PERMISSION_DECIDED=NO
-CUSTOMER_UPDATE_VERSION_CONTRACT=NO
+CUSTOMER_UPDATE_CONTRACT=IMPLEMENTED_PENDING_SOURCE_CI
+CUSTOMER_UPDATE_PERMISSION_DECIDED=YES (customer.update)
+CUSTOMER_UPDATE_VERSION_CONTRACT=YES (customers.version BIGINT, optimistic lock)
 STATEMENT_EXCLUSION_CONTRACT=BLOCKED
 RECONCILIATION_ADJUSTMENT_CONTRACT=BLOCKED
 ACCOUNTING_ADJUSTMENT_STATE_MACHINE=SUFFICIENT_STATE_FLOW_BUT_NOT_RELEASE_SAFE

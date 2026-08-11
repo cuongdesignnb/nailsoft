@@ -227,6 +227,23 @@ export const customerDirectoryQuerySchema = z
   })
   .strict();
 export const customerIdParamSchema = z.object({ customerId: uuidSchema }).strict();
+export const customerUpdateSchema = z
+  .object({
+    version: z.number().int().positive().safe(),
+    displayName: z.string().trim().min(1).max(200).optional(),
+    phone: z.string().trim().min(1).max(32).nullable().optional(),
+    email: z.string().trim().email().max(254).nullable().optional(),
+    preferredLocale: z.enum(["vi-VN", "en-US"]).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.displayName !== undefined ||
+      value.phone !== undefined ||
+      value.email !== undefined ||
+      value.preferredLocale !== undefined,
+    { message: "At least one customer field must be provided" },
+  );
 export const bookingCustomerSearchSchema = customerDirectoryQuerySchema;
 export const bookingCustomerCreateSchema = publicAppointmentCustomerSchema;
 export const appointmentVersionSchema = z.object({

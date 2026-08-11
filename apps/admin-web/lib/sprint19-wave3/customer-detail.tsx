@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { authorizedFetch } from "../auth";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { authorizedFetch, getAuthContext } from "../auth";
 
 type State = "loading" | "ready" | "error" | "forbidden" | "offline";
 
@@ -21,6 +21,10 @@ function status(value: unknown) {
 
 function unwrapError(body: any) {
   return body?.error?.message ?? "Unable to load the customer profile.";
+}
+
+function errorCode(body: any) {
+  return body?.error?.code ?? body?.code;
 }
 
 function StatePanel({ state, error, retry }: { state: State; error: string; retry: () => void }) {
@@ -42,6 +46,14 @@ export default function CustomerDetail({ customerId }: { customerId: string }) {
   const [state, setState] = useState<State>("loading");
   const [data, setData] = useState<any>();
   const [error, setError] = useState("");
+  const [canEdit, setCanEdit] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editNotice, setEditNotice] = useState("");
+  const [versionConflict, setVersionConflict] = useState(false);
+  const [form, setForm] = useState({ displayName: "", phone: "", email: "", preferredLocale: "vi-VN" });
+  const intentKeyRef = useRef<string | undefined>(undefined);
   const load = useCallback(async () => {
     if (typeof navigator !== "undefined" && !navigator.onLine) { setState("offline"); return; }
     setState("loading"); setError("");
@@ -59,6 +71,78 @@ export default function CustomerDetail({ customerId }: { customerId: string }) {
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    let active = true;
+    void getAuthContext().then((context) => {
+      if (active) setCanEdit(context.authorization.permissions.includes("customer.update"));
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  function beginEdit() {
+    const profile = data?.profile ?? {};
+    setForm({
+      displayName: String(profile.displayName ?? ""),
+      phone: String(data?.contact?.phone ?? ""),
+      email: String(data?.contact?.email ?? ""),
+      preferredLocale: String(profile.preferredLocale ?? "vi-VN"),
+    });
+    setEditError("");
+    setEditNotice("");
+    setVersionConflict(false);
+    setEditing(true);
+  }
+
+  async function submitEdit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const displayName = form.displayName.trim();
+    if (!displayName) {
+      setEditError("Display name is required.");
+      return;
+    }
+    setSubmitting(true);
+    setEditError("");
+    setEditNotice("");
+    const key = intentKeyRef.current ?? crypto.randomUUID();
+    intentKeyRef.current = key;
+    try {
+      const response = await authorizedFetch(`/v1/customers/${encodeURIComponent(customerId)}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "idempotency-key": key },
+        body: JSON.stringify({
+          version: Number(data?.profile?.version),
+          displayName,
+          phone: form.phone.trim() || null,
+          email: form.email.trim() || null,
+          preferredLocale: form.preferredLocale,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (response.status === 409 && errorCode(body) === "VERSION_CONFLICT") {
+        setVersionConflict(true);
+        setEditError("This customer changed since you opened it. Refresh before deciding again.");
+        return;
+      }
+      if (response.status === 409 && errorCode(body) === "CUSTOMER_DUPLICATE_CONFLICT") {
+        setEditError("Another active customer already uses this phone or email.");
+        return;
+      }
+      if (response.status === 403) {
+        setEditError("You do not have permission to update this customer.");
+        return;
+      }
+      if (!response.ok) throw new Error(unwrapError(body));
+      intentKeyRef.current = undefined;
+      setEditing(false);
+      setEditNotice("Customer profile updated successfully.");
+      await load();
+    } catch (cause: any) {
+      setEditError(cause?.message ?? "Unable to update customer profile.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   if (state !== "ready") return <main className="s19-customer-page"><a className="s19-customer-back" href="/admin/customers">&lt;- Customers</a><StatePanel state={state} error={error} retry={() => void load()} /></main>;
   const profile = data.profile ?? {};
   const summary = data.activitySummary ?? {};
@@ -67,9 +151,18 @@ export default function CustomerDetail({ customerId }: { customerId: string }) {
 
   return <main className="s19-customer-page">
     <div className="s19-customer-back-row"><a className="s19-customer-back" href="/admin/customers">&lt;- Customers</a><a className="s19-button s19-button-secondary" href={`/admin/customers/${customerId}/engagement`}>View engagement timeline</a></div>
-    <header className="s19-customer-profile-header"><div><p className="s19-eyebrow">CUSTOMER 360</p><h1>Customer profile</h1><h2>{profile.displayName}</h2><p>Tenant-wide profile - created {date(profile.createdAt)}</p></div><div className="s19-customer-profile-status"><span className="s19-status s19-status-info">{status(profile.status)}</span>{profile.isGuest ? <span className="s19-status s19-status-warning">Guest</span> : <span className="s19-status s19-status-success">Registered</span>}</div></header>
+    <header className="s19-customer-profile-header"><div><p className="s19-eyebrow">CUSTOMER 360</p><h1>Customer profile</h1><h2>{profile.displayName}</h2><p>Tenant-wide profile - created {date(profile.createdAt)}</p></div><div className="s19-customer-profile-status"><span className="s19-status s19-status-info">{status(profile.status)}</span>{profile.isGuest ? <span className="s19-status s19-status-warning">Guest</span> : <span className="s19-status s19-status-success">Registered</span>}{canEdit ? <button className="s19-button s19-button-primary" type="button" onClick={beginEdit}>Edit profile</button> : null}</div></header>
+    {editNotice ? <div className="s19-notice s19-notice-success" role="status">{editNotice}</div> : null}
+    {editing ? <section className="s19-card s19-customer-section" aria-labelledby="customer-edit-heading"><div className="s19-card-heading"><div><p className="s19-eyebrow">EDIT CUSTOMER</p><h2 id="customer-edit-heading">Profile details</h2></div></div><form className="s19-form-grid" onSubmit={(event) => void submitEdit(event)} noValidate>
+      {editError ? <div className="s19-notice s19-notice-error" role="alert"><strong>{versionConflict ? "Version conflict" : "Unable to save changes"}</strong><span>{editError}</span>{versionConflict ? <button className="s19-button s19-button-secondary" type="button" onClick={() => { setEditing(false); setVersionConflict(false); void load(); }}>Refresh customer</button> : null}</div> : null}
+      <label className="s19-field" htmlFor="customer-edit-display-name"><span>Display name</span><input id="customer-edit-display-name" value={form.displayName} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} required /></label>
+      <label className="s19-field" htmlFor="customer-edit-phone"><span>Phone</span><input id="customer-edit-phone" type="tel" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} /></label>
+      <label className="s19-field" htmlFor="customer-edit-email"><span>Email</span><input id="customer-edit-email" type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} /></label>
+      <label className="s19-field" htmlFor="customer-edit-locale"><span>Preferred locale</span><select id="customer-edit-locale" value={form.preferredLocale} onChange={(event) => setForm((current) => ({ ...current, preferredLocale: event.target.value }))}><option value="vi-VN">vi-VN</option><option value="en-US">en-US</option></select></label>
+      <div className="s19-form-actions"><button className="s19-button s19-button-secondary" type="button" onClick={() => { setEditing(false); setEditError(""); }}>Cancel</button><button className="s19-button s19-button-primary" type="submit" disabled={submitting || versionConflict}>{submitting ? "Saving..." : "Save changes"}</button></div>
+    </form></section> : null}
     <div className="s19-customer-detail-grid">
-      <Section title="Overview" eyebrow="PROFILE"><dl className="s19-customer-summary"><div><dt>Status</dt><dd>{status(profile.status)}</dd></div><div><dt>Preferred locale</dt><dd>{profile.preferredLocale ?? "-"}</dd></div><div><dt>Phone</dt><dd>{data.contact?.phone ?? "-"}</dd></div><div><dt>Email</dt><dd>{data.contact?.email ?? "-"}</dd></div><div><dt>Guest status</dt><dd>{profile.isGuest ? "Guest profile" : "Customer"}</dd></div><div><dt>Created</dt><dd>{date(profile.createdAt)}</dd></div></dl><p className="s19-customer-readonly-note">Customer profile editing is not available in this release.</p></Section>
+      <Section title="Overview" eyebrow="PROFILE"><dl className="s19-customer-summary"><div><dt>Status</dt><dd>{status(profile.status)}</dd></div><div><dt>Preferred locale</dt><dd>{profile.preferredLocale ?? "-"}</dd></div><div><dt>Phone</dt><dd>{data.contact?.phone ?? "-"}</dd></div><div><dt>Email</dt><dd>{data.contact?.email ?? "-"}</dd></div><div><dt>Guest status</dt><dd>{profile.isGuest ? "Guest profile" : "Customer"}</dd></div><div><dt>Version</dt><dd>{profile.version ?? "-"}</dd></div><div><dt>Created</dt><dd>{date(profile.createdAt)}</dd></div></dl>{!canEdit ? <p className="s19-customer-readonly-note">You have read-only access to this customer profile.</p> : null}</Section>
       <Section title="Activity summary" eyebrow="VISITS"><dl className="s19-customer-kpi-grid"><div><dt>Appointments</dt><dd>{summary.appointmentCount ?? "Restricted"}</dd></div><div><dt>Completed visits</dt><dd>{summary.completedVisitCount ?? "Restricted"}</dd></div><div><dt>Last visit</dt><dd>{date(summary.lastVisitAt)}</dd></div><div><dt>Next appointment</dt><dd>{date(summary.nextAppointmentAt)}</dd></div></dl></Section>
       <Section title="Appointments and visits" eyebrow="RECENT ACTIVITY">{Array.isArray(data.recentAppointments) && data.recentAppointments.length ? <div className="s19-customer-list">{data.recentAppointments.map((item: any) => <article className="s19-customer-list-item" key={item.id}><div><strong>{item.bookingReference ?? item.id}</strong><span>{date(item.scheduledStartAt)} - Branch {item.branchId}</span></div><span className="s19-status s19-status-info">{status(item.status)}</span></article>)}</div> : <p className="s19-helper">No appointment history is available.</p>}</Section>
       <Section title="Purchases" eyebrow="FINANCIAL HISTORY">{purchases.access === "DENIED" ? <Restricted title="Purchase history restricted" /> : purchases.items?.length ? <div className="s19-customer-list">{purchases.items.map((item: any) => <article className="s19-customer-list-item" key={item.invoiceId}><div><strong>{item.invoiceNumber ?? item.invoiceId}</strong><span>{date(item.issuedAt)} - Branch {item.branchId}</span></div><b>{money(item.totalMinor, item.currency)}</b></article>)}</div> : <p className="s19-helper">No purchase history is available.</p>}</Section>

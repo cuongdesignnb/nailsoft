@@ -6,6 +6,7 @@ import {
   Headers,
   Inject,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -152,6 +153,27 @@ export class BookingCustomerController {
       success: true,
       data: await this.service.createBookingCustomer(
         req.auth,
+        body,
+        idempotency(key),
+        req.raw.requestId ?? "unknown",
+      ),
+      meta: meta(req),
+    };
+  }
+
+  @Patch(":customerId")
+  @RequirePermission("customer.update")
+  async update(
+    @Param("customerId") id: string,
+    @Body() body: unknown,
+    @Headers("idempotency-key") key: string | undefined,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return {
+      success: true,
+      data: await this.service.updateCustomer(
+        req.auth,
+        id,
         body,
         idempotency(key),
         req.raw.requestId ?? "unknown",
