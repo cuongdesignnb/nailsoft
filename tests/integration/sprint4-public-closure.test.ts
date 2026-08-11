@@ -5,6 +5,7 @@ import { BookingOtpProcessor } from "../../apps/worker/src/booking-otp.processor
 import { BookingOtpProvider } from "../../apps/worker/src/booking-otp.provider";
 
 const slug = "nailsoft-demo";
+const tenantId = "10000000-0000-4000-8000-000000000001";
 const run = `${Date.now()}`;
 const phone = `090${run.slice(-7)}`;
 
@@ -49,9 +50,51 @@ describe.sequential("Sprint 4 public booking closure security", () => {
       .data.find((item: any) => item.code === "SVC-1");
     expect(service).toBeTruthy();
 
+    const seededShift = await db.query<{ fixture_date: string }>(
+      `SELECT to_char(start_at AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD') AS fixture_date
+       FROM shifts s
+       WHERE s.tenant_id=$1 AND s.branch_id=$2 AND s.status='PUBLISHED'
+         AND EXISTS (
+           SELECT 1
+           FROM staff_branch_assignments assignment
+           WHERE assignment.tenant_id=$1
+             AND assignment.staff_id=s.staff_id
+             AND assignment.branch_id=s.branch_id
+             AND assignment.status='ACTIVE'
+             AND assignment.can_be_booked
+             AND assignment.effective_from <= (s.start_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+             AND (assignment.effective_to IS NULL OR assignment.effective_to >= (s.start_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM service_skill_requirements req
+           WHERE req.tenant_id=$1 AND req.service_id=$3 AND req.is_required
+             AND NOT EXISTS (
+               SELECT 1
+               FROM staff_skills skill
+               WHERE skill.tenant_id=$1
+                 AND skill.staff_id=s.staff_id
+                 AND skill.skill_id=req.skill_id
+                 AND skill.status='ACTIVE'
+                 AND (skill.expires_at IS NULL OR skill.expires_at >= (s.start_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)
+             )
+         )
+       ORDER BY start_at
+       LIMIT 1`,
+      [tenantId, branch.id, service.id],
+    );
+    const fixtureDate = seededShift.rows[0]?.fixture_date;
+    if (!fixtureDate) throw new Error("Sprint 4 public fixture shift is missing");
+    await db.query(
+      `UPDATE business_hours
+       SET valid_from=LEAST(valid_from,$3::date)
+       WHERE tenant_id=$1 AND branch_id=$2`,
+      [tenantId, branch.id, fixtureDate],
+    );
+
     const availability = await app.inject({
       method: "GET",
-      url: `/v1/public/salons/${slug}/availability?branchId=${branch.id}&serviceId=${service.id}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
+      url: `/v1/public/salons/${slug}/availability?branchId=${branch.id}&serviceId=${service.id}&dateFrom=${fixtureDate}&dateTo=${fixtureDate}&slotIntervalMin=5`,
     });
     expect(availability.statusCode).toBe(200);
     const availabilityData = availability.json().data;

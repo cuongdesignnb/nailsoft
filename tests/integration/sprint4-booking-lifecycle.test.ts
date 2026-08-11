@@ -14,6 +14,7 @@ let token = "";
 let holdId = "";
 let appointmentId = "";
 let holdToken = "";
+let fixtureDate = "";
 const additionalHoldIds: string[] = [];
 
 describe.sequential("Sprint 4 booking lifecycle", () => {
@@ -21,6 +22,23 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
     app = await createApp();
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
+    const db = app.get(DatabaseService);
+    const seededShift = await db.query<{ fixture_date: string }>(
+      `SELECT to_char(start_at AT TIME ZONE 'Asia/Ho_Chi_Minh', 'YYYY-MM-DD') AS fixture_date
+       FROM shifts
+       WHERE tenant_id=$1 AND branch_id=$2 AND staff_id=$3 AND status='PUBLISHED'
+       ORDER BY start_at
+       LIMIT 1`,
+      [tenantId, branchId, staffId],
+    );
+    fixtureDate = seededShift.rows[0]?.fixture_date ?? "";
+    if (!fixtureDate) throw new Error("Sprint 4 booking fixture shift is missing");
+    await db.query(
+      `UPDATE business_hours
+       SET valid_from=LEAST(valid_from,$3::date)
+       WHERE tenant_id=$1 AND branch_id=$2`,
+      [tenantId, branchId, fixtureDate],
+    );
     const login = await app.inject({
       method: "POST",
       url: "/v1/auth/login",
@@ -114,7 +132,7 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
   it("creates one durable hold, replays it idempotently, and rejects a conflicting hold", async () => {
     const availability = await app.inject({
       method: "GET",
-      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&staffId=${staffId}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
+      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&staffId=${staffId}&dateFrom=${fixtureDate}&dateTo=${fixtureDate}&slotIntervalMin=5`,
       headers: headers(),
     });
     expect(availability.statusCode).toBe(200);
@@ -220,7 +238,7 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
 
     const availability = await app.inject({
       method: "GET",
-      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&staffId=${staffId}&excludeAppointmentId=${appointmentId}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
+      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&staffId=${staffId}&excludeAppointmentId=${appointmentId}&dateFrom=${fixtureDate}&dateTo=${fixtureDate}&slotIntervalMin=5`,
       headers: headers(),
     });
     expect(availability.statusCode).toBe(200);
@@ -302,7 +320,7 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
   it("lets only one of two concurrent hold requests reserve the same technician window", async () => {
     const availability = await app.inject({
       method: "GET",
-      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&staffId=${staffId}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
+      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&staffId=${staffId}&dateFrom=${fixtureDate}&dateTo=${fixtureDate}&slotIntervalMin=5`,
       headers: headers(),
     });
     expect(availability.statusCode).toBe(200);
@@ -352,7 +370,7 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
   it("plans and reserves multiple service items sequentially", async () => {
     const availability = await app.inject({
       method: "GET",
-      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
+      url: `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&dateFrom=${fixtureDate}&dateTo=${fixtureDate}&slotIntervalMin=5`,
       headers: headers(),
     });
     expect(availability.statusCode).toBe(200);
@@ -398,7 +416,7 @@ describe.sequential("Sprint 4 booking lifecycle", () => {
   it("protects public booking creation and management with scoped OTP capabilities", async () => {
     const publicAvailability = await app.inject({
       method: "GET",
-      url: `/v1/public/salons/nailsoft-demo/availability?branchId=${branchId}&serviceId=${serviceId}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
+      url: `/v1/public/salons/nailsoft-demo/availability?branchId=${branchId}&serviceId=${serviceId}&dateFrom=${fixtureDate}&dateTo=${fixtureDate}&slotIntervalMin=5`,
     });
     expect(publicAvailability.statusCode).toBe(200);
     const availability = publicAvailability.json().data,
