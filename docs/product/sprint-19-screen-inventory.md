@@ -1,7 +1,7 @@
 # Sprint 19 Screen Inventory
 
 Start checkpoint: `5483ac0763b5d34af9ba0963cdbe26bac3b6ef4e`
-Current phase: Wave 8 accepted against source CI; Wave 9 implementation in progress
+Current phase: Wave 9 accepted against source CI; Sprint 19 final closure gate pending
 Source: Sprint 19 BA/PO handoff plus routes present in the repository.
 
 ## Inventory rules
@@ -104,34 +104,42 @@ SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
-## Wave 9 - Staff Mobile
+## Wave 9 - Staff Mobile (accepted)
 
-Wave 9 starts from `da8591553640b23e935bdf2084dd8f1163d9dafc`. The source
-implementation is being delivered in five local clusters. Until the exact
-Wave 9 source CI is successful, every row remains `IMPLEMENTED_PENDING_QA`.
+Wave 9 starts from `da8591553640b23e935bdf2084dd8f1163d9dafc`. Final source
+validation is commit `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6`, validated by
+full CI run `31458609253` with conclusion `SUCCESS`. The documentation commit
+created after this validation is not the source commit validated by that run.
 No new business API, permission, migration, seed or state machine is included.
 
 | ID | Screen | Route group | Permission / scope | API dependency | Required states | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 19.9.1 | Staff home | `/` and `staffToday` | `service_session.read_own`; own staff/assigned session | `/v1/staff/me/today`, auth context | loading, ready, no shift, partial, error, forbidden, offline read | IMPLEMENTED_PENDING_QA |
-| 19.9.2 | Schedule, shifts and availability | `myCalendar`, `myBusy`, `myAvailability`, `shifts` | Own staff and authorized branch permissions | calendar, busy, availability and shifts APIs | loading, ready, empty, error, forbidden, stale | IMPLEMENTED_PENDING_QA |
-| 19.9.3 | Assigned appointments | `upcomingAppointments`, `appointment`, `packageCoverage` | Assigned appointment/own staff permissions | appointments, appointment detail and benefits APIs | loading, ready, empty, forbidden, privacy | IMPLEMENTED_PENDING_QA |
-| 19.9.4 | Service execution | `staffToday` command panel | Assigned session plus service-session command permissions | service-session commands and notes | loading, ready, submitting, conflict, offline, error | IMPLEMENTED_PENDING_QA; native media attachment deferred |
-| 19.9.5 | Time clock and attendance | `timeClock`, `attendanceHistory` | `time_clock.self.use`, `timesheet.self.read`; own staff/authorized branch | time-clock and attendance APIs | loading, ready, conflict, forbidden, offline | IMPLEMENTED_PENDING_QA |
-| 19.9.6 | Leave and timesheets | `leave`, `createLeave`, `leaveDetail`, `myTimesheets` | Own leave/timesheet permissions | leave and own-timesheet APIs | loading, ready, validation, conflict, forbidden, offline | IMPLEMENTED_PENDING_QA |
-| 19.9.7 | Earnings, tips and pay statements | `myPerformance`, `myEarnings`, `commissionHistory`, `netTips`, `payStatements` | Own analytics/commission/payroll permissions | personal performance, commission, tips and statements APIs | loading, ready, empty, forbidden, privacy | IMPLEMENTED_PENDING_QA |
-| 19.9.8 | Materials, stored value and assigned assets | `myMaterials`, `materialUsage`, `storedValueAccess`, asset task routes | Assigned session/task and safe masked context | materials and assigned asset APIs | loading, ready, empty, forbidden, privacy | IMPLEMENTED_PENDING_QA; stored-value browser deferred if no safe projection |
-| 19.9.9 | Recovery tasks | `recoveryTasks`, `recoveryContact` | Assigned task/case plus contact permission | `/v1/service-recovery/tasks/me` and safe contact command | loading, ready, empty, conflict, forbidden, offline | IMPLEMENTED_PENDING_QA |
-| 19.9.10 | Profile, authentication and settings | `profile`, `branches`, `skills`, `/workspace`, `/mfa` | User/auth contracts; own staff context | auth, context, profile, session and MFA APIs | login, workspace, MFA, authenticated, expired, logout | IMPLEMENTED_PENDING_QA |
+| 19.9.1 | Staff home | `/` and `staffToday` | `service_session.read_own`; own staff/assigned session | `/v1/staff/me/today`, auth context | loading, ready, no shift, partial, error, forbidden, offline read | ACCEPTED; source `15bcffaa`; CI `31458609253` |
+| 19.9.2 | Schedule, shifts and availability | `myCalendar`, `myBusy`, `myAvailability`, `shifts` | Own staff and authorized branch permissions | calendar, busy, availability and shifts APIs | loading, ready, empty, error, forbidden, stale | ACCEPTED; source `15bcffaa`; CI `31458609253` |
+| 19.9.3 | Assigned appointments | `upcomingAppointments`, `appointment`, `packageCoverage` | Assigned appointment/own staff permissions | appointments, appointment detail and benefits APIs | loading, ready, empty, forbidden, privacy | ACCEPTED; source `15bcffaa`; CI `31458609253` |
+| 19.9.4 | Service execution | `staffToday` command panel | Assigned session plus service-session command permissions | service-session commands and notes | loading, ready, submitting, conflict, offline, error | ACCEPTED_WITH_DEFERRED_SUB_SCOPE; native media attachment deferred; source `15bcffaa`; CI `31458609253` |
+| 19.9.5 | Time clock and attendance | `timeClock`, `attendanceHistory` | `time_clock.self.use`, `timesheet.self.read`; own staff/authorized branch | time-clock and attendance APIs | loading, ready, conflict, forbidden, offline | ACCEPTED; source `15bcffaa`; CI `31458609253` |
+| 19.9.6 | Leave and timesheets | `leave`, `createLeave`, `leaveDetail`, `myTimesheets` | Own leave/timesheet permissions | leave and own-timesheet APIs | loading, ready, validation, conflict, forbidden, offline | ACCEPTED; source `15bcffaa`; CI `31458609253` |
+| 19.9.7 | Earnings, tips and pay statements | `myPerformance`, `myEarnings`, `commissionHistory`, `netTips`, `payStatements` | Own analytics/commission/payroll permissions | personal performance, commission, tips and statements APIs | loading, ready, empty, forbidden, privacy | ACCEPTED; source `15bcffaa`; CI `31458609253` |
+| 19.9.8 | Materials, stored value and assigned assets | `myMaterials`, `materialUsage`, `storedValueAccess`, asset task routes | Assigned session/task and safe masked context | materials and assigned asset APIs | loading, ready, empty, forbidden, privacy | ACCEPTED_WITH_DEFERRED_SUB_SCOPE; stored-value browser deferred for privacy; source `15bcffaa`; CI `31458609253` |
+| 19.9.9 | Recovery tasks | `recoveryTasks`, `recoveryContact` | Assigned task/case plus contact permission | `/v1/service-recovery/tasks/me` and safe contact command | loading, ready, empty, conflict, forbidden, offline | ACCEPTED; source `15bcffaa`; CI `31458609253` |
+| 19.9.10 | Profile, authentication and settings | `profile`, `branches`, `skills`, `/workspace`, `/mfa` | User/auth contracts; own staff context | auth, context, profile, session and MFA APIs | login, workspace, MFA, authenticated, expired, logout | ACCEPTED; source `15bcffaa`; CI `31458609253` |
 
 ```text
 WAVE_9_START_CHECKPOINT=da8591553640b23e935bdf2084dd8f1163d9dafc
 WAVE_9_SCREEN_ROWS=19.9.1_TO_19.9.10
-WAVE_9_STATUS=IN_PROGRESS
-WAVE_9_SOURCE_CI=PENDING
-SCREEN_ROWS_19_9_1_TO_19_9_10=IMPLEMENTED_PENDING_QA
+WAVE_9_STATUS=COMPLETED
+WAVE_9_SOURCE_SHA=15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6
+WAVE_9_SOURCE_CI_RUN_ID=31458609253
+WAVE_9_SOURCE_CI_CONCLUSION=SUCCESS
+SCREEN_ROWS_19_9_1_TO_19_9_10=ALL_ACCEPTED_WITH_DOCUMENTED_DEFERRED_SUB_SCOPES
+FULLY_ACCEPTED_SCREEN_ROWS=8
+ACCEPTED_WITH_DEFERRED_SUB_SCOPE_SCREEN_ROWS=2
+BA_PO_WAVE_9_ACCEPTANCE=PASS_WITH_DOCUMENTED_DEFERRED_SUB_SCOPES
 SERVICE_EXECUTION_MEDIA_ATTACHMENT=DEFERRED_NATIVE_CLIENT_SUB_SCOPE
-STAFF_STORED_VALUE_BROWSER=DEFERRED_FOR_PRIVACY_IF_NO_SAFE_PROJECTION
+STAFF_STORED_VALUE_BROWSER=DEFERRED_FOR_PRIVACY
+SPRINT_19_STATUS=READY_FOR_FINAL_CLOSURE_GATE
+SPRINT_19_FINAL_CLOSURE_GATE_STARTED=NO
 WAVE_10_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO

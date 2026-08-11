@@ -1,6 +1,6 @@
 # Sprint 19 Screen Acceptance Ledger
 
-Current phase: Wave 8 accepted against source CI; Wave 9 implementation in progress
+Current phase: Wave 9 accepted against source CI; Sprint 19 final closure gate pending
 Evidence root: `artifacts/sprint19/screens/<SCREEN_ID>/`
 
 ## Acceptance contract
@@ -630,34 +630,49 @@ authenticated Owner Mobile E2E, all six builds, Sprint 18 supply-chain gate and
 container teardown are `SUCCESS`. Any local security-evidence adapter note is
 non-blocking tooling context; CI supply-chain evidence is authoritative.
 
-## Wave 9 implementation ledger - Staff Mobile
+## Wave 9 - Staff Mobile (accepted)
 
 Start checkpoint: `da8591553640b23e935bdf2084dd8f1163d9dafc`.
 
-The following rows are implementation evidence only. They must not be marked
-`ACCEPTED` until a full CI run validates the exact final Wave 9 source SHA.
+Final source `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` was validated by full
+CI run `31458609253` with conclusion `SUCCESS`. The documentation commit
+created after this validation is not the source commit validated by that run.
 
 | ID | Logical surface | Scope / permission boundary | Source | CI | Acceptance |
 | --- | --- | --- | --- | --- | --- |
-| 19.9.1 | Staff home | Own staff and assigned session | pending | pending | IMPLEMENTED_PENDING_QA |
-| 19.9.2 | Schedule, shifts and availability | Own staff / authorized branch | pending | pending | IMPLEMENTED_PENDING_QA |
-| 19.9.3 | Assigned appointments | Assigned appointment only | pending | pending | IMPLEMENTED_PENDING_QA |
-| 19.9.4 | Service execution | Assigned session; native media deferred | pending | pending | IMPLEMENTED_PENDING_QA |
-| 19.9.5 | Time clock and attendance | Own staff / authorized branch | pending | pending | IMPLEMENTED_PENDING_QA |
-| 19.9.6 | Leave and timesheets | Own staff | pending | pending | IMPLEMENTED_PENDING_QA |
-| 19.9.7 | Earnings, tips and pay statements | Own staff and permission-scoped money | pending | pending | IMPLEMENTED_PENDING_QA |
-| 19.9.8 | Materials, stored value and assigned assets | Assigned session/task; stored-value browser may be deferred for privacy | pending | pending | IMPLEMENTED_PENDING_QA |
-| 19.9.9 | Recovery tasks | Assigned task/case only | pending | pending | IMPLEMENTED_PENDING_QA |
-| 19.9.10 | Profile, authentication and settings | User/auth context | pending | pending | IMPLEMENTED_PENDING_QA |
+| 19.9.1 | Staff home | Own staff and assigned session | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED |
+| 19.9.2 | Schedule, shifts and availability | Own staff / authorized branch | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED |
+| 19.9.3 | Assigned appointments | Assigned appointment only | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED |
+| 19.9.4 | Service execution | Assigned session; native media deferred | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED_WITH_DEFERRED_SUB_SCOPE |
+| 19.9.5 | Time clock and attendance | Own staff / authorized branch | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED |
+| 19.9.6 | Leave and timesheets | Own staff | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED |
+| 19.9.7 | Earnings, tips and pay statements | Own staff and permission-scoped money | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED |
+| 19.9.8 | Materials, stored value and assigned assets | Assigned session/task; stored-value browser deferred for privacy | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED_WITH_DEFERRED_SUB_SCOPE |
+| 19.9.9 | Recovery tasks | Assigned task/case only | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED |
+| 19.9.10 | Profile, authentication and settings | User/auth context | `15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6` | `31458609253 / SUCCESS` | ACCEPTED |
 
 ```text
 WAVE_9_START_CHECKPOINT=da8591553640b23e935bdf2084dd8f1163d9dafc
-WAVE_9_STATUS=IN_PROGRESS
-SCREEN_ROWS_19_9_1_TO_19_9_10=IMPLEMENTED_PENDING_QA
-SOURCE_CI=PENDING
-ACCEPTANCE=PENDING
+WAVE_9_STATUS=COMPLETED
+WAVE_9_SOURCE_SHA=15bcffaa7c5f83e7f16c9aae18cdd090f4a2abe6
+WAVE_9_SOURCE_CI_RUN_ID=31458609253
+WAVE_9_SOURCE_CI_CONCLUSION=SUCCESS
+SCREEN_ROWS_19_9_1_TO_19_9_10=ALL_ACCEPTED_WITH_DOCUMENTED_DEFERRED_SUB_SCOPES
+FULLY_ACCEPTED_SCREEN_ROWS=8
+ACCEPTED_WITH_DEFERRED_SUB_SCOPE_SCREEN_ROWS=2
+BA_PO_WAVE_9_ACCEPTANCE=PASS_WITH_DOCUMENTED_DEFERRED_SUB_SCOPES
 SERVICE_EXECUTION_MEDIA_ATTACHMENT=DEFERRED_NATIVE_CLIENT_SUB_SCOPE
+STAFF_STORED_VALUE_BROWSER=DEFERRED_FOR_PRIVACY
+SPRINT_19_STATUS=READY_FOR_FINAL_CLOSURE_GATE
+SPRINT_19_FINAL_CLOSURE_GATE_STARTED=NO
 WAVE_10_STARTED=NO
 SPRINT_20_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
+
+Wave 9 acceptance notes:
+
+- Core service execution is accepted; native Staff Mobile media capture/upload remains deferred.
+- Materials, material usage and assigned asset tasks are accepted; a global Staff stored-value browser remains disabled for privacy and assigned-context boundaries.
+- The intermediate run `31454643176` failed at step 15 because of temporal test-fixture drift. Hotfix `15bcffaa` changed only test fixture date resolution; it did not change runtime business logic, API contracts, permissions or migrations.
+- The local `pnpm security:evidence` adapter output-shape note is non-blocking tooling context. The authoritative CI supply-chain gate is `SUCCESS`.
