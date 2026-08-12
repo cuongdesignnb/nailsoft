@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
+import { close, headers, login } from "./helpers/api-client";
 
 async function loginUi(page: Page) {
   await page.goto("/auth/login");
@@ -18,6 +19,19 @@ async function expectWorkspace(page: Page, path: string, heading: string) {
   expect(axe.violations.filter((item) => item.impact === "critical" || item.impact === "serious")).toEqual([]);
 }
 
+async function ensureAccountingBook() {
+  const accountant = await login("accountant@example.test");
+  try {
+    const response = await accountant.api.post("/v1/accounting/books", {
+      headers: headers(accountant, `wave6-book-${Date.now()}`),
+      data: { code: `W6E2E${Date.now().toString().slice(-6)}`, name: "Wave 6 E2E Accounting", functionalCurrency: "VND", timezone: "Asia/Ho_Chi_Minh" },
+    });
+    expect(response.ok(), `accounting book setup failed: ${JSON.stringify(await response.json())}`).toBeTruthy();
+  } finally {
+    await close(accountant);
+  }
+}
+
 test.describe.serial("Sprint 19 Wave 6 accounting and banking", () => {
   test("renders accounting control center, periods and journals", async ({ page }) => {
     await loginUi(page);
@@ -28,11 +42,13 @@ test.describe.serial("Sprint 19 Wave 6 accounting and banking", () => {
     await expect(page.getByText(/Posted journals are immutable/i)).toBeVisible();
   });
 
-  test("keeps banking evidence bounded and separate from mutation commands", async ({ page }) => {
+  test("keeps banking evidence bounded while exposing approved reconciliation mutations", async ({ page }) => {
+    await ensureAccountingBook();
     await loginUi(page);
     await expectWorkspace(page, "/admin/accounting/reconciliation", "Bank accounts & imports");
     await expectWorkspace(page, "/admin/accounting/reconciliation/exceptions", "Reconciliation & exceptions");
-    await expect(page.getByText(/manual ledger adjustment.*deferred/i)).toBeVisible();
+    await expect(page.getByText(/Request manual reconciliation adjustment/i)).toBeVisible();
+    await expect(page.getByText(/manual ledger adjustment.*deferred/i)).toHaveCount(0);
     await expectWorkspace(page, "/admin/accounting/statement-snapshots", "Statement snapshots");
   });
 });
