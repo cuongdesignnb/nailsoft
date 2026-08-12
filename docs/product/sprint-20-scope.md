@@ -9,9 +9,26 @@ WAVE_1_TO_4_IMPLEMENTATION_AUTHORIZED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
 
-This document is the Wave 0 contract freeze. It records repository evidence and
-decisions still requiring BA/PO or infrastructure ownership. It does not
-authorize runtime mutation work.
+This document contains the historical Wave 0 contract freeze and the current
+Sprint 20 status. The Wave 0 snapshot records repository evidence and decisions
+that were still requiring BA/PO or infrastructure ownership at that point; it
+does not authorize runtime mutation work by itself.
+
+## Current Sprint 20 status
+
+The following status is authoritative after the Customer Update source commit
+and its exact full CI run:
+
+```text
+WAVE_0_STATUS=COMPLETED
+WAVE_1_STATUS=COMPLETED_AGAINST_SOURCE_CI
+WAVE_1_SOURCE_SHA=1f8700cdb1aa92ee4950292a102d5088d9de3f93
+WAVE_1_SOURCE_CI=31511983133
+WAVE_2_STARTED=NO
+WAVE_3_STATUS=DEFERRED
+WAVE_4_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
 
 ## Scope decision
 
@@ -87,7 +104,7 @@ not present in the current customer schema or update contract. Consent and
 contact preferences remain owned by the existing engagement APIs. Financial,
 loyalty, package and stored-value balances are never customer-update fields.
 
-### Required Wave 1 decisions
+### Historical Wave 0 decision snapshot (superseded by Wave 1 source CI)
 
 ```text
 CUSTOMER_UPDATE_PERMISSION_DECIDED=NO
@@ -96,7 +113,7 @@ CUSTOMER_UPDATE_VERSION_CONTRACT=NO
 CUSTOMER_UPDATE_DUPLICATE_CONTRACT=NO
 CUSTOMER_UPDATE_AUDIT_CONTRACT=PARTIAL
 PRODUCTION_PERMISSION_ROLLOUT_KNOWN=YES_MECHANISM_KNOWN_DATA_CHANGE_NOT_AUTHORIZED
-WAVE_1_BLOCKED=YES
+HISTORICAL_WAVE_1_BLOCKED=YES
 ```
 
 Duplicate phone/email updates must reject with a conflict; they must not resolve
@@ -231,7 +248,7 @@ NOT_READY
 Only BA/PO plus the designated release operator can authorize the last state.
 Agent and CI can provide evidence but cannot transition production authority.
 
-## Wave 0 gate
+## Historical Wave 0 gate
 
 ```text
 CUSTOMER_UPDATE_CONTRACT=BLOCKED

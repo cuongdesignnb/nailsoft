@@ -14,7 +14,7 @@ decision before the corresponding wave can start.
 
 | ID | Contract | Current evidence | Permission status | Migration status | Privacy/security status | Implementation authorized |
 |---|---|---|---|---|---|---|
-| 20.CUSTOMER_UPDATE | `PATCH /v1/customers/:customerId` implemented for display name, phone, email and preferred locale; duplicate phone/email rejects; optimistic concurrency and idempotency required | Read/detail/create plus additive update route; customer version and contact verification increment are server-controlled | `customer.update`; default rollout to SALON_OWNER, BRANCH_MANAGER and RECEPTIONIST | `0035_customer_update`; additive customer version and role-permission rollout | PII values are normalized, excluded from audit/outbox payloads and represented by fingerprints; tenant scope and strict field allowlist enforced | YES — IMPLEMENTED_PENDING_SOURCE_CI |
+| 20.CUSTOMER_UPDATE | `PATCH /v1/customers/:customerId` implemented for display name, phone, email and preferred locale; duplicate phone/email rejects; optimistic concurrency and idempotency required | Read/detail/create plus additive update route; customer version and contact verification increment are server-controlled | `customer.update`; default rollout to SALON_OWNER, BRANCH_MANAGER and RECEPTIONIST | `0035_customer_update`; additive customer version and role-permission rollout | PII values are normalized, excluded from audit/outbox payloads and represented by fingerprints; tenant scope and strict field allowlist enforced | ACCEPTED — source `1f8700cdb1aa92ee4950292a102d5088d9de3f93`, CI `31511983133 / SUCCESS` |
 | 20.STATEMENT_EXCLUSION | Exclude only an eligible unmatched statement line; no client period override; reversal policy pending | `match_state=EXCLUDED` already exists; controller has no exclusion command | Existing `accounting.bank_reconciliation.manage` proposed; BA/PO confirm | **NO schema change expected** for enum; contract still blocked by row-version/reversal decision | **BLOCKED**; financial audit, period lock and event semantics pending | NO |
 | 20.RECONCILIATION_ADJUSTMENT | DRAFT → PENDING_APPROVAL → APPROVED → POSTED, with reject/cancel terminal paths and journal posting | Table and states exist; read projection exists; commands absent; no version/idempotency/history fields | Existing reconciliation/journal permissions proposed; exact split pending | **CONDITIONAL** if version/history fields are required | **BLOCKED**; posting source, idempotency and evidence contract pending | NO |
 | 20.STAFF_MEDIA | Presign → private upload → complete → read → soft delete; native client remains conditional | Backend endpoints and constraints exist; native picker/camera and retention are absent | Existing `service_session.media`; assigned-session scope | NO current migration required for backend foundation | **BLOCKED**; retention, object deletion, native permissions and storage soak missing | NO |
@@ -91,10 +91,10 @@ DELETE_POLICY=DB soft-delete exists; object deletion lifecycle undefined
 AUDIT_POLICY=presign/complete/delete security events exist; retention evidence missing
 ```
 
-## Wave 0 decision ledger
+## Historical Wave 0 decision ledger
 
 ```text
-CUSTOMER_UPDATE_CONTRACT=IMPLEMENTED_PENDING_SOURCE_CI
+HISTORICAL_CUSTOMER_UPDATE_CONTRACT=IMPLEMENTED_PENDING_SOURCE_CI
 CUSTOMER_UPDATE_PERMISSION_DECIDED=YES (customer.update)
 CUSTOMER_UPDATE_VERSION_CONTRACT=YES (customers.version BIGINT, optimistic lock)
 STATEMENT_EXCLUSION_CONTRACT=BLOCKED
@@ -102,8 +102,26 @@ RECONCILIATION_ADJUSTMENT_CONTRACT=BLOCKED
 ACCOUNTING_ADJUSTMENT_STATE_MACHINE=SUFFICIENT_STATE_FLOW_BUT_NOT_RELEASE_SAFE
 STAFF_MEDIA_RECOMMENDATION=DEFER
 MEDIA_RETENTION_POLICY=UNKNOWN
-WAVE_1_RECOMMENDATION=BLOCK
+HISTORICAL_WAVE_1_RECOMMENDATION=BLOCK
 WAVE_2_RECOMMENDATION=BLOCK
 WAVE_3_RECOMMENDATION=DEFER
 WAVE_4_RECOMMENDATION=BLOCK_PENDING_STAGING
+```
+
+## Current status after Wave 1 source CI
+
+```text
+WAVE_0_STATUS=COMPLETED
+WAVE_1_STATUS=COMPLETED_AGAINST_SOURCE_CI
+WAVE_1_SOURCE_SHA=1f8700cdb1aa92ee4950292a102d5088d9de3f93
+WAVE_1_SOURCE_CI=31511983133 / SUCCESS
+CUSTOMER_UPDATE_CONTRACT=ACCEPTED
+CUSTOMER_UPDATE_PERMISSION_DECIDED=YES
+CUSTOMER_UPDATE_VERSION_CONTRACT=YES
+CUSTOMER_UPDATE_DUPLICATE_CONTRACT=YES
+CUSTOMER_UPDATE_AUDIT_CONTRACT=YES
+WAVE_2_STARTED=NO
+WAVE_3_STATUS=DEFERRED
+WAVE_4_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
