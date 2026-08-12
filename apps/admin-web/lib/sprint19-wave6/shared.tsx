@@ -8,7 +8,7 @@ import type { Wave6Route } from "./routes";
 
 export type AsyncState = "loading" | "ready" | "empty" | "error" | "forbidden" | "offline";
 export type Column = { key: string; label: string; money?: boolean; status?: boolean };
-export type WorkspaceAction = { label: string; path: (row: any) => string; body?: (row: any) => Record<string, unknown> };
+export type WorkspaceAction = { label: string; path: (row: any) => string; body?: (row: any) => Record<string, unknown>; idempotencyKey?: (row: any) => string; visible?: (row: any) => boolean };
 
 export function rowsFrom(value: any): any[] {
   if (Array.isArray(value)) return value;
@@ -58,11 +58,11 @@ export async function readApi(path: string) {
   return body.data;
 }
 
-export async function commandApi(path: string, payload: Record<string, unknown> = {}) {
+export async function commandApi(path: string, payload: Record<string, unknown> = {}, idempotencyKey = crypto.randomUUID()) {
   if (typeof navigator !== "undefined" && !navigator.onLine) throw new Error("Internet connection required. This command is not queued offline.");
   const response = await authorizedFetch(path, {
     method: "POST",
-    headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+    headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
     body: JSON.stringify(payload),
   });
   const body = await response.json().catch(() => ({}));
@@ -117,7 +117,7 @@ export function ReadWorkspace({ route, endpoint, columns, description, actions =
   useEffect(() => { void load(); }, [load]);
   async function act(action: WorkspaceAction, row: any) {
     setBusy(true); setError(""); setNotice("");
-    try { await commandApi(action.path(row), action.body?.(row) ?? { version: row.version }); setNotice("Saved. Server-authoritative data refreshed."); await load(); }
+    try { await commandApi(action.path(row), action.body?.(row) ?? { version: row.version }, action.idempotencyKey?.(row)); setNotice("Saved. Server-authoritative data refreshed."); await load(); }
     catch (cause: any) { setError(cause?.message ?? "Command failed."); }
     finally { setBusy(false); }
   }
@@ -133,7 +133,7 @@ export function ReadWorkspace({ route, endpoint, columns, description, actions =
     {state === "ready" && <>
       {summary ? summary(raw) : null}
       {error && <p role="alert" className="error">{error}</p>}
-      <Card className="ns-table-card"><div className="ns-table-scroll"><table><caption className="sr-only">{route.title}</caption><thead><tr>{columns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}{actions.length ? <th scope="col">Actions</th> : null}</tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? row.reference ?? index}>{columns.map((column) => <td key={column.key} data-label={column.label}>{column.status ? <Status value={valueFrom(row, column.key)} /> : formatValue(valueFrom(row, column.key), column)}</td>)}{actions.length ? <td className="actions">{actions.map((action) => <Button key={action.label} variant="secondary" disabled={busy} onClick={() => void act(action, row)}>{action.label}</Button>)}</td> : null}</tr>)}</tbody></table></div></Card>
+      <Card className="ns-table-card"><div className="ns-table-scroll"><table><caption className="sr-only">{route.title}</caption><thead><tr>{columns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}{actions.length ? <th scope="col">Actions</th> : null}</tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? row.reference ?? index}>{columns.map((column) => <td key={column.key} data-label={column.label}>{column.status ? <Status value={valueFrom(row, column.key)} /> : formatValue(valueFrom(row, column.key), column)}</td>)}{actions.length ? <td className="actions">{actions.filter((action) => action.visible?.(row) ?? true).map((action) => <Button key={action.label} variant="secondary" disabled={busy} onClick={() => void act(action, row)}>{action.label}</Button>)}</td> : null}</tr>)}</tbody></table></div></Card>
     </>}
     {children}
   </main>;

@@ -267,3 +267,39 @@ DEPENDENCY_CHANGE=NO
 WORKFLOW_CHANGE=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
+
+## Wave 2 authorization and implementation ledger
+
+The current Wave 2 handoff authorizes only accounting reconciliation closure.
+The historical Wave 0 and Wave 1 records above are retained for traceability;
+they are not reopened or rewritten.
+
+```text
+WAVE_2_STATUS=IMPLEMENTED_PENDING_SOURCE_CI
+WAVE_2_START_CHECKPOINT=ba8b41271a0a2f28fcac4b5a4c8a4eb4ec438332
+WAVE_2_SOURCE_SHA=PENDING_FINAL_SOURCE_SHA
+WAVE_2_SOURCE_CI=PENDING
+WAVE_2_ACCEPTANCE=PENDING
+MIGRATION=0036_accounting_reconciliation_closure
+NEW_ACCOUNTING_PERMISSION_REQUIRED=NO
+```
+
+In-scope commands are:
+
+- bank statement-line exclude and restore;
+- reconciliation adjustment create, submit, approve, reject, cancel and post;
+- optimistic version checks, idempotency, dual control, period locks, journal
+  balance/source linking, reconciliation balance updates, audit/outbox/history
+  evidence and posted immutability.
+
+The server derives the bank GL account and accounting period. Clients submit
+only an active same-book offset account and a positive minor-unit amount. FX
+that the existing posting engine cannot support fails closed. Wave 2 does not
+add permissions, change the accounting state enum, introduce a parallel
+ledger, or authorize production deployment.
+
+```text
+WAVE_3_STATUS=DEFERRED
+WAVE_4_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```

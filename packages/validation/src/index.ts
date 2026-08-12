@@ -1384,3 +1384,49 @@ export const recoveryCompensationSchema = z
     reason: z.string().trim().min(3).max(2000),
   })
   .strict();
+
+// Sprint 20 Wave 2 accounting reconciliation command contracts.  These
+// schemas deliberately accept only server-owned versions and integer minor
+// units; callers cannot select a period, bank GL account, or any internal
+// posting metadata.
+export const accountingVersionCommandSchema = z
+  .object({
+    version: z.number().int().positive(),
+    reason: z.string().trim().min(3).max(2000).optional(),
+  })
+  .strict();
+
+export const accountingStatementLineExcludeSchema = z
+  .object({
+    version: z.number().int().positive(),
+    expectedMatchState: z.enum(["UNMATCHED", "SUGGESTED"]),
+    reason: z.string().trim().min(3).max(2000),
+  })
+  .strict();
+
+export const accountingStatementLineRestoreSchema = z
+  .object({
+    version: z.number().int().positive(),
+    reason: z.string().trim().min(3).max(2000),
+  })
+  .strict();
+
+export const accountingReconciliationAdjustmentCreateSchema = z
+  .object({
+    amountMinor: z.string().regex(/^[1-9]\d*$/, "amountMinor must be positive integer minor units"),
+    direction: z.enum(["DEBIT", "CREDIT"]),
+    offsetAccountId: uuidSchema,
+    accountingDate: z.string().date(),
+    reason: z.string().trim().min(3).max(2000),
+  })
+  .strict();
+
+export const accountingReconciliationAdjustmentSubmitSchema = accountingVersionCommandSchema;
+export const accountingReconciliationAdjustmentApproveSchema = accountingVersionCommandSchema;
+export const accountingReconciliationAdjustmentRejectSchema = z
+  .object({ version: z.number().int().positive(), reason: z.string().trim().min(3).max(2000) })
+  .strict();
+export const accountingReconciliationAdjustmentCancelSchema = z
+  .object({ version: z.number().int().positive(), reason: z.string().trim().min(3).max(2000) })
+  .strict();
+export const accountingReconciliationAdjustmentPostSchema = accountingVersionCommandSchema;

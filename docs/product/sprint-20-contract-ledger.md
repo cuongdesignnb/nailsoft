@@ -125,3 +125,47 @@ WAVE_3_STATUS=DEFERRED
 WAVE_4_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
+
+## Current Wave 2 implementation status
+
+The BA/PO correction superseded the historical Wave 0 accounting blockers and
+authorized only the two accounting reconciliation mutation families. The
+historical decisions above remain preserved; this section records the current
+source implementation state before the exact full-CI gate.
+
+```text
+WAVE_2_STATUS=IMPLEMENTED_PENDING_SOURCE_CI
+WAVE_2_TITLE=ACCOUNTING_RECONCILIATION_CLOSURE
+START_CHECKPOINT=ba8b41271a0a2f28fcac4b5a4c8a4eb4ec438332
+MIGRATION=0036_accounting_reconciliation_closure
+NEW_ACCOUNTING_PERMISSION_REQUIRED=NO
+STATEMENT_EXCLUSION_PERMISSION=accounting.bank_reconciliation.manage
+STATEMENT_RESTORE_PERMISSION=accounting.bank_reconciliation.manage
+ADJUSTMENT_MANAGE_PERMISSION=accounting.bank_reconciliation.manage
+ADJUSTMENT_POST_PERMISSION=accounting.journal.post
+STATEMENT_EXCLUSION=IMPLEMENTED_PENDING_SOURCE_CI
+STATEMENT_RESTORE=IMPLEMENTED_PENDING_SOURCE_CI
+ADJUSTMENT_LIFECYCLE=IMPLEMENTED_PENDING_SOURCE_CI
+ADJUSTMENT_POSTING=IMPLEMENTED_PENDING_SOURCE_CI
+VERSIONING=IMPLEMENTED_PENDING_SOURCE_CI
+IDEMPOTENCY=IMPLEMENTED_PENDING_SOURCE_CI
+DUAL_CONTROL=IMPLEMENTED_PENDING_SOURCE_CI
+PERIOD_LOCK=IMPLEMENTED_PENDING_SOURCE_CI
+POSTED_IMMUTABILITY=IMPLEMENTED_PENDING_SOURCE_CI
+JOURNAL_BALANCE_AND_SOURCE_LINK=IMPLEMENTED_PENDING_SOURCE_CI
+TENANT_ISOLATION=IMPLEMENTED_PENDING_SOURCE_CI
+AUDIT_OUTBOX_HISTORY=IMPLEMENTED_PENDING_SOURCE_CI
+FX_UNSUPPORTED_FAIL_CLOSED=IMPLEMENTED_PENDING_SOURCE_CI
+WAVE_1_REGRESSION=IMPLEMENTED_PENDING_SOURCE_CI
+SOURCE_CI=PENDING
+ACCEPTANCE=PENDING
+WAVE_3_STATUS=DEFERRED
+WAVE_4_STARTED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+The new command surface is limited to statement-line exclude/restore and the
+existing reconciliation adjustment state machine. No new permission, parallel
+ledger, customer merge, staff media, break-glass or production deployment is
+introduced by Wave 2. Acceptance remains on hold until a new full CI run
+validates the final source SHA.

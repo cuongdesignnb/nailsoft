@@ -621,6 +621,12 @@ jobs:
         if: always()
         shell: bash
         run: pkill -TERM -f "http.server 3004" || true
+      - name: Sprint 20 Wave 1 customer update regression
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/contract/sprint20-wave1-customer-update.test.ts tests/integration/sprint20-wave1-customer-update.test.ts --maxWorkers=1 --minWorkers=1
+      - name: Sprint 20 Wave 2 accounting reconciliation contract
+        run: pnpm exec vitest run tests/contract/sprint20-wave2-accounting-reconciliation.test.ts
+      - name: Sprint 20 Wave 2 accounting reconciliation integration, concurrency and idempotency
+        run: pnpm db:reset && pnpm db:seed && pnpm exec vitest run tests/integration/sprint20-wave2-accounting-reconciliation.test.ts --maxWorkers=1 --minWorkers=1
       - name: Sprint 12 authenticated workforce payroll and payout E2E
         run: pnpm db:reset && pnpm db:seed && pnpm exec playwright test tests/e2e/sprint12-workforce-payroll.spec.ts --config=playwright.api.config.ts
       - name: Sprint 12 closure authenticated deep E2E

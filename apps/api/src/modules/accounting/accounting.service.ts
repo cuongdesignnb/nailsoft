@@ -11,6 +11,16 @@ import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 import { DatabaseService } from "../../infrastructure/database.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
+import {
+  accountingReconciliationAdjustmentApproveSchema,
+  accountingReconciliationAdjustmentCancelSchema,
+  accountingReconciliationAdjustmentCreateSchema,
+  accountingReconciliationAdjustmentPostSchema,
+  accountingReconciliationAdjustmentRejectSchema,
+  accountingReconciliationAdjustmentSubmitSchema,
+  accountingStatementLineExcludeSchema,
+  accountingStatementLineRestoreSchema,
+} from "@nailsoft/validation";
 
 const json = (v: unknown) => JSON.stringify(v ?? {});
 const fingerprint = (v: unknown) => createHash("sha256").update(json(v)).digest("hex");
@@ -58,6 +68,107 @@ export class AccountingService {
     const r = await this.db.query<any>("SELECT * FROM accounting_books WHERE tenant_id=$1 AND id=$2", [auth.tenantId, id]);
     if (!r.rows[0]) throw new NotFoundException({ code: "ACCOUNTING_BOOK_NOT_FOUND" });
     return r.rows[0];
+  }
+
+  /** Command idempotency is scoped to tenant + operation.  A replay returns
+   * the exact persisted response; a reused key with a different body fails
+   * closed rather than executing a second financial command. */
+  private async beginCommand(c: PoolClient, auth: AccessClaims, operation: string, key: string | undefined, body: unknown) {
+    const idempotencyKey = str(key, "idempotency_key");
+    const requestFingerprint = fingerprint(body);
+    const inserted = await c.query<any>(
+      `INSERT INTO accounting_command_idempotency(tenant_id,operation,idempotency_key,request_fingerprint,state)
+       VALUES($1,$2,$3,$4,'PROCESSING') ON CONFLICT DO NOTHING RETURNING id`,
+      [auth.tenantId, operation, idempotencyKey, requestFingerprint],
+    );
+    if (inserted.rows[0]) return { key: idempotencyKey, replay: undefined as unknown };
+    const prior = await c.query<any>(
+      `SELECT * FROM accounting_command_idempotency
+        WHERE tenant_id=$1 AND operation=$2 AND idempotency_key=$3 FOR UPDATE`,
+      [auth.tenantId, operation, idempotencyKey],
+    );
+    if (prior.rows[0]?.request_fingerprint !== requestFingerprint) {
+      throw new ConflictException({ code: "IDEMPOTENCY_KEY_REUSED" });
+    }
+    if (prior.rows[0]?.response_json) return { key: idempotencyKey, replay: prior.rows[0].response_json };
+    throw new ConflictException({ code: "IDEMPOTENCY_REQUEST_IN_PROGRESS" });
+  }
+
+  private async completeCommand(c: PoolClient, auth: AccessClaims, operation: string, key: string, response: unknown) {
+    await c.query(
+      `UPDATE accounting_command_idempotency
+          SET state='COMPLETED',response_json=$4,completed_at=now()
+        WHERE tenant_id=$1 AND operation=$2 AND idempotency_key=$3`,
+      [auth.tenantId, operation, key, json(response)],
+    );
+  }
+
+  private async statementContext(c: PoolClient, auth: AccessClaims, bankAccountId: string, statementLineId: string) {
+    const bank = await c.query<any>(
+      `SELECT b.*,ab.functional_currency
+         FROM accounting_bank_accounts b
+         JOIN accounting_books ab ON ab.tenant_id=b.tenant_id AND ab.id=b.book_id
+        WHERE b.tenant_id=$1 AND b.id=$2 FOR UPDATE`,
+      [auth.tenantId, bankAccountId],
+    );
+    if (!bank.rows[0]) throw new NotFoundException({ code: "BANK_ACCOUNT_NOT_FOUND" });
+    if (!bank.rows[0].active) throw new ConflictException({ code: "BANK_ACCOUNT_INACTIVE" });
+    const line = await c.query<any>(
+      `SELECT * FROM accounting_bank_statement_lines
+        WHERE tenant_id=$1 AND id=$2 AND bank_account_id=$3 FOR UPDATE`,
+      [auth.tenantId, statementLineId, bankAccountId],
+    );
+    if (!line.rows[0]) throw new NotFoundException({ code: "BANK_STATEMENT_LINE_NOT_FOUND" });
+    const period = await c.query<any>(
+      `SELECT * FROM accounting_periods
+        WHERE tenant_id=$1 AND book_id=$2 AND $3::date BETWEEN starts_on AND ends_on
+        ORDER BY starts_on DESC LIMIT 1 FOR UPDATE`,
+      [auth.tenantId, bank.rows[0].book_id, line.rows[0].transaction_date],
+    );
+    if (!period.rows[0]) throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_PERIOD_REQUIRED" });
+    if (!["OPEN", "REOPENED"].includes(period.rows[0].state)) {
+      throw new ConflictException({ code: "ACCOUNTING_PERIOD_NOT_POSTABLE" });
+    }
+    const reconciliation = await c.query<any>(
+      `SELECT * FROM accounting_bank_reconciliations
+        WHERE tenant_id=$1 AND bank_account_id=$2 AND period_id=$3
+        ORDER BY created_at DESC LIMIT 1 FOR UPDATE`,
+      [auth.tenantId, bankAccountId, period.rows[0].id],
+    );
+    if (reconciliation.rows[0] && ["RECONCILED", "CLOSED", "VOID_PENDING", "VOIDED"].includes(reconciliation.rows[0].state)) {
+      throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_IMMUTABLE" });
+    }
+    return { bank: bank.rows[0], line: line.rows[0], period: period.rows[0], reconciliation: reconciliation.rows[0] };
+  }
+
+  private async adjustmentContext(c: PoolClient, auth: AccessClaims, adjustmentId: string) {
+    const adjustment = await c.query<any>(
+      `SELECT * FROM accounting_reconciliation_adjustment_requests
+        WHERE tenant_id=$1 AND id=$2 FOR UPDATE`,
+      [auth.tenantId, adjustmentId],
+    );
+    if (!adjustment.rows[0]) throw new NotFoundException({ code: "ACCOUNTING_RECONCILIATION_ADJUSTMENT_NOT_FOUND" });
+    const reconciliation = await c.query<any>(
+      `SELECT r.*,b.account_id AS bank_account_gl_id,b.book_id,b.currency AS bank_currency,ab.functional_currency
+         FROM accounting_bank_reconciliations r
+         JOIN accounting_bank_accounts b ON b.tenant_id=r.tenant_id AND b.id=r.bank_account_id
+         JOIN accounting_books ab ON ab.tenant_id=b.tenant_id AND ab.id=b.book_id
+        WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE`,
+      [auth.tenantId, adjustment.rows[0].reconciliation_id],
+    );
+    if (!reconciliation.rows[0]) throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_NOT_FOUND" });
+    if (!["MATCHING", "REVIEW"].includes(reconciliation.rows[0].state)) {
+      throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_STATE_INVALID" });
+    }
+    if (!reconciliation.rows[0].period_id) throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_PERIOD_REQUIRED" });
+    const period = await c.query<any>(
+      `SELECT * FROM accounting_periods
+        WHERE tenant_id=$1 AND id=$2 AND book_id=$3 FOR UPDATE`,
+      [auth.tenantId, reconciliation.rows[0].period_id, reconciliation.rows[0].book_id],
+    );
+    if (!period.rows[0]) throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_PERIOD_REQUIRED" });
+    if (!["OPEN", "REOPENED"].includes(period.rows[0].state)) throw new ConflictException({ code: "ACCOUNTING_PERIOD_NOT_POSTABLE" });
+    return { adjustment: adjustment.rows[0], reconciliation: reconciliation.rows[0], period: period.rows[0] };
   }
   async books(auth: AccessClaims) {
     this.guard(auth);
@@ -277,7 +388,7 @@ export class AccountingService {
     const rows = await this.db.query<any>(
       `SELECT id,bank_account_id,import_id,line_no,transaction_date,value_date,
               amount_minor,currency,direction,reference,description,match_state,
-              matched_minor,created_at
+              matched_minor,version,created_at
          FROM accounting_bank_statement_lines
         WHERE tenant_id=$1 AND bank_account_id=$2
         ORDER BY transaction_date DESC,line_no DESC
@@ -321,7 +432,7 @@ export class AccountingService {
     const [adjustments, reconciliations] = await Promise.all([
       this.db.query<any>(
         `SELECT id,reconciliation_id,amount_minor,reason,state,journal_id,
-                requested_by_user_id,approved_by_user_id,created_at
+                requested_by_user_id,approved_by_user_id,version,direction,offset_account_id,accounting_date,updated_at,created_at
            FROM accounting_reconciliation_adjustment_requests
           WHERE tenant_id=$1
           ORDER BY created_at DESC
@@ -343,6 +454,228 @@ export class AccountingService {
       adjustmentRequests: adjustments.rows.map((row) => this.present(row)),
       unreconciledReconciliations: reconciliations.rows.map((row) => this.present(row)),
     };
+  }
+
+  async excludeStatementLine(auth: AccessClaims, bankAccountId: string, statementLineId: string, input: unknown, requestId: string, idempotencyKey?: string) {
+    const body = accountingStatementLineExcludeSchema.parse(input);
+    return this.db.transaction(async (c) => {
+      const command = await this.beginCommand(c, auth, "accounting.statement_line.exclude", idempotencyKey, { bankAccountId, statementLineId, ...body });
+      if (command.replay !== undefined) return command.replay;
+      const context = await this.statementContext(c, auth, bankAccountId, statementLineId);
+      const line = context.line;
+      if (Number(line.version) !== body.version) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      if (line.match_state !== body.expectedMatchState) throw new ConflictException({ code: "ACCOUNTING_STATEMENT_LINE_STATE_INVALID" });
+      if (BigInt(line.matched_minor) !== 0n) throw new ConflictException({ code: "ACCOUNTING_STATEMENT_LINE_ALREADY_MATCHED" });
+      const allocation = await c.query<any>(
+        `SELECT 1 FROM accounting_bank_match_allocations a
+          JOIN accounting_bank_matches m ON m.tenant_id=a.tenant_id AND m.id=a.match_id
+         WHERE a.tenant_id=$1 AND a.statement_line_id=$2 AND m.state NOT IN('VOIDED','REJECTED') LIMIT 1`,
+        [auth.tenantId, statementLineId],
+      );
+      if (allocation.rows[0]) throw new ConflictException({ code: "ACCOUNTING_STATEMENT_LINE_ACTIVE_ALLOCATION" });
+      const next = await c.query<any>(
+        `UPDATE accounting_bank_statement_lines
+            SET match_state='EXCLUDED',version=version+1
+          WHERE tenant_id=$1 AND id=$2 AND version=$3
+          RETURNING id,bank_account_id,match_state,matched_minor,version`,
+        [auth.tenantId, statementLineId, body.version],
+      );
+      if (!next.rows[0]) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      const before = { id: line.id, bankAccountId: line.bank_account_id, matchState: line.match_state, matchedMinor: String(line.matched_minor), version: line.version };
+      const after = { id: next.rows[0].id, bankAccountId: next.rows[0].bank_account_id, matchState: next.rows[0].match_state, matchedMinor: String(next.rows[0].matched_minor), version: next.rows[0].version };
+      await this.audit(c, auth, "accounting.statement_line_excluded", "accounting_bank_statement_line", statementLineId, before, after, requestId, body.reason);
+      await this.event(c, auth, "accounting.statement_line.excluded", "accounting_bank_statement_line", statementLineId, { bankAccountId, matchState: "EXCLUDED", version: next.rows[0].version }, requestId);
+      await this.completeCommand(c, auth, "accounting.statement_line.exclude", command.key, after);
+      return after;
+    });
+  }
+
+  async restoreStatementLine(auth: AccessClaims, bankAccountId: string, statementLineId: string, input: unknown, requestId: string, idempotencyKey?: string) {
+    const body = accountingStatementLineRestoreSchema.parse(input);
+    return this.db.transaction(async (c) => {
+      const command = await this.beginCommand(c, auth, "accounting.statement_line.restore", idempotencyKey, { bankAccountId, statementLineId, ...body });
+      if (command.replay !== undefined) return command.replay;
+      const context = await this.statementContext(c, auth, bankAccountId, statementLineId);
+      const line = context.line;
+      if (Number(line.version) !== body.version) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      if (line.match_state !== "EXCLUDED") throw new ConflictException({ code: "ACCOUNTING_STATEMENT_LINE_RESTORE_INVALID" });
+      const next = await c.query<any>(
+        `UPDATE accounting_bank_statement_lines
+            SET match_state='UNMATCHED',version=version+1
+          WHERE tenant_id=$1 AND id=$2 AND version=$3 AND match_state='EXCLUDED'
+          RETURNING id,bank_account_id,match_state,matched_minor,version`,
+        [auth.tenantId, statementLineId, body.version],
+      );
+      if (!next.rows[0]) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      const before = { id: line.id, bankAccountId: line.bank_account_id, matchState: line.match_state, matchedMinor: String(line.matched_minor), version: line.version };
+      const after = { id: next.rows[0].id, bankAccountId: next.rows[0].bank_account_id, matchState: next.rows[0].match_state, matchedMinor: String(next.rows[0].matched_minor), version: next.rows[0].version };
+      await this.audit(c, auth, "accounting.statement_line_restored", "accounting_bank_statement_line", statementLineId, before, after, requestId, body.reason);
+      await this.event(c, auth, "accounting.statement_line.restored", "accounting_bank_statement_line", statementLineId, { bankAccountId, matchState: "UNMATCHED", version: next.rows[0].version }, requestId);
+      await this.completeCommand(c, auth, "accounting.statement_line.restore", command.key, after);
+      return after;
+    });
+  }
+
+  async createReconciliationAdjustment(auth: AccessClaims, reconciliationId: string, input: unknown, requestId: string, idempotencyKey?: string) {
+    const body = accountingReconciliationAdjustmentCreateSchema.parse(input);
+    return this.db.transaction(async (c) => {
+      const command = await this.beginCommand(c, auth, "accounting.reconciliation_adjustment.create", idempotencyKey, { reconciliationId, ...body });
+      if (command.replay !== undefined) return command.replay;
+      const reconciliation = await c.query<any>(
+        `SELECT r.*,b.account_id AS bank_account_gl_id,b.book_id,b.currency AS bank_currency,ab.functional_currency
+           FROM accounting_bank_reconciliations r
+           JOIN accounting_bank_accounts b ON b.tenant_id=r.tenant_id AND b.id=r.bank_account_id
+           JOIN accounting_books ab ON ab.tenant_id=b.tenant_id AND ab.id=b.book_id
+          WHERE r.tenant_id=$1 AND r.id=$2 FOR UPDATE`,
+        [auth.tenantId, reconciliationId],
+      );
+      if (!reconciliation.rows[0]) throw new NotFoundException({ code: "ACCOUNTING_RECONCILIATION_NOT_FOUND" });
+      const r = reconciliation.rows[0];
+      if (!["MATCHING", "REVIEW"].includes(r.state)) throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_STATE_INVALID" });
+      if (!r.period_id) throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_PERIOD_REQUIRED" });
+      const period = await c.query<any>("SELECT * FROM accounting_periods WHERE tenant_id=$1 AND id=$2 AND book_id=$3 FOR UPDATE", [auth.tenantId, r.period_id, r.book_id]);
+      if (!period.rows[0]) throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_PERIOD_REQUIRED" });
+      if (!["OPEN", "REOPENED"].includes(period.rows[0].state)) throw new ConflictException({ code: "ACCOUNTING_PERIOD_NOT_POSTABLE" });
+      if (body.accountingDate < period.rows[0].starts_on || body.accountingDate > period.rows[0].ends_on) throw new ConflictException({ code: "ACCOUNTING_DATE_OUTSIDE_PERIOD" });
+      if (String(r.bank_currency).trim() !== String(r.functional_currency).trim()) throw new ConflictException({ code: "ACCOUNTING_ADJUSTMENT_FX_UNSUPPORTED" });
+      const offset = await c.query<any>("SELECT * FROM accounting_accounts WHERE tenant_id=$1 AND id=$2 AND book_id=$3 AND active FOR UPDATE", [auth.tenantId, body.offsetAccountId, r.book_id]);
+      if (!offset.rows[0]) throw new ConflictException({ code: "ACCOUNTING_ADJUSTMENT_OFFSET_ACCOUNT_INVALID" });
+      if (offset.rows[0].id === r.bank_account_gl_id) throw new ConflictException({ code: "ACCOUNTING_ADJUSTMENT_OFFSET_ACCOUNT_INVALID" });
+      const row = await c.query<any>(
+        `INSERT INTO accounting_reconciliation_adjustment_requests
+          (tenant_id,reconciliation_id,amount_minor,reason,state,requested_by_user_id,version,direction,offset_account_id,accounting_date)
+         VALUES($1,$2,$3,$4,'DRAFT',$5,1,$6,$7,$8) RETURNING *`,
+        [auth.tenantId, reconciliationId, body.amountMinor, body.reason, auth.userId, body.direction, body.offsetAccountId, body.accountingDate],
+      );
+      await c.query(
+        `INSERT INTO accounting_reconciliation_adjustment_history(tenant_id,adjustment_request_id,from_state,to_state,actor_user_id,reason,request_id)
+         VALUES($1,$2,NULL,'DRAFT',$3,$4,$5)`,
+        [auth.tenantId, row.rows[0].id, auth.userId, body.reason, requestId],
+      );
+      await this.audit(c, auth, "accounting.reconciliation_adjustment_created", "accounting_reconciliation_adjustment_request", row.rows[0].id, null, row.rows[0], requestId, body.reason);
+      await this.event(c, auth, "accounting.reconciliation_adjustment.created", "accounting_reconciliation_adjustment_request", row.rows[0].id, { reconciliationId, state: "DRAFT", version: 1 }, requestId);
+      await this.completeCommand(c, auth, "accounting.reconciliation_adjustment.create", command.key, row.rows[0]);
+      return row.rows[0];
+    });
+  }
+
+  private async transitionReconciliationAdjustment(auth: AccessClaims, adjustmentId: string, target: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CANCELLED", input: unknown, requestId: string, idempotencyKey?: string) {
+    const schema = target === "REJECTED" ? accountingReconciliationAdjustmentRejectSchema : target === "CANCELLED" ? accountingReconciliationAdjustmentCancelSchema : target === "APPROVED" ? accountingReconciliationAdjustmentApproveSchema : accountingReconciliationAdjustmentSubmitSchema;
+    const actionByTarget = { PENDING_APPROVAL: "submit", APPROVED: "approve", REJECTED: "reject", CANCELLED: "cancel" } as const;
+    const eventByTarget = { PENDING_APPROVAL: "submitted", APPROVED: "approved", REJECTED: "rejected", CANCELLED: "cancelled" } as const;
+    const action = actionByTarget[target];
+    const eventAction = eventByTarget[target];
+    const operation = `accounting.reconciliation_adjustment.${action}`;
+    const body = schema.parse(input);
+    return this.db.transaction(async (c) => {
+      const command = await this.beginCommand(c, auth, operation, idempotencyKey, { adjustmentId, ...body });
+      if (command.replay !== undefined) return command.replay;
+      const context = await this.adjustmentContext(c, auth, adjustmentId);
+      const current = context.adjustment;
+      if (Number(current.version) !== body.version) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      const allowed: Record<string, string[]> = { PENDING_APPROVAL: ["DRAFT"], APPROVED: ["PENDING_APPROVAL"], REJECTED: ["PENDING_APPROVAL"], CANCELLED: ["DRAFT", "PENDING_APPROVAL"] };
+      if (!allowed[target]?.includes(current.state)) throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_ADJUSTMENT_STATE_INVALID" });
+      if (target === "APPROVED" && current.requested_by_user_id === auth.userId) throw new ForbiddenException({ code: "ACCOUNTING_RECONCILIATION_SELF_APPROVAL_DENIED" });
+      const next = await c.query<any>(
+        `UPDATE accounting_reconciliation_adjustment_requests
+            SET state=$3,approved_by_user_id=CASE WHEN $3='APPROVED' THEN $4 ELSE approved_by_user_id END,
+                version=version+1,updated_at=now()
+          WHERE tenant_id=$1 AND id=$2 AND version=$5 RETURNING *`,
+        [auth.tenantId, adjustmentId, target, auth.userId, body.version],
+      );
+      if (!next.rows[0]) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      const reason = body.reason ?? `transition to ${target}`;
+      await c.query(
+        `INSERT INTO accounting_reconciliation_adjustment_history(tenant_id,adjustment_request_id,from_state,to_state,actor_user_id,reason,request_id)
+         VALUES($1,$2,$3,$4,$5,$6,$7)`,
+        [auth.tenantId, adjustmentId, current.state, target, auth.userId, reason, requestId],
+      );
+      await this.audit(c, auth, `accounting.reconciliation_adjustment_${eventAction}`, "accounting_reconciliation_adjustment_request", adjustmentId, current, next.rows[0], requestId, reason);
+      await this.event(c, auth, `accounting.reconciliation_adjustment.${eventAction}`, "accounting_reconciliation_adjustment_request", adjustmentId, { state: target, version: next.rows[0].version }, requestId);
+      await this.completeCommand(c, auth, operation, command.key, next.rows[0]);
+      return next.rows[0];
+    });
+  }
+
+  async submitReconciliationAdjustment(auth: AccessClaims, id: string, input: unknown, requestId: string, key?: string) { return this.transitionReconciliationAdjustment(auth, id, "PENDING_APPROVAL", input, requestId, key); }
+  async approveReconciliationAdjustment(auth: AccessClaims, id: string, input: unknown, requestId: string, key?: string) { return this.transitionReconciliationAdjustment(auth, id, "APPROVED", input, requestId, key); }
+  async rejectReconciliationAdjustment(auth: AccessClaims, id: string, input: unknown, requestId: string, key?: string) { return this.transitionReconciliationAdjustment(auth, id, "REJECTED", input, requestId, key); }
+  async cancelReconciliationAdjustment(auth: AccessClaims, id: string, input: unknown, requestId: string, key?: string) { return this.transitionReconciliationAdjustment(auth, id, "CANCELLED", input, requestId, key); }
+
+  async postReconciliationAdjustment(auth: AccessClaims, adjustmentId: string, input: unknown, requestId: string, idempotencyKey?: string) {
+    const body = accountingReconciliationAdjustmentPostSchema.parse(input);
+    return this.db.transaction(async (c) => {
+      const command = await this.beginCommand(c, auth, "accounting.reconciliation_adjustment.post", idempotencyKey, { adjustmentId, ...body });
+      if (command.replay !== undefined) return command.replay;
+      const context = await this.adjustmentContext(c, auth, adjustmentId);
+      const { adjustment, reconciliation: r, period } = context;
+      if (Number(adjustment.version) !== body.version) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      if (adjustment.state !== "APPROVED") throw new ConflictException({ code: "ACCOUNTING_RECONCILIATION_ADJUSTMENT_STATE_INVALID" });
+      if (!adjustment.direction || !adjustment.offset_account_id || !adjustment.accounting_date) throw new ConflictException({ code: "ACCOUNTING_ADJUSTMENT_POSTING_DETAILS_MISSING" });
+      if (adjustment.accounting_date < period.starts_on || adjustment.accounting_date > period.ends_on) throw new ConflictException({ code: "ACCOUNTING_DATE_OUTSIDE_PERIOD" });
+      if (String(r.bank_currency).trim() !== String(r.functional_currency).trim()) throw new ConflictException({ code: "ACCOUNTING_ADJUSTMENT_FX_UNSUPPORTED" });
+      const offset = await c.query<any>("SELECT * FROM accounting_accounts WHERE tenant_id=$1 AND id=$2 AND book_id=$3 AND active FOR UPDATE", [auth.tenantId, adjustment.offset_account_id, r.book_id]);
+      if (!offset.rows[0] || offset.rows[0].id === r.bank_account_gl_id) throw new ConflictException({ code: "ACCOUNTING_ADJUSTMENT_OFFSET_ACCOUNT_INVALID" });
+      const amount = BigInt(adjustment.amount_minor);
+      const number = await this.allocateJournalNumber(c, auth.tenantId, r.book_id, r.period_id);
+      const generationKey = `accounting-reconciliation-adjustment:${adjustmentId}`;
+      const journal = await c.query<any>(
+        `INSERT INTO accounting_journals
+          (tenant_id,book_id,period_id,journal_type,accounting_date,currency,source_type,source_id,generation_key,requested_by_user_id,approved_by_user_id,state,request_id)
+         VALUES($1,$2,$3,'BANK_ADJUSTMENT',$4,$5,'ACCOUNTING_RECONCILIATION_ADJUSTMENT',$6,$7,$8,$9,'APPROVED',$10) RETURNING *`,
+        [auth.tenantId, r.book_id, r.period_id, adjustment.accounting_date, r.bank_currency, adjustmentId, generationKey, adjustment.requested_by_user_id, adjustment.approved_by_user_id, requestId],
+      );
+      const bankDebit = adjustment.direction === "DEBIT" ? amount.toString() : "0";
+      const bankCredit = adjustment.direction === "CREDIT" ? amount.toString() : "0";
+      const offsetDebit = adjustment.direction === "CREDIT" ? amount.toString() : "0";
+      const offsetCredit = adjustment.direction === "DEBIT" ? amount.toString() : "0";
+      const lines = [
+        { accountId: r.bank_account_gl_id, debit: bankDebit, credit: bankCredit },
+        { accountId: adjustment.offset_account_id, debit: offsetDebit, credit: offsetCredit },
+      ];
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (!line) continue;
+        await c.query(
+          `INSERT INTO accounting_journal_lines
+            (tenant_id,journal_id,line_no,account_id,debit_minor,credit_minor,functional_debit_minor,functional_credit_minor,currency,exchange_numerator,exchange_denominator,source_line_reference,fingerprint)
+           VALUES($1,$2,$3,$4,$5,$6,$5,$6,$7,1,1,$8,$9)`,
+          [auth.tenantId, journal.rows[0].id, index + 1, line.accountId, line.debit, line.credit, r.bank_currency, `RECONCILIATION_ADJUSTMENT:${adjustmentId}:${index + 1}`, fingerprint({ adjustmentId, index, accountId: line.accountId, debit: line.debit, credit: line.credit })],
+        );
+      }
+      const postedJournal = await c.query<any>(
+        `UPDATE accounting_journals
+            SET state='POSTED',journal_number=$3,posted_by_user_id=$4,posted_at=now(),version=version+1,updated_at=now()
+          WHERE tenant_id=$1 AND id=$2 AND state='APPROVED' RETURNING *`,
+        [auth.tenantId, journal.rows[0].id, number, auth.userId],
+      );
+      if (!postedJournal.rows[0]) throw new ConflictException({ code: "ACCOUNTING_JOURNAL_STATE_CONFLICT" });
+      const delta = adjustment.direction === "DEBIT" ? amount : -amount;
+      const nextReconciliation = await c.query<any>(
+        `UPDATE accounting_bank_reconciliations
+            SET ledger_balance_minor=ledger_balance_minor+$3,
+                difference_minor=statement_balance_minor-(ledger_balance_minor+$3),version=version+1
+          WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+        [auth.tenantId, adjustment.reconciliation_id, delta.toString()],
+      );
+      const nextAdjustment = await c.query<any>(
+        `UPDATE accounting_reconciliation_adjustment_requests
+            SET state='POSTED',journal_id=$3,version=version+1,updated_at=now()
+          WHERE tenant_id=$1 AND id=$2 AND state='APPROVED' AND version=$4 RETURNING *`,
+        [auth.tenantId, adjustmentId, postedJournal.rows[0].id, body.version],
+      );
+      if (!nextAdjustment.rows[0]) throw new ConflictException({ code: "VERSION_CONFLICT" });
+      await c.query(
+        `INSERT INTO accounting_reconciliation_adjustment_history(tenant_id,adjustment_request_id,from_state,to_state,actor_user_id,reason,request_id)
+         VALUES($1,$2,'APPROVED','POSTED',$3,$4,$5)`,
+        [auth.tenantId, adjustmentId, auth.userId, body.reason ?? "post", requestId],
+      );
+      await this.audit(c, auth, "accounting.reconciliation_adjustment_posted", "accounting_reconciliation_adjustment_request", adjustmentId, adjustment, nextAdjustment.rows[0], requestId, body.reason);
+      await this.event(c, auth, "accounting.reconciliation_adjustment.posted", "accounting_reconciliation_adjustment_request", adjustmentId, { journalId: postedJournal.rows[0].id, reconciliationId: adjustment.reconciliation_id, version: nextAdjustment.rows[0].version }, requestId);
+      const response = { adjustment: nextAdjustment.rows[0], journal: postedJournal.rows[0], reconciliation: nextReconciliation.rows[0] };
+      await this.completeCommand(c, auth, "accounting.reconciliation_adjustment.post", command.key, response);
+      return response;
+    });
   }
   async statementSnapshots(auth:AccessClaims,bookId:string){return (await this.db.query<any>("SELECT * FROM accounting_statement_snapshots WHERE tenant_id=$1 AND book_id=$2 ORDER BY created_at DESC",[auth.tenantId,bookId])).rows;}
   async trialBalance(auth:AccessClaims, q:any){const bookId=str(q?.bookId,"book_id");await this.book(auth,bookId);const params=[auth.tenantId,bookId,q?.periodId??null];return (await this.db.query<any>(`WITH bounds AS (SELECT starts_on,ends_on FROM accounting_periods WHERE tenant_id=$1 AND book_id=$2 AND ($3::uuid IS NULL OR id=$3) ORDER BY starts_on DESC LIMIT 1), lines AS (SELECT l.account_id,a.code,a.name,a.account_type,a.control_class,j.accounting_date,l.functional_debit_minor,l.functional_credit_minor FROM accounting_journal_lines l JOIN accounting_journals j ON j.tenant_id=l.tenant_id AND j.id=l.journal_id JOIN accounting_accounts a ON a.tenant_id=l.tenant_id AND a.id=l.account_id WHERE l.tenant_id=$1 AND j.state='POSTED' AND j.book_id=$2) SELECT account_id,code,name,account_type,control_class,coalesce(sum(functional_debit_minor) FILTER(WHERE accounting_date<(SELECT starts_on FROM bounds)),0)::bigint opening_debit_minor,coalesce(sum(functional_credit_minor) FILTER(WHERE accounting_date<(SELECT starts_on FROM bounds)),0)::bigint opening_credit_minor,coalesce(sum(functional_debit_minor) FILTER(WHERE accounting_date BETWEEN (SELECT starts_on FROM bounds) AND (SELECT ends_on FROM bounds)),0)::bigint period_debit_minor,coalesce(sum(functional_credit_minor) FILTER(WHERE accounting_date BETWEEN (SELECT starts_on FROM bounds) AND (SELECT ends_on FROM bounds)),0)::bigint period_credit_minor,coalesce(sum(functional_debit_minor),0)::bigint closing_debit_minor,coalesce(sum(functional_credit_minor),0)::bigint closing_credit_minor,coalesce(sum(functional_debit_minor-functional_credit_minor),0)::bigint balance_minor FROM lines GROUP BY account_id,code,name,account_type,control_class ORDER BY code`,params)).rows;}
@@ -414,10 +747,10 @@ export class AccountingService {
 
   async createBankMatch(auth:AccessClaims,input:any,requestId:string,key?:string){
     const reconciliationId=str(input?.reconciliationId,"reconciliation_id"),allocations=input?.allocations; if(!Array.isArray(allocations)||!allocations.length)throw new BadRequestException({code:"BANK_MATCH_ALLOCATIONS_REQUIRED"});
-    return this.db.transaction(async c=>{const r=await c.query<any>("SELECT * FROM accounting_bank_reconciliations WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,reconciliationId]);if(!r.rows[0]||["CLOSED","VOIDED"].includes(r.rows[0].state))throw new ConflictException({code:"ACCOUNTING_RECONCILIATION_IMMUTABLE"});const requestFp=fingerprint({reconciliationId,matchType:input?.matchType,totalMinor:input?.totalMinor,journalId:input?.journalId,allocations});if(key){const ins=await c.query<any>(`INSERT INTO accounting_command_idempotency(tenant_id,operation,idempotency_key,request_fingerprint,state) VALUES($1,'accounting.bank_match',$2,$3,'PROCESSING') ON CONFLICT DO NOTHING RETURNING id`,[auth.tenantId,key,requestFp]);if(!ins.rows[0]){const prior=await c.query<any>("SELECT * FROM accounting_command_idempotency WHERE tenant_id=$1 AND operation='accounting.bank_match' AND idempotency_key=$2 FOR UPDATE",[auth.tenantId,key]);if(prior.rows[0]?.request_fingerprint!==requestFp)throw new ConflictException({code:"IDEMPOTENCY_KEY_REUSED"});if(prior.rows[0]?.response_json)return prior.rows[0].response_json;throw new ConflictException({code:"IDEMPOTENCY_REQUEST_IN_PROGRESS"});}}const m=await c.query<any>(`INSERT INTO accounting_bank_matches(tenant_id,reconciliation_id,match_type,state,total_minor,journal_id,created_by_user_id) VALUES($1,$2,$3,'SUGGESTED',$4,$5,$6) RETURNING *`,[auth.tenantId,reconciliationId,input?.matchType??"ONE_TO_ONE",String(input?.totalMinor??allocations.reduce((n:any,a:any)=>n+BigInt(a.amountMinor),0n)),input?.journalId??null,auth.userId]);for(const a of allocations){const line=await c.query<any>("SELECT * FROM accounting_bank_statement_lines WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,a.statementLineId]);if(!line.rows[0]||line.rows[0].bank_account_id!==r.rows[0].bank_account_id||line.rows[0].currency!==r.rows[0].currency)throw new ConflictException({code:"ACCOUNTING_BANK_STATEMENT_SCOPE_INVALID"});await c.query(`INSERT INTO accounting_bank_match_allocations(tenant_id,match_id,statement_line_id,amount_minor) VALUES($1,$2,$3,$4)`,[auth.tenantId,m.rows[0].id,a.statementLineId,String(a.amountMinor)]);}await this.audit(c,auth,"accounting.bank_match_created","accounting_bank_match",m.rows[0].id,null,m.rows[0],requestId);if(key)await c.query("UPDATE accounting_command_idempotency SET state='COMPLETED',response_json=$3,completed_at=now() WHERE tenant_id=$1 AND operation='accounting.bank_match' AND idempotency_key=$2",[auth.tenantId,key,json(m.rows[0])]);return m.rows[0];});
+    return this.db.transaction(async c=>{const r=await c.query<any>("SELECT * FROM accounting_bank_reconciliations WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,reconciliationId]);if(!r.rows[0]||["CLOSED","VOIDED"].includes(r.rows[0].state))throw new ConflictException({code:"ACCOUNTING_RECONCILIATION_IMMUTABLE"});const requestFp=fingerprint({reconciliationId,matchType:input?.matchType,totalMinor:input?.totalMinor,journalId:input?.journalId,allocations});if(key){const ins=await c.query<any>(`INSERT INTO accounting_command_idempotency(tenant_id,operation,idempotency_key,request_fingerprint,state) VALUES($1,'accounting.bank_match',$2,$3,'PROCESSING') ON CONFLICT DO NOTHING RETURNING id`,[auth.tenantId,key,requestFp]);if(!ins.rows[0]){const prior=await c.query<any>("SELECT * FROM accounting_command_idempotency WHERE tenant_id=$1 AND operation='accounting.bank_match' AND idempotency_key=$2 FOR UPDATE",[auth.tenantId,key]);if(prior.rows[0]?.request_fingerprint!==requestFp)throw new ConflictException({code:"IDEMPOTENCY_KEY_REUSED"});if(prior.rows[0]?.response_json)return prior.rows[0].response_json;throw new ConflictException({code:"IDEMPOTENCY_REQUEST_IN_PROGRESS"});}}const m=await c.query<any>(`INSERT INTO accounting_bank_matches(tenant_id,reconciliation_id,match_type,state,total_minor,journal_id,created_by_user_id) VALUES($1,$2,$3,'SUGGESTED',$4,$5,$6) RETURNING *`,[auth.tenantId,reconciliationId,input?.matchType??"ONE_TO_ONE",String(input?.totalMinor??allocations.reduce((n:any,a:any)=>n+BigInt(a.amountMinor),0n)),input?.journalId??null,auth.userId]);for(const a of allocations){const line=await c.query<any>("SELECT * FROM accounting_bank_statement_lines WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,a.statementLineId]);if(!line.rows[0]||line.rows[0].bank_account_id!==r.rows[0].bank_account_id||line.rows[0].currency!==r.rows[0].currency)throw new ConflictException({code:"ACCOUNTING_BANK_STATEMENT_SCOPE_INVALID"});if(!["UNMATCHED","SUGGESTED"].includes(line.rows[0].match_state))throw new ConflictException({code:"ACCOUNTING_STATEMENT_LINE_STATE_INVALID"});const requested=BigInt(a.amountMinor);const capacity=(line.rows[0].amount_minor<0?-BigInt(line.rows[0].amount_minor):BigInt(line.rows[0].amount_minor))-BigInt(line.rows[0].matched_minor);if(requested<=0n||requested>capacity)throw new ConflictException({code:"ACCOUNTING_BANK_MATCH_AMOUNT_INVALID"});await c.query(`INSERT INTO accounting_bank_match_allocations(tenant_id,match_id,statement_line_id,amount_minor) VALUES($1,$2,$3,$4)`,[auth.tenantId,m.rows[0].id,a.statementLineId,String(a.amountMinor)]);}await this.audit(c,auth,"accounting.bank_match_created","accounting_bank_match",m.rows[0].id,null,m.rows[0],requestId);if(key)await c.query("UPDATE accounting_command_idempotency SET state='COMPLETED',response_json=$3,completed_at=now() WHERE tenant_id=$1 AND operation='accounting.bank_match' AND idempotency_key=$2",[auth.tenantId,key,json(m.rows[0])]);return m.rows[0];});
   }
 
-  async transitionBankMatch(auth:AccessClaims,id:string,target:string,input:any,requestId:string){return this.db.transaction(async c=>{const m=await c.query<any>("SELECT * FROM accounting_bank_matches WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);if(!m.rows[0])throw new NotFoundException({code:"BANK_MATCH_NOT_FOUND"});const r=await c.query<any>("SELECT * FROM accounting_bank_reconciliations WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,m.rows[0].reconciliation_id]);if(["CLOSED","VOIDED"].includes(r.rows[0].state))throw new ConflictException({code:"ACCOUNTING_RECONCILIATION_IMMUTABLE"});if(target==="MATCHED"&&m.rows[0].state!=="SUGGESTED")throw new ConflictException({code:"BANK_MATCH_STATE_INVALID"});if(target==="VOIDED"&&m.rows[0].state!=="MATCHED")throw new ConflictException({code:"BANK_MATCH_STATE_INVALID"});const n=await c.query<any>("UPDATE accounting_bank_matches SET state=$3,confirmed_by_user_id=CASE WHEN $3='MATCHED' THEN $4 ELSE confirmed_by_user_id END WHERE tenant_id=$1 AND id=$2 RETURNING *",[auth.tenantId,id,target,auth.userId]);const alloc=await c.query<any>("SELECT statement_line_id,amount_minor FROM accounting_bank_match_allocations WHERE tenant_id=$1 AND match_id=$2",[auth.tenantId,id]);for(const a of alloc.rows){await c.query("UPDATE accounting_bank_statement_lines SET matched_minor=matched_minor+$3,match_state=CASE WHEN matched_minor+$3=abs(amount_minor) THEN 'MATCHED' ELSE 'PARTIALLY_MATCHED' END WHERE tenant_id=$1 AND id=$2",[auth.tenantId,a.statement_line_id,target==="MATCHED"?a.amount_minor:(-BigInt(a.amount_minor)).toString()]);}await this.audit(c,auth,`accounting.bank_match_${target.toLowerCase()}`,"accounting_bank_match",id,m.rows[0],n.rows[0],requestId,input?.reason);return n.rows[0];});}
+  async transitionBankMatch(auth:AccessClaims,id:string,target:string,input:any,requestId:string){return this.db.transaction(async c=>{const m=await c.query<any>("SELECT * FROM accounting_bank_matches WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,id]);if(!m.rows[0])throw new NotFoundException({code:"BANK_MATCH_NOT_FOUND"});const r=await c.query<any>("SELECT * FROM accounting_bank_reconciliations WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,m.rows[0].reconciliation_id]);if(["CLOSED","VOIDED"].includes(r.rows[0].state))throw new ConflictException({code:"ACCOUNTING_RECONCILIATION_IMMUTABLE"});if(target==="MATCHED"&&m.rows[0].state!=="SUGGESTED")throw new ConflictException({code:"BANK_MATCH_STATE_INVALID"});if(target==="VOIDED"&&m.rows[0].state!=="MATCHED")throw new ConflictException({code:"BANK_MATCH_STATE_INVALID"});const n=await c.query<any>("UPDATE accounting_bank_matches SET state=$3,confirmed_by_user_id=CASE WHEN $3='MATCHED' THEN $4 ELSE confirmed_by_user_id END WHERE tenant_id=$1 AND id=$2 RETURNING *",[auth.tenantId,id,target,auth.userId]);const alloc=await c.query<any>("SELECT statement_line_id,amount_minor FROM accounting_bank_match_allocations WHERE tenant_id=$1 AND match_id=$2",[auth.tenantId,id]);for(const a of alloc.rows){const line=await c.query<any>("SELECT * FROM accounting_bank_statement_lines WHERE tenant_id=$1 AND id=$2 FOR UPDATE",[auth.tenantId,a.statement_line_id]);if(!line.rows[0])throw new NotFoundException({code:"BANK_STATEMENT_LINE_NOT_FOUND"});const delta=target==="MATCHED"?BigInt(a.amount_minor):-BigInt(a.amount_minor);const nextMatched=BigInt(line.rows[0].matched_minor)+delta;if(nextMatched<0n||nextMatched>BigInt(line.rows[0].amount_minor<0? -BigInt(line.rows[0].amount_minor):BigInt(line.rows[0].amount_minor)))throw new ConflictException({code:"ACCOUNTING_BANK_MATCH_AMOUNT_INVALID"});const nextState=nextMatched===0n?"UNMATCHED":nextMatched===BigInt(line.rows[0].amount_minor<0? -BigInt(line.rows[0].amount_minor):BigInt(line.rows[0].amount_minor))?"MATCHED":"PARTIALLY_MATCHED";if(target==="MATCHED"&&["EXCLUDED","DISPUTED"].includes(line.rows[0].match_state))throw new ConflictException({code:"ACCOUNTING_STATEMENT_LINE_STATE_INVALID"});await c.query("UPDATE accounting_bank_statement_lines SET matched_minor=$3,match_state=$4,version=version+1 WHERE tenant_id=$1 AND id=$2",[auth.tenantId,a.statement_line_id,nextMatched.toString(),nextState]);}await this.audit(c,auth,`accounting.bank_match_${target.toLowerCase()}`,"accounting_bank_match",id,m.rows[0],n.rows[0],requestId,input?.reason);return n.rows[0];});}
 
   async createBankReconciliation(auth:AccessClaims,input:any,requestId:string){const bankAccountId=str(input?.bankAccountId,"bank_account_id");return this.db.transaction(async c=>{const b=await c.query<any>("SELECT * FROM accounting_bank_accounts WHERE tenant_id=$1 AND id=$2",[auth.tenantId,bankAccountId]);if(!b.rows[0])throw new NotFoundException({code:"BANK_ACCOUNT_NOT_FOUND"});const s=BigInt(input?.statementBalanceMinor??0),l=BigInt(input?.ledgerBalanceMinor??0);const row=await c.query<any>(`INSERT INTO accounting_bank_reconciliations(tenant_id,bank_account_id,period_id,state,statement_balance_minor,ledger_balance_minor,difference_minor,created_by_user_id) VALUES($1,$2,$3,'DRAFT',$4,$5,$6,$7) RETURNING *`,[auth.tenantId,bankAccountId,input?.periodId??null,s.toString(),l.toString(),(s-l).toString(),auth.userId]);await this.audit(c,auth,"accounting.bank_reconciliation_created","accounting_bank_reconciliation",row.rows[0].id,null,row.rows[0],requestId);return row.rows[0];});}
 

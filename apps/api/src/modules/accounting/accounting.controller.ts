@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Body, Controller, Get, Headers, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Headers, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import type { AuthenticatedRequest } from "../identity/auth.types.js";
 import { AuthGuard } from "../identity/auth.guard.js";
@@ -13,7 +13,7 @@ const idem=(v?:string)=>v??"";
 
 @ApiTags("accounting") @ApiBearerAuth() @UseGuards(AuthGuard,PermissionGuard) @Controller("accounting")
 export class AccountingController {
-  constructor(private readonly s: AccountingService) {}
+  constructor(@Inject(AccountingService) private readonly s: AccountingService) {}
   @Get("books") @RequirePermission("accounting.book.read") books(@Req() r:AuthenticatedRequest){return this.s.books(r.auth).then(x=>ok(x,r));}
   @Post("books") @RequirePermission("accounting.book.manage") createBook(@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.createBook(r.auth,b,rid(r),idem(k)).then(x=>ok(x,r));}
   @Post("books/:id/activate") @RequirePermission("accounting.book.manage") activateBook(@Param("id") id:string,@Body() b:any,@Req() r:AuthenticatedRequest){return this.s.activateBook(r.auth,id,b,rid(r)).then(x=>ok(x,r));}
@@ -64,6 +64,8 @@ export class AccountingController {
   @Get("bank-accounts/:bankAccountId/statement-lines")
   @RequireAnyPermission("accounting.bank_reconciliation.read", "accounting.bank_statement.import")
   statementLines(@Param("bankAccountId") id:string,@Query("limit") limit:string,@Req() r:AuthenticatedRequest){return this.s.statementLines(r.auth,id,Number(limit||50)).then(x=>ok(x,r));}
+  @Post("bank-accounts/:bankAccountId/statement-lines/:statementLineId/exclude") @RequirePermission("accounting.bank_reconciliation.manage") excludeStatementLine(@Param("bankAccountId") bankAccountId:string,@Param("statementLineId") statementLineId:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.excludeStatementLine(r.auth,bankAccountId,statementLineId,b,rid(r),idem(k)).then(x=>ok(x,r));}
+  @Post("bank-accounts/:bankAccountId/statement-lines/:statementLineId/restore") @RequirePermission("accounting.bank_reconciliation.manage") restoreStatementLine(@Param("bankAccountId") bankAccountId:string,@Param("statementLineId") statementLineId:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.restoreStatementLine(r.auth,bankAccountId,statementLineId,b,rid(r),idem(k)).then(x=>ok(x,r));}
   @Get("bank-matches")
   @RequireAnyPermission("accounting.bank_reconciliation.read", "accounting.bank_match.manage")
   bankMatches(@Query() q:any,@Req() r:AuthenticatedRequest){return this.s.bankMatches(r.auth,q).then(x=>ok(x,r));}
@@ -81,6 +83,12 @@ export class AccountingController {
   @Post("bank-reconciliations/:id/close") @RequirePermission("accounting.bank_reconciliation.close") closeReconciliation(@Param("id") id:string,@Body() b:any,@Req() r:AuthenticatedRequest){return this.s.transitionBankReconciliation(r.auth,id,"CLOSED",b,rid(r)).then(x=>ok(x,r));}
   @Post("bank-reconciliations/:id/request-void") @RequirePermission("accounting.bank_reconciliation.void") requestVoid(@Param("id") id:string,@Body() b:any,@Req() r:AuthenticatedRequest){return this.s.transitionBankReconciliation(r.auth,id,"VOID_PENDING",b,rid(r)).then(x=>ok(x,r));}
   @Post("bank-reconciliations/:id/approve-void") @RequirePermission("accounting.bank_reconciliation.void") approveVoid(@Param("id") id:string,@Body() b:any,@Req() r:AuthenticatedRequest){return this.s.transitionBankReconciliation(r.auth,id,"VOIDED",b,rid(r)).then(x=>ok(x,r));}
+  @Post("bank-reconciliations/:reconciliationId/adjustments") @RequirePermission("accounting.bank_reconciliation.manage") createReconciliationAdjustment(@Param("reconciliationId") reconciliationId:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.createReconciliationAdjustment(r.auth,reconciliationId,b,rid(r),idem(k)).then(x=>ok(x,r));}
+  @Post("reconciliation-adjustments/:id/submit") @RequirePermission("accounting.bank_reconciliation.manage") submitReconciliationAdjustment(@Param("id") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.submitReconciliationAdjustment(r.auth,id,b,rid(r),idem(k)).then(x=>ok(x,r));}
+  @Post("reconciliation-adjustments/:id/approve") @RequirePermission("accounting.bank_reconciliation.manage") approveReconciliationAdjustment(@Param("id") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.approveReconciliationAdjustment(r.auth,id,b,rid(r),idem(k)).then(x=>ok(x,r));}
+  @Post("reconciliation-adjustments/:id/reject") @RequirePermission("accounting.bank_reconciliation.manage") rejectReconciliationAdjustment(@Param("id") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.rejectReconciliationAdjustment(r.auth,id,b,rid(r),idem(k)).then(x=>ok(x,r));}
+  @Post("reconciliation-adjustments/:id/cancel") @RequirePermission("accounting.bank_reconciliation.manage") cancelReconciliationAdjustment(@Param("id") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.cancelReconciliationAdjustment(r.auth,id,b,rid(r),idem(k)).then(x=>ok(x,r));}
+  @Post("reconciliation-adjustments/:id/post") @RequirePermission("accounting.journal.post") postReconciliationAdjustment(@Param("id") id:string,@Body() b:any,@Headers("idempotency-key") k:string,@Req() r:AuthenticatedRequest){return this.s.postReconciliationAdjustment(r.auth,id,b,rid(r),idem(k)).then(x=>ok(x,r));}
   @Get("bank-accounts/:bankAccountId/reconciliations") @RequirePermission("accounting.bank_reconciliation.read") reconciliations(@Param("bankAccountId") id:string,@Req() r:AuthenticatedRequest){return this.s.reconciliations(r.auth,id).then(x=>ok(x,r));}
   @Get("statement-snapshots") @RequirePermission("accounting.report.read") snapshots(@Query("bookId") bookId:string,@Req() r:AuthenticatedRequest){return this.s.statementSnapshots(r.auth,bookId).then(x=>ok(x,r));}
   @Post("statement-snapshots") @RequirePermission("accounting.statement.generate") generateSnapshot(@Body() b:any,@Req() r:AuthenticatedRequest){return this.s.generateStatementSnapshot(r.auth,b,rid(r)).then(x=>ok(x,r));}

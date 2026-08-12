@@ -5207,6 +5207,131 @@ paths:
       parameters:
         - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
       responses: { '200': { description: Reconciliation exception evidence } }
+  /accounting/bank-accounts/{bankAccountId}/statement-lines/{statementLineId}/exclude:
+    post:
+      tags: [Accounting]
+      operationId: excludeBankStatementLine
+      summary: Exclude an unmatched bank statement line
+      description: Requires accounting.bank_reconciliation.manage. The tenant-scoped command locks the line, requires UNMATCHED or SUGGESTED with zero matched minor units, an OPEN/REOPENED period, and a non-finalized reconciliation. Idempotency-Key is required.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: bankAccountId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: statementLineId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version, expectedMatchState, reason]
+              properties:
+                version: { type: integer, minimum: 1 }
+                expectedMatchState: { type: string, enum: [UNMATCHED, SUGGESTED] }
+                reason: { type: string, minLength: 3, maxLength: 2000 }
+      responses:
+        '201': { description: Excluded statement line }
+        '400': { description: Validation error }
+        '403': { description: Permission denied }
+        '409': { description: VERSION_CONFLICT or state/idempotency conflict }
+  /accounting/bank-accounts/{bankAccountId}/statement-lines/{statementLineId}/restore:
+    post:
+      tags: [Accounting]
+      operationId: restoreBankStatementLine
+      summary: Restore an excluded bank statement line
+      description: Requires accounting.bank_reconciliation.manage. Only EXCLUDED to UNMATCHED is supported; period and reconciliation guards remain server-authoritative. Idempotency-Key is required.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: bankAccountId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: statementLineId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [version, reason]
+              properties:
+                version: { type: integer, minimum: 1 }
+                reason: { type: string, minLength: 3, maxLength: 2000 }
+      responses:
+        '201': { description: Restored statement line }
+        '400': { description: Validation error }
+        '403': { description: Permission denied }
+        '409': { description: VERSION_CONFLICT or state/idempotency conflict }
+  /accounting/bank-reconciliations/{reconciliationId}/adjustments:
+    post:
+      tags: [Accounting]
+      operationId: createReconciliationAdjustment
+      summary: Request a reconciliation manual adjustment
+      description: Requires accounting.bank_reconciliation.manage. Creates a DRAFT in MATCHING or REVIEW only. The server derives the bank GL account and reconciliation period; the offset account must be active in the same accounting book. Idempotency-Key is required.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: reconciliationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [amountMinor, direction, offsetAccountId, accountingDate, reason]
+              properties:
+                amountMinor: { type: string, pattern: '^[1-9][0-9]*$' }
+                direction: { type: string, enum: [DEBIT, CREDIT] }
+                offsetAccountId: { type: string, format: uuid }
+                accountingDate: { type: string, format: date }
+                reason: { type: string, minLength: 3, maxLength: 2000 }
+      responses:
+        '201': { description: Draft adjustment request }
+        '400': { description: Validation error }
+        '403': { description: Permission denied }
+        '409': { description: Period, state, currency, offset-account, or idempotency conflict }
+  /accounting/reconciliation-adjustments/{id}/submit:
+    post:
+      tags: [Accounting]
+      operationId: submitReconciliationAdjustment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AccountingVersionCommand' } } } }
+      responses: { '201': { description: Submitted for independent approval }, '409': { description: Version or state conflict } }
+  /accounting/reconciliation-adjustments/{id}/approve:
+    post:
+      tags: [Accounting]
+      operationId: approveReconciliationAdjustment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AccountingVersionCommand' } } } }
+      responses: { '201': { description: Independently approved }, '403': { description: Self approval denied }, '409': { description: Version or state conflict } }
+  /accounting/reconciliation-adjustments/{id}/reject:
+    post:
+      tags: [Accounting]
+      operationId: rejectReconciliationAdjustment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AccountingVersionReasonCommand' } } } }
+      responses: { '201': { description: Rejected }, '409': { description: Version or state conflict } }
+  /accounting/reconciliation-adjustments/{id}/cancel:
+    post:
+      tags: [Accounting]
+      operationId: cancelReconciliationAdjustment
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AccountingVersionReasonCommand' } } } }
+      responses: { '201': { description: Cancelled }, '409': { description: Version or state conflict } }
+  /accounting/reconciliation-adjustments/{id}/post:
+    post:
+      tags: [Accounting]
+      operationId: postReconciliationAdjustment
+      description: Requires accounting.journal.post. Atomically creates and posts a balanced BANK_ADJUSTMENT journal, updates the reconciliation difference, and marks the adjustment POSTED. Posted adjustments are immutable and require reversal for correction.
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/ResourceId' }, { $ref: '#/components/parameters/IdempotencyKey' }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AccountingVersionCommand' } } } }
+      responses: { '201': { description: Posted adjustment and journal }, '403': { description: Permission denied }, '409': { description: Version, period, currency, posting detail, or state conflict } }
   /platform/discounts:
     get:
       tags: [platform-catalog]
@@ -5484,6 +5609,20 @@ components:
               accountId: { type: string, format: uuid }
               debitMinor: { type: string, pattern: '^[0-9]+$' }
               creditMinor: { type: string, pattern: '^[0-9]+$' }
+    AccountingVersionReasonCommand:
+      type: object
+      additionalProperties: false
+      required: [version, reason]
+      properties:
+        version: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 3, maxLength: 2000 }
+    AccountingVersionCommand:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 3, maxLength: 2000 }
     ManualPaymentRequestCommand:
       type: object
       required: [tenantId, amountMinor, currency, evidenceReference, reason]
