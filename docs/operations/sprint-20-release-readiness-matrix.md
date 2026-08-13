@@ -174,7 +174,7 @@ the current Wave 4 repository reconciliation and does not turn an
 operator-owned staging requirement into a local PASS.
 
 ```text
-WAVE_4_STATUS=IN_PROGRESS
+WAVE_4_STATUS=COMPLETED_REPO_CONTROLS_EXTERNAL_EVIDENCE_PENDING
 WAVE_4_START_CHECKPOINT=102cd43b23983afeb54662adeb1c42f4e0756010
 MIGRATION_HEAD=0036_accounting_reconciliation_closure
 CAPACITY_TARGETS=FROZEN_BY_BA_PO
@@ -197,7 +197,7 @@ RTO_MAX=60_MINUTES
 R9_DECISION=REDIS_SHARED_RATE_LIMIT_STORE_FAIL_CLOSED
 R12_DECISION=REDIS_PRIMARY_FAILOVER_TLS_AUTH_AT_LEAST_ONCE_IDEMPOTENT_CONSUMERS
 R13_DECISION=REDIS_SOCKET_IO_PUBSUB_TRANSPORT_STICKINESS_REQUIRES_STAGING_TEST
-CURRENT_RELEASE_STATE=NOT_READY
+CURRENT_RELEASE_STATE=READY_FOR_STAGING
 STAGING_VALIDATED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
@@ -213,3 +213,27 @@ exclusion concurrency/reversal/event semantics; reconciliation adjustment
 idempotency/history/posting evidence; media retention/deletion and native
 permissions; production artifact/topology; staging evidence; and the unchanged
 security-exception review. This matrix does not authorize Waves 1–4.
+## Final Wave 4 source validation
+
+```text
+WAVE_4_STATUS=COMPLETED_REPO_CONTROLS_EXTERNAL_EVIDENCE_PENDING
+WAVE_4_START_CHECKPOINT=102cd43b23983afeb54662adeb1c42f4e0756010
+FINAL_WAVE4_SOURCE_SHA=6a70b85e87a8990ac443cc9524703a0b7ca130b6
+FINAL_WAVE4_SOURCE_CI_RUN_ID=31657199445
+FINAL_WAVE4_SOURCE_CI_CONCLUSION=SUCCESS
+QUALITY=SUCCESS
+VISUAL=SUCCESS
+WAVE4_RELEASE_READINESS_CONTRACT=SUCCESS
+WAVE4_RELEASE_ARTIFACT_EVIDENCE=SUCCESS
+SPRINT18_SUPPLY_CHAIN=SUCCESS
+ALL_BUILDS=SUCCESS
+STAGING_EXECUTED=NO
+STAGING_VALIDATED=NO
+CURRENT_RELEASE_STATE=READY_FOR_STAGING
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+R1-R15 remain operator, staging, infrastructure or external-provider gates;
+their repository controls are CI-validated but their external evidence is not
+present in this repository. The next state transition requires the release
+operator and BA/PO, not an agent-only documentation change.
