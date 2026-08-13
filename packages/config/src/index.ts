@@ -35,6 +35,7 @@ export const environmentSchema = z
     DB_LOCK_TIMEOUT_MS: z.coerce.number().int().min(100).max(120000).default(5000),
     DB_IDLE_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(100).max(300000).default(60000),
     REDIS_REQUIRED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+    REDIS_RATE_LIMIT_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
     STORAGE_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
     OBJECT_STORAGE_ENDPOINT: z.string().url().optional(),
     OBJECT_STORAGE_BUCKET: z.string().min(1).optional(),
@@ -61,6 +62,8 @@ export const environmentSchema = z
       if (!config.PUBLIC_URL.startsWith("https://")) context.addIssue({ code: z.ZodIssueCode.custom, path: ["PUBLIC_URL"], message: "PUBLIC_URL must use HTTPS in production" });
       if (/localhost|127\.0\.0\.1/i.test(config.DATABASE_URL)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["DATABASE_URL"], message: "DATABASE_URL must not use a local default in production" });
       if (/localhost|127\.0\.0\.1/i.test(config.REDIS_URL)) context.addIssue({ code: z.ZodIssueCode.custom, path: ["REDIS_URL"], message: "REDIS_URL must not use a local default in production" });
+      if (!config.REDIS_REQUIRED) context.addIssue({ code: z.ZodIssueCode.custom, path: ["REDIS_REQUIRED"], message: "REDIS_REQUIRED must be true in production" });
+      if (!config.REDIS_RATE_LIMIT_ENABLED) context.addIssue({ code: z.ZodIssueCode.custom, path: ["REDIS_RATE_LIMIT_ENABLED"], message: "REDIS_RATE_LIMIT_ENABLED must be true in production" });
       if (config.CORS_ORIGINS.split(",").some((value) => /localhost|127\.0\.0\.1/i.test(value))) context.addIssue({ code: z.ZodIssueCode.custom, path: ["CORS_ORIGINS"], message: "Localhost origins are forbidden in production" });
       if (config.PAYMENT_PROVIDER_MODE === "fake") context.addIssue({ code: z.ZodIssueCode.custom, path: ["PAYMENT_PROVIDER_MODE"], message: "Fake payment provider is forbidden in production" });
       if (config.DEBUG) context.addIssue({ code: z.ZodIssueCode.custom, path: ["DEBUG"], message: "DEBUG must be false in production" });

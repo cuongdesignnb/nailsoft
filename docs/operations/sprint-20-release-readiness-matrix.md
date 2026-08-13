@@ -167,6 +167,46 @@ WORKFLOW_CHANGE=NO
 PRODUCTION_DEPLOY=NO
 ```
 
+## Wave 4 reconciliation addendum
+
+The Wave 0 table above is retained as historical evidence. This addendum is
+the current Wave 4 repository reconciliation and does not turn an
+operator-owned staging requirement into a local PASS.
+
+```text
+WAVE_4_STATUS=IN_PROGRESS
+WAVE_4_START_CHECKPOINT=102cd43b23983afeb54662adeb1c42f4e0756010
+MIGRATION_HEAD=0036_accounting_reconciliation_closure
+CAPACITY_TARGETS=FROZEN_BY_BA_PO
+API_SUSTAINED_RPS=50
+API_BURST_RPS=100_FOR_60_SECONDS
+AUTHENTICATED_SESSIONS=250
+PUBLIC_SESSIONS=100
+WEBSOCKET_CONNECTIONS=500
+API_P95_READ_MS=750
+API_P95_MUTATION_MS=1500
+API_P99_MS=3000
+HTTP_5XX_RATE_MAX=0.1_PERCENT
+TOTAL_ERROR_RATE_MAX=1_PERCENT
+WEBSOCKET_DELIVERY_MIN=99.9_PERCENT
+WEBSOCKET_BROADCAST_P95_MS=500
+QUEUE_JOBS_MIN=1000
+QUEUE_RECOVERY_MAX=10_MINUTES
+RPO_MAX=15_MINUTES
+RTO_MAX=60_MINUTES
+R9_DECISION=REDIS_SHARED_RATE_LIMIT_STORE_FAIL_CLOSED
+R12_DECISION=REDIS_PRIMARY_FAILOVER_TLS_AUTH_AT_LEAST_ONCE_IDEMPOTENT_CONSUMERS
+R13_DECISION=REDIS_SOCKET_IO_PUBSUB_TRANSPORT_STICKINESS_REQUIRES_STAGING_TEST
+CURRENT_RELEASE_STATE=NOT_READY
+STAGING_VALIDATED=NO
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+Repository-side controls now include a production-required shared Redis rate
+limit path, release-specific manifest/SBOM output and a Wave 4 contract lane.
+R1-R15 still require their respective staging, operator or external-provider
+evidence before the release state can advance.
+
 Known Wave 0 blockers that require a later decision are counted once each in
 the product/contract ledger: Customer Update permission/versioning; statement
 exclusion concurrency/reversal/event semantics; reconciliation adjustment

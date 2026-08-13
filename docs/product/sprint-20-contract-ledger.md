@@ -191,3 +191,25 @@ existing reconciliation adjustment state machine. No new permission, parallel
 ledger, customer merge, staff media, break-glass or production deployment is
 introduced by Wave 2. Full CI run `31605026356` accepted exact source
 `c45f9d51cadf5ab9f93f25dda85229fe20993a33`.
+
+## Current Wave 4 release-readiness ledger
+
+```text
+WAVE_4_STATUS=IN_PROGRESS
+WAVE_4_START_CHECKPOINT=102cd43b23983afeb54662adeb1c42f4e0756010
+RELEASE_WORKSTREAM_COUNT=15
+R1_TO_R8_REPO_CONTROLS=AVAILABLE_WITH_EXTERNAL_EVIDENCE_PENDING
+R9_SHARED_RATE_LIMIT=IMPLEMENTED_FAIL_CLOSED_PRODUCTION_POLICY
+R10_CAPACITY_TARGETS=FROZEN_BY_BA_PO; STAGING_LOAD_EVIDENCE_PENDING
+R11_WORKER_LEASE_PROVIDER_SOAK=STAGING_PENDING
+R12_REDIS_QUEUE_HA=ARCHITECTURE_DECIDED; FAILOVER_EVIDENCE_PENDING
+R13_WEBSOCKET_MULTI_REPLICA=REDIS_PUBSUB_PRESENT; TOPOLOGY_SOAK_PENDING
+R14_EXTERNAL_PROVIDER_SOAK=STAGING_CREDENTIALS_PENDING
+R15_DEPLOY_ROLLBACK_MOBILE_RELEASE=OPERATOR_EVIDENCE_PENDING
+WAVE_3_STATUS=DEFERRED
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+This ledger separates implementation authorization from evidence ownership.
+Wave 4 repository work may be committed and CI-validated; only BA/PO and the
+release operator can advance the go-live state.

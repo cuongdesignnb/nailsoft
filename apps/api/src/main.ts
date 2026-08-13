@@ -12,7 +12,8 @@ import { RedisIoAdapter } from "./infrastructure/redis-io.adapter.js";
 import { allowedOrigins } from "./common/cors-origins.js";
 import { loadRuntimeConfig } from "@nailsoft/config";
 import { randomUUID } from "node:crypto";
-import { isSensitiveRoute, rateLimitDecision } from "./common/rate-limit.js";
+import { isSensitiveRoute } from "./common/rate-limit.js";
+import { DistributedRateLimiter } from "./common/distributed-rate-limit.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { ObservabilityService } from "./modules/health/observability.service.js";
 
@@ -49,8 +50,15 @@ export async function createApp() {
   const realtimeAdapter = new RedisIoAdapter(app);
   await realtimeAdapter.connect();
   app.useWebSocketAdapter(realtimeAdapter);
+  const rateLimiter = new DistributedRateLimiter(
+    runtimeConfig.REDIS_URL,
+    runtimeConfig.REDIS_REQUIRED,
+    runtimeConfig.REDIS_RATE_LIMIT_ENABLED,
+  );
+  await rateLimiter.connect();
   app.getHttpAdapter().getInstance().addHook("onClose", async () => {
     await realtimeAdapter.close();
+    await rateLimiter.close();
   });
   const server = app.getHttpAdapter().getInstance();
   const observability = app.get(ObservabilityService);
@@ -62,7 +70,7 @@ export async function createApp() {
     const suppliedCorrelation = request.headers["x-correlation-id"];
     const correlationId = typeof suppliedCorrelation === "string" && /^[a-zA-Z0-9._:-]{1,128}$/.test(suppliedCorrelation) ? suppliedCorrelation : requestId;
     reply.header("x-correlation-id", correlationId);
-    const decision = rateLimitDecision(`${request.ip}:${isSensitiveRoute(request.url) ? "sensitive" : "standard"}`, isSensitiveRoute(request.url) ? 60 : 600);
+    const decision = await rateLimiter.decision(`${request.ip}:${isSensitiveRoute(request.url) ? "sensitive" : "standard"}`, isSensitiveRoute(request.url) ? 60 : 600);
     reply.header("x-ratelimit-limit", decision.limit);
     reply.header("x-ratelimit-remaining", decision.remaining);
     reply.header("x-ratelimit-reset", Math.ceil(decision.resetAt / 1000));

@@ -883,6 +883,13 @@ jobs:
           grep -q '"BACKUP_RESTORE_DRILL":"PASS"' sprint18-backup-restore-3.log
       - name: Sprint 18 supply chain evidence gates
         run: pnpm security:evidence
+      - name: Sprint 20 Wave 4 release readiness contract
+        run: pnpm exec vitest run tests/contract/sprint20-wave4-release-readiness.test.ts
+      - name: Sprint 20 Wave 4 release artifact evidence
+        env:
+          RELEASE_ARTIFACT_DIR: artifacts/sprint20
+          MIGRATION_HEAD: 0036_accounting_reconciliation_closure
+        run: pnpm release:manifest && pnpm release:sbom
       - name: Sprint 18 authenticated security E2E
         run: pnpm exec playwright test tests/e2e/sprint18-production-security.spec.ts tests/e2e/sprint18-production-smoke.spec.ts --config=playwright.api.config.ts
       - name: Sprint 18 production-readiness load smoke

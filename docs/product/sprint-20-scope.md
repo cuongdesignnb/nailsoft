@@ -320,3 +320,28 @@ WAVE_3_STATUS=DEFERRED
 WAVE_4_STARTED=NO
 PRODUCTION_GO_LIVE_AUTHORIZED=NO
 ```
+
+## Wave 4 production hardening status
+
+Wave 4 is limited to repository-safe hardening and release evidence. It does
+not deploy production or authorize go-live. The current release state remains
+`NOT_READY` until staging/operator evidence is attached.
+
+```text
+RELEASE_WORKSTREAM_COUNT=15
+WAVE_4_STATUS=IN_PROGRESS
+WAVE_4_START_CHECKPOINT=102cd43b23983afeb54662adeb1c42f4e0756010
+CAPACITY_TARGETS=FROZEN_BY_BA_PO
+RPO_MAX=15_MINUTES
+RTO_MAX=60_MINUTES
+REDIS_SHARED_RATE_LIMIT=IMPLEMENTED_FAIL_CLOSED_IN_PRODUCTION
+RELEASE_MANIFEST_AND_SBOM=IMPLEMENTED_WITH_RELEASE_ARTIFACT_NAMESPACE
+WAVE4_SOURCE_CI=NOT_RUN
+STAGING_EVIDENCE=NOT_AVAILABLE
+PRODUCTION_GO_LIVE_AUTHORIZED=NO
+```
+
+Wave 3 remains deferred because media retention, object-storage lifecycle and
+staging storage soak are not complete. Customer Merge, platform discount
+mutation, manual dunning, the global Staff stored-value browser and break-glass
+enablement remain out of scope.
