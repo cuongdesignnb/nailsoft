@@ -30,6 +30,18 @@ FINAL_WAVE4_SOURCE_CI_RUN_ID=31657199445
 FINAL_WAVE4_SOURCE_CI_CONCLUSION=SUCCESS
 ```
 
+## Documentation provenance
+
+```text
+DOCUMENTATION_COMMIT_SHA=f1163fa9eedbb72ee906d1071911584716537824
+DOCS_ONLY_CI_RUN_ID=31661478842
+DOCS_ONLY_CI_CONCLUSION=SUCCESS
+DOCS_ONLY_CI_REPLACES_SOURCE_CI=NO
+```
+
+The documentation CI run validates the documentation commit only; the
+authoritative Wave 4 source evidence remains `6a70b85e` / `31657199445`.
+
 ## Exact Wave 4 CI evidence
 
 ```text
