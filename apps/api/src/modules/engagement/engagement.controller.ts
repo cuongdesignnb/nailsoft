@@ -99,6 +99,11 @@ export class CommunicationController {
   async templates(@Req() r: AuthenticatedRequest) {
     return ok(await this.s.templates(r.auth), r);
   }
+  @Get("communications/templates/marketing-versions")
+  @RequirePermission("communication.template.read")
+  async marketingTemplateVersions(@Req() r: AuthenticatedRequest) {
+    return ok(await this.s.marketingTemplateVersions(r.auth), r);
+  }
   @Post("communications/templates")
   @RequirePermission("communication.template.manage")
   async createTemplate(
@@ -390,10 +395,31 @@ export class MarketingController {
       r,
     );
   }
+  @Get("marketing/overview")
+  @RequirePermission("marketing.campaign.read")
+  async marketingOverview(
+    @Query() q: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.s.marketingOverview(r.auth, q), r);
+  }
+  @Get("marketing-campaigns/create-context")
+  @RequirePermission("marketing.campaign.create")
+  async campaignCreateContext(@Req() r: AuthenticatedRequest) {
+    return ok(await this.s.campaignCreateContext(r.auth), r);
+  }
   @Get("marketing-campaigns")
   @RequirePermission("marketing.campaign.read")
   async campaigns(@Req() r: AuthenticatedRequest) {
     return ok(await this.s.campaigns(r.auth), r);
+  }
+  @Get("marketing-campaigns/directory")
+  @RequirePermission("marketing.campaign.read")
+  async campaignDirectory(
+    @Query() q: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.s.campaignDirectory(r.auth, q), r);
   }
   @Post("marketing-campaigns")
   @RequirePermission("marketing.campaign.create")
@@ -408,6 +434,11 @@ export class MarketingController {
   @RequirePermission("marketing.campaign.read")
   async campaign(@Param("id") id: string, @Req() r: AuthenticatedRequest) {
     return ok(await this.s.campaign(r.auth, id), r);
+  }
+  @Get("marketing-campaigns/:id/overview")
+  @RequirePermission("marketing.campaign.read")
+  async campaignOverview(@Param("id") id: string, @Req() r: AuthenticatedRequest) {
+    return ok(await this.s.campaignOverview(r.auth, id), r);
   }
   @Post("marketing-campaigns/:id/update")
   @RequirePermission("marketing.campaign.create")

@@ -347,7 +347,9 @@ export class AuthService {
     skipMfa = false,
   ) {
     const initialScope = await this.scope(this.db, membership.id);
-    if (!skipMfa && initialScope.roles.some((role) => role === "SALON_OWNER" || role === "BRANCH_MANAGER")) {
+    // Local development must stay frictionless; production, CI and staging keep MFA enforcement.
+    const mfaEnforced = (process.env.NODE_ENV ?? "development") !== "development";
+    if (mfaEnforced && !skipMfa && initialScope.roles.some((role) => role === "SALON_OWNER" || role === "BRANCH_MANAGER")) {
       const method = await this.db.query("SELECT 1 FROM mfa_methods WHERE user_id=$1 AND status='ACTIVE'", [userId]);
       const policy = await this.db.query<{ grace_expired: boolean }>(
         `SELECT now() >= coalesce(tm.joined_at,tm.created_at) +

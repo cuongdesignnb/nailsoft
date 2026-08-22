@@ -8,6 +8,9 @@ const tenant = "10000000-0000-4000-8000-000000000001",
 const fixtureStartAt = new Date();
 fixtureStartAt.setUTCDate(fixtureStartAt.getUTCDate() + 1);
 fixtureStartAt.setUTCHours(3, 0, 0, 0);
+while (fixtureStartAt.getUTCDay() === 0) {
+  fixtureStartAt.setUTCDate(fixtureStartAt.getUTCDate() + 1);
+}
 const fixtureDate = fixtureStartAt.toISOString().slice(0, 10);
 let app: Awaited<ReturnType<typeof createApp>>,
   token = "",

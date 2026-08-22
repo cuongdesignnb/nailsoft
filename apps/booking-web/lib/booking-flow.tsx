@@ -625,7 +625,7 @@ export default function BookingFlow({ salonSlug }: { salonSlug: string }) {
           </div>
         )}
 
-        {state === "ready" && step === "AVAILABILITY" && branch && (
+        {(state === "ready" || state === "empty") && step === "AVAILABILITY" && branch && (
           <div className="grid" aria-labelledby="availability-heading">
             <div className="section-heading">
               <div><p className="eyebrow">{branch.name}</p><h2 id="availability-heading">{t("availableTimes")}</h2></div>
@@ -649,7 +649,7 @@ export default function BookingFlow({ salonSlug }: { salonSlug: string }) {
               ))}
             </div>
             {!visibleSlots.length && <EmptyState message={t("noAvailability")} />}
-            <button className="secondary" type="button" onClick={() => setStep("SERVICES")}>{t("changeSelection")}</button>
+            <button className="secondary" type="button" onClick={() => { setState("ready"); setStep("SERVICES"); }}>{t("changeSelection")}</button>
           </div>
         )}
 

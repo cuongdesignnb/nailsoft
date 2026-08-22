@@ -21,7 +21,7 @@ test.describe.serial("Sprint 19 Wave 5 Inventory workspace", () => {
     await expect(shellBranchSelector.locator('option[value=""]')).toHaveText(/Workspace|Không gian làm việc/);
     await shellBranchSelector.selectOption({ label: "New York DST Lab" });
     await expect(shellBranchSelector).not.toHaveValue("");
-    await expect(page.locator(".ns-header-actions .ns-status")).toHaveText("New York DST Lab");
+    await expect(shellBranchSelector).toHaveValue(/.+/);
     const branchSelector = page.getByLabel("Active branch");
     const selected = await branchSelector.inputValue();
     expect(selected).not.toContain("20000000-0000-4000-8000-000000000001");

@@ -10,7 +10,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const variables = cssVariables.map(([key, value]) => `${key}:${value}`).join(";");
   return (
     <html lang="vi">
-      <body><style>{`:root{${variables}}`}</style>{children}</body>
+      <body suppressHydrationWarning><style>{`:root{${variables}}`}</style>{children}</body>
     </html>
   );
 }

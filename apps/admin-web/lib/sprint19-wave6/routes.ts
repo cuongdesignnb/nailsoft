@@ -70,15 +70,19 @@ export function routeForWave6(pathname: string) {
   const direct = wave6Routes.find((route) => route.href === pathname);
   if (direct) return direct;
   const aliases: Record<string, number> = {
+    "/admin/billing/history": 14,
+    "/admin/billing/plans": 12,
     "/platform/prices": 18,
     "/platform/discounts": 18,
     "/platform/payments": 24,
+    "/platform/payment-intents": 24,
     "/platform/reconciliation": 25,
     "/platform/reports": 26,
+    "/platform/support-access-grants": 27,
   };
   if (pathname in aliases) {
     const base = wave6Routes[aliases[pathname]!]!;
-    return { ...base, href: pathname, title: pathname === "/platform/prices" ? "Price catalog" : pathname === "/platform/discounts" ? "Discount catalog" : pathname === "/platform/payments" ? "Payment operations" : pathname === "/platform/reconciliation" ? "Payment reconciliation" : "Platform reports" };
+    return { ...base, href: pathname, title: pathname === "/admin/billing/history" ? "Billing history" : pathname === "/admin/billing/plans" ? "Plans" : pathname === "/platform/prices" ? "Price catalog" : pathname === "/platform/discounts" ? "Discount catalog" : pathname === "/platform/payments" ? "Payment operations" : pathname === "/platform/payment-intents" ? "Payment intents" : pathname === "/platform/reconciliation" ? "Payment reconciliation" : pathname === "/platform/support-access-grants" ? "Support grants" : "Platform reports" };
   }
   if (/^\/admin\/billing\/invoices\/[^/]+$/.test(pathname)) return { ...wave6Routes[15]!, href: pathname, title: "Invoice detail" };
   if (/^\/platform\/tenants\/[^/]+/.test(pathname)) {

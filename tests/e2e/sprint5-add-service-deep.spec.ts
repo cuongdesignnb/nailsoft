@@ -5,12 +5,14 @@ const branchId = "20000000-0000-4000-8000-000000000001";
 const serviceId = "50000000-0000-4000-8000-000000000001";
 const fixtureStartAt = new Date();
 fixtureStartAt.setUTCDate(fixtureStartAt.getUTCDate() + 1);
+while ([0, 1].includes(fixtureStartAt.getUTCDay())) fixtureStartAt.setUTCDate(fixtureStartAt.getUTCDate() + 1);
 fixtureStartAt.setUTCHours(3, 0, 0, 0);
 const fixtureDate = fixtureStartAt.toISOString().slice(0, 10);
 
 test("add-service revalidates a Booking Engine hold and preserves existing price snapshots", async () => {
   const owner = await login("owner@example.test");
   const manager = await login("staff2@example.test");
+  let fixtureShiftId = "";
   try {
     const shifts = await owner.api.get(`/v1/shifts?branchId=${branchId}`, {
       headers: headers(owner),
@@ -41,8 +43,9 @@ test("add-service revalidates a Booking Engine hold and preserves existing price
       },
     });
     expect(fixtureShift.status(), await fixtureShift.text()).toBe(201);
+    fixtureShiftId = (await fixtureShift.json()).data.id;
     const publishedFixtureShift = await owner.api.post(
-      `/v1/shifts/${(await fixtureShift.json()).data.id}/publish`,
+      `/v1/shifts/${fixtureShiftId}/publish`,
       { headers: headers(owner, "e2e-s5-add-publish-future-shift") },
     );
     expect(
@@ -154,6 +157,13 @@ test("add-service revalidates a Booking Engine hold and preserves existing price
     expect(after.items).toHaveLength(2);
     expect(after.items[0].price).toEqual(before.items[0].price);
   } finally {
+    if (fixtureShiftId) {
+      await owner.api
+        .post(`/v1/shifts/${fixtureShiftId}/cancel`, {
+          headers: headers(owner, "e2e-s5-add-cleanup-shift"),
+        })
+        .catch(() => undefined);
+    }
     await close(manager);
     await close(owner);
   }

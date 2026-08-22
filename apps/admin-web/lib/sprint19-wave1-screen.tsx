@@ -2,7 +2,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
-import { authorizedFetch, getActiveBranchId, getAuthContext } from "./auth";
+import { ACTIVE_BRANCH_CHANGED_EVENT, authorizedFetch, getAuthorizedBranchContext, getActiveBranchId } from "./auth";
 
 type LoadState = "loading" | "ready" | "empty" | "error" | "forbidden" | "offline";
 const neverEmpty = () => false;
@@ -48,13 +48,23 @@ function useResource<T>(path: string | null, empty: (value: T) => boolean = neve
 
 function useWorkspace() {
   const [branchId, setBranchId] = useState(() => getActiveBranchId() ?? "");
-  const [timezone, setTimezone] = useState("Asia/Ho_Chi_Minh");
+  const [timezone, setTimezone] = useState("UTC");
   useEffect(() => {
-    void getAuthContext().then((context) => {
-      const selected = getActiveBranchId() ?? context.authorization.branchIds[0] ?? "";
-      setBranchId(selected);
-      setTimezone("Asia/Ho_Chi_Minh");
+    let cancelled = false;
+    const load = () => void getAuthorizedBranchContext().then(({ branches, branchId: selected }) => {
+      if (cancelled) return;
+      const next = selected ?? "";
+      setBranchId(next);
+      setTimezone(branches.find((branch) => branch.id === next)?.timezone ?? "UTC");
     }).catch(() => undefined);
+    load();
+    const handleBranchChange = (event: Event) => {
+      const next = (event as CustomEvent<string | undefined>).detail ?? "";
+      setBranchId(next);
+      void getAuthorizedBranchContext().then(({ branches }) => setTimezone(branches.find((branch) => branch.id === next)?.timezone ?? "UTC")).catch(() => undefined);
+    };
+    window.addEventListener(ACTIVE_BRANCH_CHANGED_EVENT, handleBranchChange);
+    return () => { cancelled = true; window.removeEventListener(ACTIVE_BRANCH_CHANGED_EVENT, handleBranchChange); };
   }, []);
   return { branchId, timezone };
 }
@@ -65,6 +75,32 @@ function formatDate(value: string | Date, timezone?: string) {
 
 function formatTime(value: string | Date, timezone?: string) {
   return new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: timezone }).format(new Date(value));
+}
+
+function localDateInZone(value: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(value);
+  const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value])) as Record<string, string>;
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function addLocalDays(value: string, days: number) {
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function zonedDateTimeToIso(localDate: string, localTime: string, timeZone: string) {
+  const [year, month, day] = localDate.split("-").map(Number);
+  const [hour = 0, minute = 0, second = 0] = localTime.split(":").map(Number);
+  const desired = Date.UTC(year!, month! - 1, day, hour, minute, second);
+  let guess = desired;
+  for (let index = 0; index < 3; index += 1) {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(new Date(guess));
+    const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)])) as Record<string, number>;
+    const localAsUtc = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day), Number(values.hour), Number(values.minute), Number(values.second));
+    guess = desired - (localAsUtc - guess);
+  }
+  return new Date(guess).toISOString();
 }
 
 function StateView({ state, error, retry, label }: { state: LoadState; error?: string; retry: () => void; label: string }) {
@@ -104,17 +140,17 @@ function TodayDashboard() {
 function CalendarView({ pathname }: { pathname: string }) {
   const { branchId, timezone } = useWorkspace();
   const week = pathname.includes("week");
-  const [anchor, setAnchor] = useState(() => new Date());
-  const date = anchor.toISOString().slice(0, 10);
-  const end = new Date(anchor);
-  if (week) end.setDate(end.getDate() + 6);
-  const endDate = end.toISOString().slice(0, 10);
-  const from = `${date}T00:00:00+07:00`;
-  const to = `${endDate}T23:59:59+07:00`;
-  const events = useResource<any>(branchId ? `/v1/calendar/events?branchId=${branchId}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&eventTypes=APPOINTMENT,SHIFT,BUSY_BLOCK,LEAVE` : null, emptyEvents);
+  const [date, setDate] = useState("");
+  const [eventType, setEventType] = useState("ALL");
+  const localDate = date || localDateInZone(new Date(), timezone);
+  const endDate = addLocalDays(localDate, week ? 6 : 0);
+  const from = zonedDateTimeToIso(localDate, "00:00:00", timezone);
+  const to = zonedDateTimeToIso(endDate, "23:59:59", timezone);
+  const eventTypes = eventType === "ALL" ? "APPOINTMENT,SHIFT,BUSY_BLOCK,LEAVE" : eventType;
+  const events = useResource<any>(branchId ? `/v1/calendar/events?branchId=${encodeURIComponent(branchId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&eventTypes=${encodeURIComponent(eventTypes)}` : null, emptyEvents);
   const rows = events.data?.events ?? [];
   return <Page eyebrow="Lịch hẹn" title={week ? "Lịch tuần" : "Lịch hôm nay"} accessibilityTitle={week ? "Calendar week" : "Calendar day"} description={`Múi giờ chi nhánh · ${timezone}`} actions={<><a className="ns-button ns-button--primary" aria-label="Create appointment" href="/admin/appointments/new">+ Tạo lịch hẹn</a><a className="ns-button ns-button--secondary" href={week ? "/admin/calendar/day" : "/admin/calendar/week"}>{week ? "Xem ngày" : "Xem tuần"}</a></>}> 
-    <section className="wave1-filter-bar"><label><span>Ngày xem</span><input type="date" value={date} onChange={(event) => setAnchor(new Date(`${event.target.value}T08:00:00`))} /></label><label><span>Hiển thị</span><select defaultValue="ALL"><option value="ALL">Tất cả lịch</option><option value="APPOINTMENT">Lịch hẹn</option><option value="SHIFT">Ca làm</option><option value="BUSY_BLOCK">Busy block</option></select></label><button className="ns-button ns-button--secondary" onClick={events.load}>Làm mới</button></section>
+    <section className="wave1-filter-bar"><label><span>Ngày xem · {timezone}</span><input type="date" value={localDate} onChange={(event) => setDate(event.target.value)} /></label><label><span>Hiển thị</span><select value={eventType} onChange={(event) => setEventType(event.target.value)}><option value="ALL">Tất cả lịch</option><option value="APPOINTMENT">Lịch hẹn</option><option value="SHIFT">Ca làm</option><option value="BUSY_BLOCK">Busy block</option><option value="LEAVE">Nghỉ phép</option></select></label><button className="ns-button ns-button--secondary" onClick={events.load}>Làm mới</button></section>
     <StateView state={events.state} error={events.error} retry={events.load} label="lịch hẹn" />
     {events.state === "ready" ? <section className="wave1-calendar" aria-label="Lịch hẹn"><div className="wave1-calendar-head"><span>Thời gian</span><span>Nội dung vận hành</span></div>{rows.map((event: any) => <article className={`wave1-calendar-event wave1-calendar-event--${String(event.eventType ?? "appointment").toLowerCase()}`} key={event.id}><time>{formatTime(event.startAt, timezone)}<small>{formatTime(event.endAt, timezone)}</small></time><div><strong>{event.title ?? "Lịch hẹn"}</strong><span>{event.eventType} · {event.status ?? "ACTIVE"}</span>{event.sourceEntityId && event.eventType === "APPOINTMENT" ? <a href={`/admin/appointments/${event.sourceEntityId}/overview`}>Mở chi tiết →</a> : null}</div><span className="wave1-calendar-meta">{event.localStart ? formatDate(event.startAt, timezone) : ""}</span></article>)}</section> : null}
   </Page>;
@@ -138,11 +174,15 @@ function BookingList() {
 
 function AvailabilityView() {
   const { branchId, timezone } = useWorkspace();
-  const [form, setForm] = useState({ serviceId: "", date: new Date().toISOString().slice(0, 10), staffId: "" });
+  const [form, setForm] = useState({ serviceId: "", date: "", staffId: "" });
+  const date = form.date || localDateInZone(new Date(), timezone);
+  const services = useResource<any[]>(branchId ? "/v1/services?status=ACTIVE&pageSize=100" : null, emptyArray);
+  const staff = useResource<any[]>(branchId ? `/v1/staff?status=ACTIVE&branchId=${encodeURIComponent(branchId)}` : null, emptyArray);
   const [search, setSearch] = useState<{ state: LoadState; data?: any; error?: string }>({ state: "empty" });
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSearch({ state: "loading" }); const params = new URLSearchParams({ branchId, serviceId: form.serviceId, dateFrom: form.date, dateTo: form.date, slotIntervalMin: "15" }); if (form.staffId) params.set("staffId", form.staffId); try { const data = await request(`/v1/availability?${params.toString()}`); setSearch({ state: data?.days?.some((day: any) => day.slots?.length) ? "ready" : "empty", data }); } catch (cause: any) { setSearch({ state: cause?.forbidden ? "forbidden" : "error", error: cause?.message }); } }
+  useEffect(() => { if (!form.serviceId && services.data?.[0]?.id) setForm((current) => ({ ...current, serviceId: services.data?.[0]?.id ?? "" })); }, [form.serviceId, services.data]);
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSearch({ state: "loading" }); const params = new URLSearchParams({ branchId, serviceId: form.serviceId, dateFrom: date, dateTo: date, slotIntervalMin: "15" }); if (form.staffId) params.set("staffId", form.staffId); try { const data = await request(`/v1/availability?${params.toString()}`); setSearch({ state: data?.days?.some((day: any) => day.slots?.length) ? "ready" : "empty", data }); } catch (cause: any) { setSearch({ state: cause?.forbidden ? "forbidden" : "error", error: cause?.message }); } }
   const slots = search.data?.days?.flatMap((day: any) => day.slots ?? []) ?? [];
-  return <Page eyebrow="Availability" title="Tìm khung giờ trống" accessibilityTitle="Availability search" description={`Slot hợp lệ theo availability engine · ${timezone}`}><form className="wave1-availability-form" onSubmit={submit}><label><span>Ngày</span><input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label><span>Service ID</span><input value={form.serviceId} onChange={(event) => setForm({ ...form, serviceId: event.target.value })} placeholder="Chọn dịch vụ" required /></label><label><span>Staff preference</span><input value={form.staffId} onChange={(event) => setForm({ ...form, staffId: event.target.value })} placeholder="Để trống = Any staff" /></label><button className="ns-button ns-button--primary" aria-label="Calculate" disabled={search.state === "loading"}>{search.state === "loading" ? "Đang tính…" : "Tìm slot"}</button></form><StateView state={search.state} error={search.error ?? ""} retry={() => undefined} label="availability" />{search.state === "ready" ? <section className="wave1-slot-grid"><div className="wave1-panel-heading"><div><p className="ns-eyebrow">Kết quả</p><h2>{slots.length} slot khả dụng</h2></div><span className="ns-status ns-status--success">Đã kiểm tra realtime</span></div>{slots.map((slot: any) => <article className="wave1-slot-card" key={slot.fingerprint}><strong>{formatTime(slot.startAt, timezone)} – {formatTime(slot.endAt, timezone)}</strong><span>{slot.staffCandidates?.map((staff: any) => staff.displayName).join(", ") || "Nhân sự phù hợp"}</span><small>{slot.priceReference?.amount ?? "—"} {slot.priceReference?.currency ?? "VND"} · duration {slot.durationMin ?? "—"} phút</small><button className="ns-button ns-button--secondary" type="button">Chọn slot</button></article>)}</section> : null}<p className="wave1-disclaimer">Slot chỉ là kết quả tính toán hiện tại, không giữ chỗ cho đến khi Booking Engine tạo hold thành công.</p></Page>;
+  return <Page eyebrow="Availability" title="Tìm khung giờ trống" accessibilityTitle="Availability search" description={`Slot hợp lệ theo availability engine · ${timezone}`}><form className="wave1-availability-form" onSubmit={submit}><label><span>Ngày · {timezone}</span><input type="date" value={date} onChange={(event) => setForm({ ...form, date: event.target.value })} required /></label><label><span>Dịch vụ</span><select value={form.serviceId} onChange={(event) => setForm({ ...form, serviceId: event.target.value })} required><option value="">Chọn dịch vụ</option>{(services.data ?? []).map((item: any) => <option key={item.id} value={item.id}>{item.name?.["vi-VN"] ?? item.name?.["en-US"] ?? item.name ?? item.code}</option>)}</select></label><label><span>Nhân sự ưu tiên</span><select value={form.staffId} onChange={(event) => setForm({ ...form, staffId: event.target.value })}><option value="">Không chọn · Any staff</option>{(staff.data ?? []).map((item: any) => <option key={item.id} value={item.id}>{item.displayName ?? item.name ?? item.id}</option>)}</select></label><button className="ns-button ns-button--primary" aria-label="Calculate" disabled={search.state === "loading" || services.state === "loading"}>{search.state === "loading" ? "Đang tính…" : "Tìm slot"}</button></form><StateView state={search.state} error={search.error ?? ""} retry={() => undefined} label="availability" />{search.state === "ready" ? <section className="wave1-slot-grid"><div className="wave1-panel-heading"><div><p className="ns-eyebrow">Kết quả</p><h2>{slots.length} slot khả dụng</h2></div><span className="ns-status ns-status--success">Đã kiểm tra realtime</span></div>{slots.map((slot: any) => <article className="wave1-slot-card" key={slot.fingerprint}><strong>{formatTime(slot.startAt, timezone)} – {formatTime(slot.endAt, timezone)}</strong><span>{slot.staffCandidates?.map((staff: any) => staff.displayName).join(", ") || "Nhân sự phù hợp"}</span><small>{slot.priceReference?.amount ?? "—"} {slot.priceReference?.currency ?? "VND"} · duration {slot.durationMin ?? "—"} phút</small><button className="ns-button ns-button--secondary" type="button">Chọn slot</button></article>)}</section> : null}<p className="wave1-disclaimer">Slot chỉ là kết quả tính toán hiện tại, không giữ chỗ cho đến khi Booking Engine tạo hold thành công.</p></Page>;
 }
 
 export default function Sprint19Wave1Screen({ pathname }: { pathname: string }) {

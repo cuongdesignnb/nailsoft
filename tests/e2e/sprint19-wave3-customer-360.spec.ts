@@ -33,32 +33,32 @@ test.describe.serial("Sprint 19 Wave 3 Customer 360", () => {
     await expect(page.getByRole("link", { name: "Open customer" }).first()).toBeVisible();
     await expectA11y(page);
     await page.getByRole("link", { name: "Open customer" }).first().click();
-    await expect(page.getByRole("heading", { name: "Customer profile" })).toBeVisible();
-    await expect(page.getByText("Customer profile editing is not available in this release.")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Activity summary" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Chi tiết khách hàng" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Lịch sử lịch hẹn" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Tạo lịch hẹn" }).first()).toBeVisible();
     await expectA11y(page);
   });
 
-  test("reception can create a customer, while unsupported profile mutation is absent", async ({ page }) => {
+  test("reception can create a customer and open its real profile", async ({ page }) => {
     await loginUi(page, "staff3@example.test");
     await page.goto("/admin/customers/new");
-    await expect(page.getByRole("heading", { name: "Create customer" })).toBeVisible();
-    await page.getByRole("button", { name: "Create customer" }).click();
-    await expect(page.locator(".s19-notice-error").filter({ hasText: "Display name is required" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Tạo khách hàng mới" })).toBeVisible();
+    await page.getByRole("button", { name: "Lưu khách hàng" }).first().click();
+    await expect(page.getByRole("alert").filter({ hasText: "Vui lòng nhập họ và tên" })).toBeVisible();
     const name = unique("Customer360");
-    await page.getByLabel("Display name").fill(name);
-    await page.getByLabel("Phone").fill(`090${Date.now().toString().slice(-7)}`);
-    await page.getByLabel("Email").fill(`${name.toLowerCase()}@example.test`);
-    await page.getByRole("button", { name: "Create customer" }).click();
+    await page.getByLabel("Họ và tên").fill(name);
+    await page.locator("#customer-phone").fill(`090${Date.now().toString().slice(-7)}`);
+    await page.locator("#customer-email").fill(`${name.toLowerCase()}@example.test`);
+    await page.getByRole("button", { name: "Lưu & mở hồ sơ" }).click();
     await expect(page).toHaveURL(/\/admin\/customers\/[^/]+$/);
-    await expect(page.getByRole("heading", { name: "Customer profile" })).toBeVisible();
-    await expect(page.getByText("Customer profile editing is not available in this release.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Chi tiết khách hàng" })).toBeVisible();
+    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   });
 
-  test("customer engagement remains owned by the Sprint 11 renderer", async ({ page }) => {
+  test("customer engagement route renders the Customer Care timeline", async ({ page }) => {
     await loginUi(page, "owner@example.test");
     await page.goto(`/admin/customers/${seededCustomer}/engagement`);
-    await expect(page.getByRole("heading", { name: "Customer engagement timeline" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Lịch sử liên hệ & chăm sóc" })).toBeVisible();
   });
 
   test("technician and platform users receive the forbidden state", async ({ page }) => {
@@ -69,7 +69,7 @@ test.describe.serial("Sprint 19 Wave 3 Customer 360", () => {
     await page.evaluate(() => localStorage.clear());
     await loginUi(page, "platform-e2e@example.test");
     await page.goto(`/admin/customers/${seededCustomer}`);
-    await expect(page.getByRole("heading", { name: "Permission denied" })).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "Không có quyền xem hồ sơ" })).toBeVisible();
   });
 
   test("API contract keeps tenant-safe detail and optional financial sections", async () => {

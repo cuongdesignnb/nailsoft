@@ -6,7 +6,11 @@ test("late attendance after period closure creates workflow exception without mu
   const owner = await login("owner@example.test");
   try {
     await db.query(
-      `UPDATE timesheet_periods SET state='CLOSED' WHERE tenant_id=$1 AND id='f1200000-0000-4000-8000-000000000051'`,
+      `UPDATE timesheet_periods
+       SET starts_on=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+           ends_on=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+           state='CLOSED'
+       WHERE tenant_id=$1 AND id='f1200000-0000-4000-8000-000000000051'`,
       [tenant],
     );
     await post(

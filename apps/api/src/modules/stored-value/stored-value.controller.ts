@@ -6,6 +6,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -17,6 +18,8 @@ import {
   RequirePermission,
 } from "../identity/permission.decorator.js";
 import { PermissionGuard } from "../identity/permission.guard.js";
+import { GiftCardReportingService } from "./gift-card-reporting.service.js";
+import { CustomerCreditReportingService } from "./customer-credit-reporting.service.js";
 import { StoredValueService } from "./stored-value.service.js";
 
 const requestId = (request: AuthenticatedRequest) =>
@@ -34,6 +37,10 @@ const response = (data: unknown, request: AuthenticatedRequest) => ({
 export class StoredValueController {
   constructor(
     @Inject(StoredValueService) private readonly service: StoredValueService,
+    @Inject(GiftCardReportingService)
+    private readonly reporting: GiftCardReportingService,
+    @Inject(CustomerCreditReportingService)
+    private readonly customerCreditReporting: CustomerCreditReportingService,
   ) {}
 
   @Get("customer/me/gift-cards")
@@ -205,6 +212,24 @@ export class StoredValueController {
     return response(await this.service.giftCards(request.auth), request);
   }
 
+  @Get("gift-cards/directory")
+  @RequirePermission("gift_card.read")
+  async cardDirectory(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.reporting.directory(request.auth, query), request);
+  }
+
+  @Get("gift-cards/overview")
+  @RequirePermission("gift_card.read")
+  async cardOverview(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.reporting.overview(request.auth, query), request);
+  }
+
   @Post("gift-cards/lookup")
   @RequireAnyPermission(
     "gift_card.read",
@@ -216,6 +241,25 @@ export class StoredValueController {
       await this.service.lookup(request.auth, body, requestId(request)),
       request,
     );
+  }
+
+  @Get("gift-cards/:giftCardId/overview")
+  @RequirePermission("gift_card.read")
+  async cardOverviewById(
+    @Param("giftCardId") id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.reporting.cardOverview(request.auth, id), request);
+  }
+
+  @Get("gift-cards/:giftCardId/ledger/directory")
+  @RequirePermission("gift_card.read")
+  async cardLedgerDirectory(
+    @Param("giftCardId") id: string,
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.reporting.ledgerDirectory(request.auth, id, query), request);
   }
 
   @Get("gift-cards/:giftCardId")
@@ -535,6 +579,55 @@ export class StoredValueController {
   @RequirePermission("customer_credit.read")
   async credits(@Req() request: AuthenticatedRequest) {
     return response(await this.service.customerCredits(request.auth), request);
+  }
+
+  @Get("customer-credit/directory")
+  @RequirePermission("customer_credit.read")
+  async creditDirectory(
+    @Query() query: Record<string, unknown>,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(
+      await this.customerCreditReporting.directory(request.auth, query),
+      request,
+    );
+  }
+
+  @Get("customer-credit/overview")
+  @RequirePermission("customer_credit.read")
+  async creditOverview(
+    @Query() query: Record<string, unknown>,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(
+      await this.customerCreditReporting.overview(request.auth, query),
+      request,
+    );
+  }
+
+  @Get("customer-credit/accounts/:accountId/overview")
+  @RequirePermission("customer_credit.read")
+  async creditAccountOverview(
+    @Param("accountId") id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(
+      await this.customerCreditReporting.accountOverview(request.auth, id),
+      request,
+    );
+  }
+
+  @Get("customer-credit/accounts/:accountId/ledger/directory")
+  @RequirePermission("customer_credit.ledger.read")
+  async creditAccountLedgerDirectory(
+    @Param("accountId") id: string,
+    @Query() query: Record<string, unknown>,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(
+      await this.customerCreditReporting.ledgerDirectory(request.auth, id, query),
+      request,
+    );
   }
 
   @Get("customers/:customerId/customer-credit/ledger")

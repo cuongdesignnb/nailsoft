@@ -10,6 +10,7 @@ import {
   cashRefundExecutionSchema,
   externalRefundExecutionSchema,
   refundCreateSchema,
+  refundDirectoryQuerySchema,
   refundDecisionSchema,
   refundPlanSchema,
   refundVersionSchema,
@@ -232,6 +233,158 @@ export class RefundService {
     return rows.rows.map(refundView);
   }
 
+  async directory(auth: AccessClaims, input: unknown) {
+    this.assertTenant(auth);
+    const query = refundDirectoryQuerySchema.parse(input ?? {});
+    if (query.branchId) this.assertBranch(auth, query.branchId);
+    const branches = auth.roles.includes("SALON_OWNER") ? null : auth.branchIds;
+    const orderBy = {
+      NEWEST: "requested_at DESC, id DESC",
+      OLDEST: "requested_at ASC, id ASC",
+      AMOUNT_DESC: "requested_minor DESC, requested_at DESC, id DESC",
+      AMOUNT_ASC: "requested_minor ASC, requested_at DESC, id DESC",
+    }[query.sort];
+    const values = [
+      auth.tenantId,
+      branches,
+      query.branchId ?? null,
+      query.search || null,
+      query.status ?? null,
+      query.refundKind ?? null,
+      query.tenderType ?? null,
+      query.requestedFrom ?? null,
+      query.requestedTo ?? null,
+      query.customerId ?? null,
+    ];
+    const from = `
+      FROM refunds r
+      JOIN invoices i ON i.tenant_id=r.tenant_id AND i.id=r.invoice_id
+      JOIN pos_orders o ON o.tenant_id=r.tenant_id AND o.id=r.pos_order_id
+      JOIN branches b ON b.tenant_id=r.tenant_id AND b.id=r.branch_id
+      LEFT JOIN users requester ON requester.id=r.requested_by_user_id
+      LEFT JOIN users approver ON approver.id=r.approved_by_user_id
+      LEFT JOIN LATERAL (
+        SELECT
+          CASE
+            WHEN r.tip_refund_minor>0 AND r.service_refund_minor+r.tax_refund_minor=0 THEN 'TIP_ONLY'
+            WHEN r.tip_refund_minor>0 THEN 'MIXED'
+            WHEN r.requested_minor >= i.total_minor+i.tip_minor THEN 'FULL'
+            ELSE 'PARTIAL'
+          END refund_kind,
+          count(*)::int item_count
+        FROM refund_items ri
+        WHERE ri.tenant_id=r.tenant_id AND ri.refund_id=r.id
+      ) item_meta ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          array_agg(DISTINCT a.tender_type ORDER BY a.tender_type) tender_types,
+          COALESCE(sum(a.planned_minor),0)::bigint planned_minor,
+          COALESCE(sum(a.completed_minor),0)::bigint completed_minor
+        FROM refund_payment_allocations a
+        WHERE a.tenant_id=r.tenant_id AND a.refund_id=r.id
+      ) allocation_meta ON true
+      LEFT JOIN LATERAL (
+        SELECT cn.id,cn.credit_note_number,cn.status,cn.total_minor,cn.issued_at
+        FROM credit_notes cn
+        WHERE cn.tenant_id=r.tenant_id AND cn.refund_id=r.id
+        ORDER BY cn.created_at DESC,cn.id DESC
+        LIMIT 1
+      ) credit_note ON true
+      WHERE r.tenant_id=$1
+        AND ($2::uuid[] IS NULL OR r.branch_id=ANY($2::uuid[]))
+        AND ($3::uuid IS NULL OR r.branch_id=$3)
+        AND ($4::text IS NULL OR lower(concat_ws(' ',r.refund_reference,i.invoice_number,o.order_number,
+          i.customer_snapshot_json->>'displayName',i.customer_snapshot_json->>'display_name',
+          o.customer_snapshot_json->>'displayName',o.customer_snapshot_json->>'display_name',
+          i.customer_snapshot_json->>'phone',o.customer_snapshot_json->>'phone')) LIKE lower('%'||$4||'%'))
+        AND ($5::text IS NULL OR r.status=$5)
+        AND ($6::text IS NULL OR item_meta.refund_kind=$6)
+        AND ($7::text IS NULL OR EXISTS(
+          SELECT 1 FROM refund_payment_allocations filter_allocation
+          WHERE filter_allocation.tenant_id=r.tenant_id
+            AND filter_allocation.refund_id=r.id
+            AND filter_allocation.tender_type=$7
+        ))
+        AND ($8::date IS NULL OR r.requested_at >= $8::date)
+        AND ($9::date IS NULL OR r.requested_at < ($9::date + interval '1 day'))
+        AND ($10::uuid IS NULL OR r.customer_id=$10)
+    `;
+    const pageOffset = (query.page - 1) * query.pageSize;
+    const [pageResult, summaryResult] = await Promise.all([
+      this.db.query<any>(
+        `SELECT r.id,r.branch_id,r.invoice_id,r.pos_order_id,r.customer_id,r.refund_reference,r.status,r.currency,
+                r.requested_minor,r.approved_minor,r.completed_minor,r.service_refund_minor,r.tax_refund_minor,r.tip_refund_minor,
+                r.reason_code,r.reason_text,r.requested_at,r.approved_at,r.completed_at,r.version,
+                b.name branch_name,b.code branch_code,b.timezone,
+                i.invoice_number,i.status invoice_status,i.total_minor invoice_total_minor,i.tip_minor invoice_tip_minor,
+                o.order_number,o.status order_status,o.source order_source,o.appointment_id,
+                COALESCE(NULLIF(i.customer_snapshot_json->>'displayName',''),NULLIF(i.customer_snapshot_json->>'display_name',''),
+                  NULLIF(o.customer_snapshot_json->>'displayName',''),NULLIF(o.customer_snapshot_json->>'display_name',''),'Khách vãng lai') customer_display_name,
+                COALESCE(NULLIF(i.customer_snapshot_json->>'phone',''),NULLIF(o.customer_snapshot_json->>'phone','')) customer_phone,
+                requester.id requester_id,requester.display_name requester_display_name,
+                approver.id approver_id,approver.display_name approver_display_name,
+                item_meta.refund_kind,item_meta.item_count,
+                allocation_meta.tender_types,allocation_meta.planned_minor allocation_planned_minor,allocation_meta.completed_minor allocation_completed_minor,
+                credit_note.id credit_note_id,credit_note.credit_note_number,credit_note.status credit_note_status,
+                credit_note.total_minor credit_note_total_minor,credit_note.issued_at credit_note_issued_at
+         ${from}
+         ORDER BY ${orderBy}
+         LIMIT $11 OFFSET $12`,
+        [...values, query.pageSize, pageOffset],
+      ),
+      this.db.query<any>(
+        `SELECT count(*)::int total,
+                count(*) FILTER (WHERE r.status='COMPLETED')::int completed,
+                count(*) FILTER (WHERE r.status IN ('PENDING_APPROVAL','APPROVED','PROCESSING','FAILED','UNKNOWN'))::int needs_review,
+                count(*) FILTER (WHERE r.status='UNKNOWN')::int unknown,
+                count(*) FILTER (WHERE r.status='PENDING_APPROVAL')::int pending_approval,
+                count(*) FILTER (WHERE r.status='PROCESSING')::int processing,
+                COALESCE(sum(r.requested_minor),0)::bigint requested_minor,
+                COALESCE(sum(r.completed_minor),0)::bigint completed_minor,
+                COALESCE(sum(r.requested_minor-r.completed_minor),0)::bigint outstanding_minor,
+                count(*) FILTER (WHERE item_meta.refund_kind='FULL')::int full_count,
+                count(*) FILTER (WHERE item_meta.refund_kind='PARTIAL')::int partial_count,
+                count(*) FILTER (WHERE item_meta.refund_kind='TIP_ONLY')::int tip_only_count,
+                count(*) FILTER (WHERE item_meta.refund_kind='MIXED')::int mixed_count
+         ${from}`,
+        values,
+      ),
+    ]);
+    const summary = summaryResult.rows[0] ?? {};
+    const total = Number(summary.total ?? 0);
+    return {
+      items: pageResult.rows.map(refundDirectoryView),
+      pagination: {
+        page: query.page,
+        pageSize: query.pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / query.pageSize)),
+      },
+      counts: {
+        total,
+        completed: Number(summary.completed ?? 0),
+        needsReview: Number(summary.needs_review ?? 0),
+        unknown: Number(summary.unknown ?? 0),
+        pendingApproval: Number(summary.pending_approval ?? 0),
+        processing: Number(summary.processing ?? 0),
+      },
+      summary: {
+        requestedMinor: Number(summary.requested_minor ?? 0),
+        completedMinor: Number(summary.completed_minor ?? 0),
+        outstandingMinor: Number(summary.outstanding_minor ?? 0),
+        completionPercentage: total
+          ? Math.round((Number(summary.completed ?? 0) / total) * 1000) / 10
+          : 0,
+        kindMix: {
+          full: Number(summary.full_count ?? 0),
+          partial: Number(summary.partial_count ?? 0),
+          tipOnly: Number(summary.tip_only_count ?? 0),
+          mixed: Number(summary.mixed_count ?? 0),
+        },
+      },
+    };
+  }
+
   async detail(auth: AccessClaims, id: string) {
     this.assertTenant(auth);
     return this.db.transaction((client) => this.detailTx(client, auth, id));
@@ -241,7 +394,11 @@ export class RefundService {
     await this.detail(auth, id);
     return (
       await this.db.query<any>(
-        "SELECT * FROM refund_status_history WHERE tenant_id=$1 AND refund_id=$2 ORDER BY created_at,id",
+        `SELECT h.*,u.display_name actor_display_name
+           FROM refund_status_history h
+           LEFT JOIN users u ON u.id=h.actor_user_id
+          WHERE h.tenant_id=$1 AND h.refund_id=$2
+          ORDER BY h.created_at,h.id`,
         [auth.tenantId, id],
       )
     ).rows;
@@ -1381,19 +1538,216 @@ export class RefundService {
       [auth.tenantId, id],
     );
     const note = await client.query<any>(
-      "SELECT id,credit_note_number,status,total_minor,issued_at FROM credit_notes WHERE tenant_id=$1 AND refund_id=$2",
+      "SELECT id,credit_note_number,status,currency,gross_minor,discount_reversal_minor,taxable_minor,tax_minor,tip_minor,total_minor,issued_at,issued_by_user_id,original_invoice_id FROM credit_notes WHERE tenant_id=$1 AND refund_id=$2",
       [auth.tenantId, id],
     );
+    const [contextResult, originalPayments, cashEvidence, refundable] =
+      await Promise.all([
+        client.query<any>(
+          `SELECT b.id branch_id,b.name branch_name,b.code branch_code,b.timezone branch_timezone,b.status branch_status,
+                  i.id invoice_id,i.invoice_number,i.status invoice_status,i.currency invoice_currency,
+                  i.subtotal_minor invoice_subtotal_minor,i.discount_minor invoice_discount_minor,
+                  i.taxable_minor invoice_taxable_minor,i.tax_minor invoice_tax_minor,i.total_minor invoice_total_minor,
+                  i.tip_minor invoice_tip_minor,i.paid_minor invoice_paid_minor,i.issued_at invoice_issued_at,
+                  i.customer_snapshot_json invoice_customer_snapshot,i.branch_snapshot_json invoice_branch_snapshot,
+                  o.id order_id,o.order_number,o.status order_status,o.source order_source,o.appointment_id,
+                  o.customer_snapshot_json order_customer_snapshot,o.appointment_snapshot_json order_appointment_snapshot,
+                  a.id appointment_id,a.booking_reference,a.status appointment_status,a.start_at appointment_start_at,a.end_at appointment_end_at,
+                  requester.id requester_id,requester.display_name requester_display_name,
+                  approver.id approver_id,approver.display_name approver_display_name
+             FROM refunds r
+             JOIN branches b ON b.tenant_id=r.tenant_id AND b.id=r.branch_id
+             JOIN invoices i ON i.tenant_id=r.tenant_id AND i.id=r.invoice_id
+             JOIN pos_orders o ON o.tenant_id=r.tenant_id AND o.id=r.pos_order_id
+             LEFT JOIN appointments a ON a.tenant_id=o.tenant_id AND a.id=o.appointment_id
+             LEFT JOIN users requester ON requester.id=r.requested_by_user_id
+             LEFT JOIN users approver ON approver.id=r.approved_by_user_id
+            WHERE r.tenant_id=$1 AND r.id=$2`,
+          [auth.tenantId, id],
+        ),
+        client.query<any>(
+          `SELECT p.id,p.payment_reference,p.tender_type,p.status,p.currency,p.requested_minor,p.captured_minor,
+                  p.cash_received_minor,p.change_due_minor,p.provider,p.provider_transaction_id,p.card_brand,p.card_last4,
+                  p.cash_session_id,p.register_id,p.captured_at,
+                  cs.status cash_session_status,cs.business_date cash_business_date,
+                  pr.code register_code,pr.name register_name
+             FROM refund_payment_allocations a
+             JOIN payments p ON p.tenant_id=a.tenant_id AND p.id=a.original_payment_id
+             LEFT JOIN cash_sessions cs ON cs.tenant_id=p.tenant_id AND cs.id=p.cash_session_id
+             LEFT JOIN pos_registers pr ON pr.tenant_id=p.tenant_id AND pr.id=p.register_id
+            WHERE a.tenant_id=$1 AND a.refund_id=$2
+            ORDER BY p.captured_at NULLS LAST,p.created_at,p.id`,
+          [auth.tenantId, id],
+        ),
+        client.query<any>(
+          `SELECT cm.id movement_id,cm.cash_session_id,cm.amount_minor,cm.currency,cm.occurred_at,
+                  cs.status cash_session_status,cs.business_date cash_business_date,cs.register_id,
+                  pr.code register_code,pr.name register_name
+             FROM cash_movements cm
+             JOIN cash_sessions cs ON cs.tenant_id=cm.tenant_id AND cs.id=cm.cash_session_id
+             LEFT JOIN pos_registers pr ON pr.tenant_id=cs.tenant_id AND pr.id=cs.register_id
+            WHERE cm.tenant_id=$1 AND cm.related_refund_id=$2
+              AND cm.movement_type='CASH_REFUND' AND cm.direction='OUT'
+            ORDER BY cm.occurred_at DESC,cm.id DESC
+            LIMIT 1`,
+          [auth.tenantId, id],
+        ),
+        client.query<any>(
+          `SELECT refundable_minor FROM invoice_refund_summary WHERE tenant_id=$1 AND invoice_id=$2`,
+          [auth.tenantId, row.invoice_id],
+        ),
+      ]);
+    const context = contextResult.rows[0] ?? {};
+    const canSeePii = !auth.supportAccess && !auth.roles.includes("PLATFORM_SUPER_ADMIN");
+    const invoiceCustomer = context.invoice_customer_snapshot ?? {};
+    const orderCustomer = context.order_customer_snapshot ?? {};
+    const customerSnapshot = Object.keys(invoiceCustomer).length
+      ? invoiceCustomer
+      : orderCustomer;
+    const cashCompletedMinor = allocations.rows
+      .filter((allocation) => allocation.tender_type === "CASH")
+      .reduce((sum, allocation) => sum + Number(allocation.completed_minor ?? 0), 0);
+    const cashRow = cashEvidence.rows[0] ?? null;
     return {
       ...refundView(row),
-      items: items.rows,
+      items: items.rows.map((item) => ({
+        ...item,
+        itemType: item.item_type,
+        invoiceLineId: item.invoice_line_id,
+        quantity: item.quantity === null ? null : Number(item.quantity),
+        grossRefundMinor: Number(item.gross_refund_minor),
+        discountReversalMinor: Number(item.discount_reversal_minor),
+        taxableRefundMinor: Number(item.taxable_refund_minor),
+        taxRefundMinor: Number(item.tax_refund_minor),
+        tipRefundMinor: Number(item.tip_refund_minor),
+        totalRefundMinor: Number(item.total_refund_minor),
+        sourceSnapshot: item.source_snapshot_json,
+      })),
       paymentAllocations: allocations.rows.map((x) => ({
         ...x,
         provider_refund_id: x.provider_refund_id
           ? "***" + String(x.provider_refund_id).slice(-4)
           : null,
+        originalPaymentId: x.original_payment_id,
+        tenderType: x.tender_type,
+        plannedMinor: Number(x.planned_minor),
+        completedMinor: Number(x.completed_minor),
+        originalRegisterId: x.original_register_id,
+        originalCashSessionId: x.original_cash_session_id,
+        executionCashSessionId: x.execution_cash_session_id,
+        providerRefundId: x.provider_refund_id
+          ? "***" + String(x.provider_refund_id).slice(-4)
+          : null,
+        completedAt: x.completed_at,
       })),
-      creditNote: note.rows[0] ?? null,
+      creditNote: note.rows[0]
+        ? {
+            ...note.rows[0],
+            creditNoteNumber: note.rows[0].credit_note_number,
+            totalMinor: Number(note.rows[0].total_minor),
+            issuedAt: note.rows[0].issued_at,
+          }
+        : null,
+      context: {
+        branch: {
+          id: context.branch_id ?? row.branch_id,
+          name: context.branch_name ?? null,
+          code: context.branch_code ?? null,
+          timezone: context.branch_timezone ?? null,
+          status: context.branch_status ?? null,
+        },
+        customer: {
+          id: row.customer_id ?? null,
+          displayName: snapshotField(customerSnapshot, "displayName", "display_name") ?? "Khách vãng lai",
+          phone: canSeePii ? snapshotField(customerSnapshot, "phone") : null,
+          email: canSeePii ? snapshotField(customerSnapshot, "email") : null,
+        },
+        invoice: {
+          id: context.invoice_id ?? row.invoice_id,
+          invoiceNumber: context.invoice_number ?? null,
+          status: context.invoice_status ?? null,
+          currency: context.invoice_currency ?? row.currency,
+          subtotalMinor: Number(context.invoice_subtotal_minor ?? 0),
+          discountMinor: Number(context.invoice_discount_minor ?? 0),
+          taxableMinor: Number(context.invoice_taxable_minor ?? 0),
+          taxMinor: Number(context.invoice_tax_minor ?? 0),
+          tipMinor: Number(context.invoice_tip_minor ?? 0),
+          totalMinor: Number(context.invoice_total_minor ?? 0),
+          paidMinor: Number(context.invoice_paid_minor ?? 0),
+          issuedAt: context.invoice_issued_at ?? null,
+          customerSnapshot: context.invoice_customer_snapshot ?? null,
+          branchSnapshot: context.invoice_branch_snapshot ?? null,
+          href: `/admin/financial/invoices?branchId=${encodeURIComponent(row.branch_id)}&invoiceId=${encodeURIComponent(row.invoice_id)}`,
+        },
+        order: {
+          id: context.order_id ?? row.pos_order_id,
+          orderNumber: context.order_number ?? null,
+          status: context.order_status ?? null,
+          source: context.order_source ?? null,
+          appointmentId: context.appointment_id ?? null,
+          href: `/admin/pos/orders/${encodeURIComponent(row.pos_order_id)}`,
+        },
+        appointment: context.appointment_id
+          ? {
+              id: context.appointment_id,
+              bookingReference: context.booking_reference ?? null,
+              status: context.appointment_status ?? null,
+              startAt: context.appointment_start_at ?? null,
+              endAt: context.appointment_end_at ?? null,
+              href: `/admin/appointments/${encodeURIComponent(context.appointment_id)}/overview`,
+            }
+          : null,
+        requester: context.requester_id
+          ? { id: context.requester_id, displayName: context.requester_display_name }
+          : null,
+        approver: context.approver_id
+          ? { id: context.approver_id, displayName: context.approver_display_name }
+          : null,
+        processedBy: null,
+        originalPayments: originalPayments.rows.map((payment) => ({
+          id: payment.id,
+          paymentReference: payment.payment_reference,
+          tenderType: payment.tender_type,
+          status: payment.status,
+          currency: payment.currency,
+          requestedMinor: Number(payment.requested_minor),
+          capturedMinor: Number(payment.captured_minor),
+          cashReceivedMinor: payment.cash_received_minor === null ? null : Number(payment.cash_received_minor),
+          changeDueMinor: payment.change_due_minor === null ? null : Number(payment.change_due_minor),
+          provider: payment.provider,
+          providerTransactionIdSafe: redactProviderReference(payment.provider_transaction_id),
+          cardBrand: payment.card_brand,
+          cardLast4: payment.card_last4,
+          cashSession: payment.cash_session_id
+            ? { id: payment.cash_session_id, status: payment.cash_session_status, businessDate: payment.cash_business_date }
+            : null,
+          register: payment.register_id
+            ? { id: payment.register_id, code: payment.register_code, name: payment.register_name }
+            : null,
+          capturedAt: payment.captured_at,
+        })),
+        cashEvidence: cashRow
+          ? {
+              verified: Number(cashRow.amount_minor) === cashCompletedMinor,
+              cashSessionId: cashRow.cash_session_id,
+              movementId: cashRow.movement_id,
+              amountMinor: Number(cashRow.amount_minor),
+              currency: cashRow.currency,
+              occurredAt: cashRow.occurred_at,
+              cashSession: {
+                id: cashRow.cash_session_id,
+                status: cashRow.cash_session_status,
+                businessDate: cashRow.cash_business_date,
+              },
+              register: cashRow.register_id
+                ? { id: cashRow.register_id, code: cashRow.register_code, name: cashRow.register_name }
+                : null,
+              href: `/admin/pos/cash-sessions/${encodeURIComponent(cashRow.cash_session_id)}`,
+            }
+          : null,
+        remainingRefundableMinor: Number(refundable.rows[0]?.refundable_minor ?? 0),
+        policy: row.policy_snapshot_json ?? null,
+      },
     };
   }
 
@@ -1687,9 +2041,117 @@ function refundView(row: any) {
     tipRefundMinor: Number(row.tip_refund_minor),
     reasonCode: row.reason_code,
     reasonText: row.reason_text,
+    refundDestination: row.refund_destination ?? "ORIGINAL_TENDER",
+    policy: row.policy_snapshot_json ?? null,
+    approvalReason: row.approval_reason ?? null,
+    rejectionReason: row.rejection_reason ?? null,
     version: Number(row.version),
     requestedAt: row.requested_at,
     approvedAt: row.approved_at,
+    processingAt: row.processing_at,
     completedAt: row.completed_at,
+    failedAt: row.failed_at,
+    cancelledAt: row.cancelled_at,
+  };
+}
+
+function snapshotField(snapshot: any, ...keys: string[]) {
+  for (const key of keys) {
+    const value = snapshot?.[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "")
+      return String(value);
+  }
+  return null;
+}
+
+function redactProviderReference(value: unknown) {
+  if (!value) return null;
+  const text = String(value);
+  return text.length <= 4 ? "****" : `••••${text.slice(-8)}`;
+}
+
+function refundDirectoryView(row: any) {
+  const invoiceHref = row.invoice_id
+    ? `/admin/financial/invoices?branchId=${encodeURIComponent(row.branch_id)}&invoiceId=${encodeURIComponent(row.invoice_id)}`
+    : null;
+  return {
+    id: row.id,
+    branchId: row.branch_id,
+    branch: {
+      id: row.branch_id,
+      name: row.branch_name,
+      code: row.branch_code,
+      timezone: row.timezone,
+    },
+    invoice: row.invoice_id
+      ? {
+          id: row.invoice_id,
+          number: row.invoice_number,
+          status: row.invoice_status,
+          href: invoiceHref,
+        }
+      : null,
+    posOrder: row.pos_order_id
+      ? {
+          id: row.pos_order_id,
+          number: row.order_number,
+          status: row.order_status,
+          href: `/admin/pos/orders/${row.pos_order_id}`,
+        }
+      : null,
+    appointment: row.appointment_id
+      ? {
+          id: row.appointment_id,
+          href: `/admin/appointments/${row.appointment_id}/overview`,
+        }
+      : null,
+    customer: {
+      id: row.customer_id,
+      displayName: row.customer_display_name,
+      phone: row.customer_phone ?? null,
+    },
+    refundReference: row.refund_reference,
+    status: row.status,
+    refundKind: row.refund_kind,
+    tenderTypes: row.tender_types ?? [],
+    currency: row.currency,
+    requestedMinor: Number(row.requested_minor),
+    approvedMinor:
+      row.approved_minor === null ? null : Number(row.approved_minor),
+    completedMinor: Number(row.completed_minor),
+    outstandingMinor: Math.max(
+      Number(row.requested_minor) - Number(row.completed_minor),
+      0,
+    ),
+    serviceRefundMinor: Number(row.service_refund_minor),
+    taxRefundMinor: Number(row.tax_refund_minor),
+    tipRefundMinor: Number(row.tip_refund_minor),
+    reasonCode: row.reason_code,
+    reasonText: row.reason_text,
+    requestedAt: row.requested_at,
+    approvedAt: row.approved_at,
+    completedAt: row.completed_at,
+    version: Number(row.version),
+    requester: row.requester_id
+      ? { id: row.requester_id, displayName: row.requester_display_name }
+      : null,
+    approver: row.approver_id
+      ? { id: row.approver_id, displayName: row.approver_display_name }
+      : null,
+    creditNote: row.credit_note_id
+      ? {
+          id: row.credit_note_id,
+          number: row.credit_note_number,
+          status: row.credit_note_status,
+          totalMinor: Number(row.credit_note_total_minor),
+          issuedAt: row.credit_note_issued_at,
+          href: `/admin/credit-notes/${row.credit_note_id}`,
+        }
+      : null,
+    itemCount: Number(row.item_count ?? 0),
+    orderSource: row.order_source,
+    orderStatus: row.order_status,
+    invoiceTotalMinor:
+      Number(row.invoice_total_minor ?? 0) + Number(row.invoice_tip_minor ?? 0),
   };
 }

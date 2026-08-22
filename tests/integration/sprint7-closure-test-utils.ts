@@ -7,7 +7,10 @@ export const BRANCH = "20000000-0000-4000-8000-000000000001";
 export const PERIOD = "b2000000-0000-4000-8000-000000000001";
 export const INVOICE = "a9000000-0000-4000-8000-000000000002";
 export const REFUND = "b3000000-0000-4000-8000-000000000001";
-export const STAFF = "47000000-0000-4000-8000-000000000008";
+// Keep the shared commission fixture inside the branch used by the accountant
+// and use a seeded staff member without unrelated commission rows. Staff 008
+// belongs to branch B, while the accountant test actor is branch-scoped to A.
+export const STAFF = "47000000-0000-4000-8000-000000000003";
 
 export async function harness(name: string) {
   const app = await createApp();

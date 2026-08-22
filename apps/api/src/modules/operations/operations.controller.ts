@@ -336,6 +336,35 @@ export class ServiceSessionController {
   async detail(@Param("sessionId") id: string, @Req() r: AuthenticatedRequest) {
     return response(await this.service.session(r.auth, id), r);
   }
+  @Get(":sessionId/checklist")
+  @RequirePermission("service_session.checklist")
+  async checklist(
+    @Param("sessionId") id: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return response(await this.service.checklist(r.auth, id), r);
+  }
+  @Patch(":sessionId/checklist/:itemId")
+  @RequirePermission("service_session.checklist")
+  async updateChecklist(
+    @Param("sessionId") id: string,
+    @Param("itemId") itemId: string,
+    @Body() b: unknown,
+    @Headers("idempotency-key") k: string | undefined,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return response(
+      await this.service.updateChecklist(
+        r.auth,
+        id,
+        itemId,
+        b,
+        key(k),
+        requestId(r),
+      ),
+      r,
+    );
+  }
   @Post(":sessionId/start") @RequirePermission("service_session.start") start(
     @Param("sessionId") id: string,
     @Body() b: unknown,

@@ -205,13 +205,19 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
           [job.tenant_id, customerId],
         )
       ).rows[0];
+    const lifetimePoints = (
+      await c.query<any>(
+        "SELECT COALESCE(lifetime_earned_points,0)::bigint lifetime_earned_points FROM loyalty_accounts WHERE tenant_id=$1 AND customer_id=$2",
+        [job.tenant_id, customerId],
+      )
+    ).rows[0]?.lifetime_earned_points ?? 0;
     await c.query(
       `INSERT INTO customer_membership_metrics(
-         tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,window_started_at,last_evaluated_at)
-       VALUES($1,$2,$3,$4,$5,now()-make_interval(days=>$6),now())
+         tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,points_earned,window_started_at,last_evaluated_at)
+       VALUES($1,$2,$3,$4,$5,$6,now()-make_interval(days=>$7),now())
        ON CONFLICT(tenant_id,customer_id) DO UPDATE SET
          rolling_spend_minor=EXCLUDED.rolling_spend_minor,lifetime_spend_minor=EXCLUDED.lifetime_spend_minor,
-         visit_count=EXCLUDED.visit_count,window_started_at=EXCLUDED.window_started_at,last_evaluated_at=now(),
+         visit_count=EXCLUDED.visit_count,points_earned=EXCLUDED.points_earned,window_started_at=EXCLUDED.window_started_at,last_evaluated_at=now(),
          version=customer_membership_metrics.version+1`,
       [
         job.tenant_id,
@@ -219,6 +225,7 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
         rolling.spend_minor,
         lifetime.spend_minor,
         rolling.visit_count,
+        lifetimePoints,
         maxWindow,
       ],
     );
@@ -242,7 +249,8 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
       await c.query<any>(
         `SELECT a.*,t.priority FROM customer_membership_assignments a
          JOIN membership_tiers t ON t.tenant_id=a.tenant_id AND t.id=a.tier_id
-         WHERE a.tenant_id=$1 AND a.customer_id=$2 AND a.status='ACTIVE'
+          WHERE a.tenant_id=$1 AND a.customer_id=$2 AND a.status='ACTIVE'
+            AND a.effective_from<=now() AND (a.effective_to IS NULL OR a.effective_to>now())
          ORDER BY a.effective_from DESC LIMIT 1 FOR UPDATE OF a`,
         [job.tenant_id, customerId],
       )
@@ -285,6 +293,7 @@ export class BenefitMaintenanceProcessor implements OnModuleDestroy {
             metrics: {
               rollingSpendMinor: String(tier.evaluated_spend),
               visitCount: String(tier.evaluated_visits),
+              pointsEarned: String(lifetimePoints),
             },
           }),
           current?.id ?? null,

@@ -17,25 +17,27 @@ test("owner reviews and approves a real immutable refund request", async ({
   await loginUi(page);
   await page.goto("http://localhost:3000/admin/refunds");
   await expect(
-    page.getByRole("heading", { name: "Refund review queue" }),
+    page.getByRole("heading", { name: "Hoàn tiền", exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("RF-Q1-SEED-000001")).toBeVisible();
-  await page.getByRole("link", { name: "Review" }).first().click();
   await expect(
-    page.getByRole("heading", { name: "Refund review" }),
+    page.getByText("RF-Q1-SEED-000001", { exact: true }).first(),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Approve" }).click();
+  await page.goto(`http://localhost:3000/admin/refunds/${refundId}`);
   await expect(
-    page.getByText("approve confirmed by the server.", {
-      exact: true,
-    }),
+    page.getByRole("heading", { name: "Chi tiết hoàn tiền" }),
   ).toBeVisible();
-  const refundStatusKpi = page.locator("article.w2-kpi").filter({
-    has: page.getByText("Status", { exact: true }),
-  });
-  await expect(refundStatusKpi).toHaveCount(1);
+  await page
+    .getByLabel("Lý do phê duyệt / từ chối / hủy")
+    .fill("Đã kiểm tra chứng từ hoàn tiền");
+  const approveResponse = page.waitForResponse((response) => response.url().includes(`/v1/refunds/${refundId}/approve`));
+  await page.getByRole("button", { name: "Phê duyệt" }).first().click();
+  const approvedHttp = await approveResponse;
+  expect(approvedHttp.status()).toBe(201);
   await expect(
-    refundStatusKpi.getByText("APPROVED", { exact: true }),
+    page.getByText(/Đã cập nhật yêu cầu hoàn tiền/),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Đã duyệt", { exact: true }).first(),
   ).toBeVisible();
 
   const manager = await login("staff2@example.test");

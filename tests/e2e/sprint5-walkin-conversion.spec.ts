@@ -7,14 +7,20 @@ const serviceId = "50000000-0000-4000-8000-000000000001";
 test("walk-in conversion consumes a Booking Engine hold exactly once", async () => {
   const owner = await login("owner@example.test");
   try {
-    const availability = await owner.api.get(
-      `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&dateFrom=2026-08-10&dateTo=2026-08-10&slotIntervalMin=5`,
-      { headers: headers(owner) },
-    );
-    expect(availability.status(), await availability.text()).toBe(200);
-    const slot = (await availability.json()).data.days.flatMap(
-      (day: any) => day.slots,
-    )[0];
+    let slot: any;
+    for (let offset = 1; offset <= 30 && !slot; offset += 1) {
+      const candidateDate = new Date();
+      candidateDate.setUTCDate(candidateDate.getUTCDate() + offset);
+      const date = candidateDate.toISOString().slice(0, 10);
+      const availability = await owner.api.get(
+        `/v1/availability?branchId=${branchId}&serviceId=${serviceId}&dateFrom=${date}&dateTo=${date}&slotIntervalMin=5`,
+        { headers: headers(owner) },
+      );
+      expect(availability.status(), await availability.text()).toBe(200);
+      slot = (await availability.json()).data.days.flatMap(
+        (day: any) => day.slots,
+      )[0];
+    }
     expect(slot).toBeTruthy();
 
     const created = await owner.api.post("/v1/walk-ins", {

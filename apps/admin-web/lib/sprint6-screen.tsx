@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { io } from "socket.io-client";
 import { activeSession, authorizedFetch } from "./auth";
+import PosCheckoutWorkspace, { posWorkspaceRoute } from "./pos/pos-checkout-workspace";
 
 type State = "loading" | "ready" | "empty" | "error" | "forbidden";
 async function api(path: string, init?: RequestInit) {
@@ -170,6 +171,9 @@ function BranchPicker({ branch }: { branch: ReturnType<typeof useBranch> }) {
 
 export default function Sprint6Screen({ pathname }: { pathname: string }) {
   const parts = pathname.split("/").filter(Boolean);
+  const checkoutWorkspace = posWorkspaceRoute(pathname);
+  if (checkoutWorkspace)
+    return <PosCheckoutWorkspace orderId={checkoutWorkspace.orderId} mode={checkoutWorkspace.mode} />;
   if (pathname === "/admin/pos" || pathname === "/admin/pos/")
     return <PosHome />;
   if (pathname.startsWith("/admin/pos/checkout/"))

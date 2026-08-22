@@ -16,6 +16,7 @@ import {
   appointmentRevertCheckInSchema,
   mediaCompleteSchema,
   mediaPresignSchema,
+  serviceSessionChecklistUpdateSchema,
   serviceSessionNoteSchema,
   serviceSessionNoteUpdateSchema,
   sessionCancelSchema,
@@ -429,6 +430,106 @@ export class ServiceExecutionService {
       segments: segments.rows,
       pauses: pauses.rows,
     };
+  }
+  async checklist(auth: AccessClaims, id: string) {
+    const session = await this.sessionQuery(auth, id);
+    const items = await this.db.query<any>(
+      `SELECT id,template_item_id,sequence_no,label,required,completed,completed_at,completed_by_user_id,version
+         FROM service_session_checklist_items
+        WHERE tenant_id=$1 AND service_session_id=$2
+        ORDER BY sequence_no,id`,
+      [auth.tenantId, id],
+    );
+    return {
+      sessionId: id,
+      version: Number(session.version),
+      items: items.rows.map(checklistItemView),
+    };
+  }
+  async updateChecklist(
+    auth: AccessClaims,
+    id: string,
+    itemId: string,
+    input: unknown,
+    key: string,
+    requestId: string,
+  ) {
+    const body = serviceSessionChecklistUpdateSchema.parse(input);
+    return (
+      await this.db.transaction((c) =>
+        this.idem.execute(c, {
+          tenantId: auth.tenantId,
+          actorScope: `user:${auth.userId}`,
+          command: "service_session.checklist.update",
+          key,
+          request: { id, itemId, ...body },
+          work: async () => {
+            const session = await this.lockSession(c, auth, id);
+            await this.assertSessionExecutionAccess(c, auth, session);
+            if (Number(session.version) !== body.version)
+              throw version("SERVICE_SESSION_VERSION_CONFLICT");
+            const item = (
+              await c.query<any>(
+                `SELECT id FROM service_session_checklist_items
+                  WHERE tenant_id=$1 AND service_session_id=$2 AND id=$3 FOR UPDATE`,
+                [auth.tenantId, id, itemId],
+              )
+            ).rows[0];
+            if (!item)
+              throw new NotFoundException({
+                code: "SERVICE_SESSION_CHECKLIST_ITEM_NOT_FOUND",
+                message: "Checklist item not found",
+              });
+            await c.query(
+              `UPDATE service_session_checklist_items
+                  SET completed=$4,
+                      completed_at=CASE WHEN $4 THEN now() ELSE NULL END,
+                      completed_by_user_id=CASE WHEN $4 THEN $5 ELSE NULL END,
+                      version=version+1,
+                      updated_at=now()
+                WHERE tenant_id=$1 AND service_session_id=$2 AND id=$3`,
+              [auth.tenantId, id, itemId, body.completed, auth.userId],
+            );
+            const updated = (
+              await c.query<any>(
+                `UPDATE service_sessions SET version=version+1,updated_at=now()
+                  WHERE tenant_id=$1 AND id=$2 RETURNING version,branch_id`,
+                [auth.tenantId, id],
+              )
+            ).rows[0];
+            await this.record(
+              c,
+              auth,
+              session.branch_id,
+              "service_session.checklist_updated",
+              "service_session",
+              id,
+              updated.version,
+              requestId,
+              {
+                sessionId: id,
+                checklistItemId: itemId,
+                completed: body.completed,
+                branchId: session.branch_id,
+                refetch: true,
+              },
+            );
+            const rows = await c.query<any>(
+              `SELECT id,template_item_id,sequence_no,label,required,completed,completed_at,completed_by_user_id,version
+                 FROM service_session_checklist_items
+                WHERE tenant_id=$1 AND service_session_id=$2
+                ORDER BY sequence_no,id`,
+              [auth.tenantId, id],
+            );
+            return {
+              sessionId: id,
+              version: Number(updated.version),
+              items: rows.rows.map(checklistItemView),
+            };
+          },
+        }),
+      )
+    ).data;
   }
   async command(
     auth: AccessClaims,
@@ -1779,4 +1880,18 @@ function version(code: string) {
     code,
     message: "Resource changed; refresh and retry",
   });
+}
+
+function checklistItemView(x: any) {
+  return {
+    id: x.id,
+    templateItemId: x.template_item_id,
+    sequence: Number(x.sequence_no),
+    label: sanitizeNote(x.label),
+    required: Boolean(x.required),
+    completed: Boolean(x.completed),
+    completedAt: x.completed_at ?? undefined,
+    completedByUserId: x.completed_by_user_id ?? undefined,
+    version: Number(x.version),
+  };
 }

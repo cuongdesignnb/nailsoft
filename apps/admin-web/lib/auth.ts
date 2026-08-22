@@ -1,6 +1,8 @@
 let accessToken: string | undefined;
 let tenantId: string | undefined;
 let activeBranchId: string | undefined;
+type PendingMfa = { mfaToken: string; authenticationState: "MFA_REQUIRED" | "MFA_ENROLLMENT_REQUIRED" };
+let pendingMfa: PendingMfa | undefined;
 import type { AuthContext } from "@nailsoft/domain-types";
 const configuredApi = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
@@ -39,6 +41,9 @@ export async function login(input: { email: string; password: string }) {
     accessToken = body.data.accessToken;
     tenantId = body.data.tenantId;
   }
+  if (body.data.authenticationState && body.data.mfaToken) {
+    pendingMfa = { mfaToken: body.data.mfaToken, authenticationState: body.data.authenticationState };
+  }
   return body.data;
 }
 export async function selectWorkspace(
@@ -62,7 +67,53 @@ export async function selectWorkspace(
     throw new Error(body.error?.message ?? "Workspace selection failed");
   accessToken = body.data.accessToken;
   tenantId = body.data.tenantId;
+  if (body.data.authenticationState && body.data.mfaToken) {
+    pendingMfa = { mfaToken: body.data.mfaToken, authenticationState: body.data.authenticationState };
+  }
   return body.data;
+}
+
+export function getPendingMfa() {
+  return pendingMfa;
+}
+
+export function clearPendingMfa() {
+  pendingMfa = undefined;
+}
+
+async function postMfa(path: string, body: Record<string, string>) {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error?.message ?? "MFA verification failed");
+  return result.data;
+}
+
+export async function enrollPendingMfa() {
+  if (!pendingMfa) throw new Error("MFA verification has expired. Sign in again.");
+  return postMfa("/v1/auth/mfa/totp/enroll", { mfaToken: pendingMfa.mfaToken });
+}
+
+export async function confirmPendingMfa(code: string) {
+  if (!pendingMfa) throw new Error("MFA verification has expired. Sign in again.");
+  const data = await postMfa("/v1/auth/mfa/totp/confirm", { mfaToken: pendingMfa.mfaToken, code });
+  accessToken = data.accessToken;
+  tenantId = data.tenantId;
+  pendingMfa = undefined;
+  return data;
+}
+
+export async function verifyPendingMfa(code: string) {
+  if (!pendingMfa) throw new Error("MFA verification has expired. Sign in again.");
+  const data = await postMfa("/v1/auth/mfa/challenge/verify", { mfaToken: pendingMfa.mfaToken, code });
+  accessToken = data.accessToken;
+  tenantId = data.tenantId;
+  pendingMfa = undefined;
+  return data;
 }
 
 export async function getAuthContext(): Promise<AuthContext> {
@@ -86,11 +137,14 @@ export async function getAuthorizedBranchContext() {
   return { context, branches, branchId };
 }
 
+export const ACTIVE_BRANCH_CHANGED_EVENT = "nailsoft:active-branch-change";
+
 export function setActiveBranchId(branchId: string | undefined) {
   activeBranchId = branchId;
   if (typeof window !== "undefined") {
     if (branchId) window.localStorage.setItem("nailsoft.activeBranchId", branchId);
     else window.localStorage.removeItem("nailsoft.activeBranchId");
+    window.dispatchEvent(new CustomEvent(ACTIVE_BRANCH_CHANGED_EVENT, { detail: branchId }));
   }
 }
 
@@ -145,6 +199,7 @@ export function clearMemory() {
   accessToken = undefined;
   tenantId = undefined;
   activeBranchId = undefined;
+  pendingMfa = undefined;
 }
 export function activeSession() {
   return { accessToken, tenantId, api: apiBaseUrl() };

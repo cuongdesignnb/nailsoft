@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { io } from "socket.io-client";
 import { activeSession, authorizedFetch, getAuthorizedBranchContext, setActiveBranchId } from "./auth";
 
@@ -11,6 +11,7 @@ type Screen = { title: string; endpoint: string; branchScoped?: boolean; kind: s
 
 const ACTIVE_BRANCH = "__ACTIVE_BRANCH__";
 const screens: Record<string, Screen> = {
+  "/admin/inventory": { title: "Inventory control center", endpoint: "/v1/inventory/stock?branchId=__ACTIVE_BRANCH__", branchScoped: true, kind: "stock", description: "Server-authoritative on-hand, reserved and available quantities." },
   "/admin/inventory/items": { title: "Inventory items", endpoint: "/v1/inventory/items", kind: "items", description: "Manage active consumables and retail items without editing stock balances directly." },
   "/admin/inventory/locations": { title: "Stock locations", endpoint: "/v1/inventory/locations?branchId=__ACTIVE_BRANCH__", branchScoped: true, kind: "locations", description: "Branch-scoped stock rooms and operational locations." },
   "/admin/inventory/stock": { title: "Stock availability", endpoint: "/v1/inventory/stock?branchId=__ACTIVE_BRANCH__", branchScoped: true, kind: "stock", description: "Server-authoritative on-hand, reserved and available quantities." },
@@ -82,7 +83,7 @@ function actionFor(kind: string, row: any): Array<{ label: string; path: string;
 }
 
 export default function Sprint19Wave5Inventory({ pathname }: { pathname: string }) {
-  const route = Object.keys(screens).find((key) => pathname === key || pathname.startsWith(`${key}/`)) ?? "/admin/inventory/stock";
+  const route = Object.keys(screens).sort((left, right) => right.length - left.length).find((key) => pathname === key || pathname.startsWith(`${key}/`)) ?? "/admin/inventory/stock";
   const screen = screens[route]!;
   const [branchId, setBranchId] = useState<string | undefined>();
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -95,6 +96,7 @@ export default function Sprint19Wave5Inventory({ pathname }: { pathname: string 
   const [itemOptions, setItemOptions] = useState<any[]>([]);
   const [uomOptions, setUomOptions] = useState<any[]>([]);
   const [locationOptions, setLocationOptions] = useState<any[]>([]);
+  const intentKeys = useRef<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -137,8 +139,10 @@ export default function Sprint19Wave5Inventory({ pathname }: { pathname: string 
   async function run(path: string, body: Record<string, unknown> = {}) {
     if (!navigator.onLine) { setNotice("Internet connection required. Inventory writes are not queued offline."); return; }
     setBusy(true); setNotice("");
+    const key = intentKeys.current[path] ?? (intentKeys.current[path] = crypto.randomUUID());
     try {
-      await read(path, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(body) });
+      await read(path, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(body) });
+      delete intentKeys.current[path];
       setNotice("Saved. The server-authoritative inventory view was refreshed.");
       await load();
     } catch (e: any) { setNotice(e.message); } finally { setBusy(false); }
@@ -147,7 +151,6 @@ export default function Sprint19Wave5Inventory({ pathname }: { pathname: string 
   const visibleColumns = columns[screen.kind] ?? [];
   const needsBranch = Boolean(screen.branchScoped);
   return <main className="shell ops-shell">
-    <nav className="topbar">{Object.entries(screens).map(([href, value]) => <a key={href} href={href} aria-current={href === route ? "page" : undefined}>{value.title}</a>)}</nav>
     <section className="card">
       <p className="eyebrow">SPRINT 19 · WAVE 5 · INVENTORY</p>
       <div className="title-row"><div><h1>{screen.title}</h1><p className="hint">{screen.description}</p></div><button onClick={() => void load()} disabled={state === "loading"}>Refresh</button></div>

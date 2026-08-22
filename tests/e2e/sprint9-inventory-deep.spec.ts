@@ -155,8 +155,9 @@ test("transfer reserves, ships through in-transit and preserves lot at destinati
           data: { version: transfer.version, reason: "Authenticated transfer" },
         },
       );
-      expect(response.status()).toBe(201);
-      transfer = (await response.json()).data;
+      const responseBody = await response.json();
+      expect(response.status(), `${command}: ${JSON.stringify(responseBody)}`).toBe(201);
+      transfer = responseBody.data;
     }
     expect(transfer.status).toBe("RECEIVED");
     const destination = await owner.api.get(

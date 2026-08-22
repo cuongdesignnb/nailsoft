@@ -14,12 +14,17 @@ import {
   useBenefitResource,
   useCustomerLookup,
 } from "./benefit-shared";
+import { CustomerCreditHub } from "./customer-credit-hub";
 
 function Field({ label, children, wide = false }: { label: string; children: React.ReactNode; wide?: boolean }) {
   return <label className={wide ? "s19-field s19-field-wide" : "s19-field"}><span>{label}</span>{children}</label>;
 }
 
 export function CustomerCredit() {
+  return <CustomerCreditHub />;
+}
+
+export function LegacyCustomerCredit() {
   const resource = useBenefitResource("/v1/customer-credit");
   const [customerId, setCustomerId] = useState<string | undefined>();
   const detail = useBenefitResource(customerId ? `/v1/customers/${encodeURIComponent(customerId)}/customer-credit` : null);

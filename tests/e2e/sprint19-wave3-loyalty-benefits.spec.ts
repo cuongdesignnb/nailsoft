@@ -33,7 +33,7 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 2", () => {
   test("loyalty, membership and package read models load through explicit routes", async ({ page }) => {
     await loginUi(page, "owner@example.test");
     await page.goto(`/admin/loyalty/customers/${customerId}`);
-    await expect(page.getByRole("heading", { name: "Customer loyalty ledger" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Loyalty & lịch sử điểm" })).toBeVisible();
     await page.goto(`/admin/membership/customers/${customerId}`);
     await expect(page.getByRole("heading", { name: "Customer membership history" })).toBeVisible();
     await page.goto("/admin/membership/tiers");

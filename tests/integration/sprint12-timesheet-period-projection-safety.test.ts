@@ -25,7 +25,9 @@ describe("Sprint 12 timesheet period projection safety", () => {
       ),
     ).rejects.toThrow();
     await db.query(
-      `UPDATE timesheet_periods SET state='CLOSED' WHERE tenant_id=$1 AND id='f1200000-0000-4000-8000-000000000051'`,
+      `UPDATE timesheet_periods
+       SET starts_on=CURRENT_DATE-7,ends_on=CURRENT_DATE+7,state='CLOSED'
+       WHERE tenant_id=$1 AND id='f1200000-0000-4000-8000-000000000051'`,
       [tenant],
     );
     const owner = await login(app, "owner@example.test");
@@ -78,7 +80,9 @@ describe("Sprint 12 timesheet period projection safety", () => {
     });
     expect(crossInput.statusCode, crossInput.body).toBe(201);
     await db.query(
-      `UPDATE attendance_sessions SET started_at='2026-07-28 23:59:00+07' WHERE tenant_id=$1 AND id=$2`,
+      `UPDATE attendance_sessions
+       SET started_at=(CURRENT_DATE-14)::date + time '23:59:00'
+       WHERE tenant_id=$1 AND id=$2`,
       [tenant, crossInput.json().data.id],
     );
     const crossOutput = await app.inject({

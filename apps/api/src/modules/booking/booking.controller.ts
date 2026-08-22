@@ -204,6 +204,19 @@ export class AppointmentController {
       meta: meta(req),
     };
   }
+  @Get("overview")
+  @RequireAnyPermission(
+    "appointment.read",
+    "appointment.read_branch",
+    "appointment.read_own",
+  )
+  async overview(@Query() q: any, @Req() req: AuthenticatedRequest) {
+    return {
+      success: true,
+      data: await this.service.overview(req.auth, q),
+      meta: meta(req),
+    };
+  }
   @Post() @RequirePermission("appointment.create") async create(
     @Body() body: unknown,
     @Headers("idempotency-key") key: string | undefined,

@@ -19,6 +19,7 @@ import { RequirePermission } from "../identity/permission.decorator.js";
 import { CommissionService } from "./commission.service.js";
 import { FinancialReportingService } from "./financial-reporting.service.js";
 import { RefundService } from "./refund.service.js";
+import { PaymentReconciliationService } from "./payment-reconciliation.service.js";
 
 const rid = (r: AuthenticatedRequest) => r.raw.requestId ?? "unknown";
 const key = (value?: string) => value ?? "";
@@ -27,6 +28,74 @@ const ok = (data: unknown, r: AuthenticatedRequest) => ({
   data,
   meta: { requestId: rid(r), timestamp: new Date().toISOString() },
 });
+
+@ApiTags("payment-reconciliation")
+@ApiBearerAuth()
+@UseGuards(AuthGuard, PermissionGuard)
+@Controller("financial/reconciliation/payments")
+export class PaymentReconciliationController {
+  constructor(
+    @Inject(PaymentReconciliationService)
+    private readonly service: PaymentReconciliationService,
+  ) {}
+
+  @Get()
+  @RequirePermission("financial.reconciliation.read")
+  directory(@Query() query: unknown, @Req() r: AuthenticatedRequest) {
+    return this.wrap(this.service.directory(r.auth, query), r);
+  }
+
+  @Get(":paymentId")
+  @RequirePermission("financial.reconciliation.read")
+  detail(@Param("paymentId") id: string, @Req() r: AuthenticatedRequest) {
+    return this.wrap(this.service.detail(r.auth, id, rid(r)), r);
+  }
+
+  @Post("bulk-confirm")
+  @RequirePermission("financial.reconciliation.review")
+  bulkConfirm(
+    @Body() body: unknown,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return this.wrap(
+      this.service.bulkConfirm(r.auth, body, key(k), rid(r)),
+      r,
+    );
+  }
+
+  @Post(":paymentId/notes")
+  @RequirePermission("financial.reconciliation.review")
+  note(
+    @Param("paymentId") id: string,
+    @Body() body: unknown,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return this.wrap(
+      this.service.addNote(r.auth, id, body, key(k), rid(r)),
+      r,
+    );
+  }
+
+  @Post(":paymentId/decision")
+  @RequirePermission("financial.reconciliation.review")
+  decision(
+    @Param("paymentId") id: string,
+    @Body() body: unknown,
+    @Headers("idempotency-key") k: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return this.wrap(
+      this.service.decide(r.auth, id, body, key(k), rid(r)),
+      r,
+    );
+  }
+
+  private async wrap(value: Promise<unknown>, r: AuthenticatedRequest) {
+    return ok(await value, r);
+  }
+}
 
 @ApiTags("refunds")
 @ApiBearerAuth()
@@ -58,6 +127,12 @@ export class RefundController {
     @Req() r: AuthenticatedRequest,
   ) {
     return this.wrap(this.service.list(r.auth, q), r);
+  }
+  @Get("refunds/directory") @RequirePermission("refund.read") directory(
+    @Query() q: any,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return this.wrap(this.service.directory(r.auth, q), r);
   }
   @Get("refunds/:id") @RequirePermission("refund.read") detail(
     @Param("id") id: string,
@@ -163,6 +238,12 @@ export class CreditNoteController {
     @Req() r: AuthenticatedRequest,
   ) {
     return this.wrap(this.service.creditNotes(r.auth, q), r);
+  }
+  @Get("directory") @RequirePermission("credit_note.read") directory(
+    @Query() q: any,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return this.wrap(this.service.creditNoteDirectory(r.auth, q), r);
   }
   @Get(":id") @RequirePermission("credit_note.read") detail(
     @Param("id") id: string,
@@ -292,6 +373,34 @@ export class CommissionController {
   period(@Param("id") id: string, @Req() r: AuthenticatedRequest) {
     return this.wrap(this.service.period(r.auth, id), r);
   }
+  @Get("commission-periods/:id/overview")
+  @RequirePermission("financial.commission_report.read")
+  overview(
+    @Param("id") id: string,
+    @Query() q: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return this.wrap(this.service.overview(r.auth, id, q), r);
+  }
+  @Get("commission-periods/:id/staff-directory")
+  @RequirePermission("financial.commission_report.read")
+  staffDirectory(
+    @Param("id") id: string,
+    @Query() q: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return this.wrap(this.service.staffDirectory(r.auth, id, q), r);
+  }
+  @Get("commission-periods/:id/staff/:staffId/overview")
+  @RequirePermission("financial.commission_report.read")
+  staffOverview(
+    @Param("id") id: string,
+    @Param("staffId") staffId: string,
+    @Query() q: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return this.wrap(this.service.staffOverview(r.auth, id, staffId, q), r);
+  }
   @Post("commission-periods/:id/start-review")
   @RequirePermission("commission.period.manage")
   review(
@@ -344,8 +453,8 @@ export class CommissionController {
   }
   @Get("commission-adjustments")
   @RequirePermission("commission.adjustment.request")
-  adjustments(@Req() r: AuthenticatedRequest) {
-    return this.wrap(this.service.adjustments(r.auth), r);
+  adjustments(@Query() q: any, @Req() r: AuthenticatedRequest) {
+    return this.wrap(this.service.adjustments(r.auth, q), r);
   }
   @Post("commission-adjustments")
   @RequirePermission("commission.adjustment.request")
@@ -423,6 +532,12 @@ export class Sprint7FinancialController {
     @Req() r: AuthenticatedRequest,
   ) {
     return this.wrap(this.service.netSales(r.auth, q), r);
+  }
+  @Get("net-sales/overview") @RequirePermission("financial.refund_report.read") netSalesOverview(
+    @Query() q: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return this.wrap(this.service.netSalesOverview(r.auth, q), r);
   }
   @Get("tax-adjustments")
   @RequirePermission("financial.refund_report.read")

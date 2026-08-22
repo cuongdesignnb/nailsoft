@@ -14,12 +14,18 @@ config.resolver.extraNodeModules = {
   react: path.resolve(projectRoot, "node_modules/react"),
   "react-dom": path.resolve(projectRoot, "node_modules/react-dom"),
   "react-native": path.resolve(projectRoot, "node_modules/react-native"),
+  "pretty-format": path.resolve(projectRoot, "node_modules/pretty-format"),
 };
 
 const defaultResolveRequest = config.resolver.resolveRequest;
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === "react") return { filePath: appReact, type: "sourceFile" };
-  if (moduleName === "react-dom") return { filePath: appReactDom, type: "sourceFile" };
+  if (moduleName === "react" || moduleName.startsWith("react/")) {
+    return { filePath: moduleName === "react" ? appReact : require.resolve(moduleName, { paths: [projectRoot] }), type: "sourceFile" };
+  }
+  if (moduleName === "react-dom" || moduleName.startsWith("react-dom/")) {
+    return { filePath: moduleName === "react-dom" ? appReactDom : require.resolve(moduleName, { paths: [projectRoot] }), type: "sourceFile" };
+  }
+  if (moduleName === "pretty-format") return { filePath: require.resolve("pretty-format", { paths: [projectRoot] }), type: "sourceFile" };
   return defaultResolveRequest
     ? defaultResolveRequest(context, moduleName, platform)
     : context.resolveRequest(context, moduleName, platform);

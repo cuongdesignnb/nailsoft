@@ -14,8 +14,7 @@ export type NavigationGroup = { label: MessageKey; items: NavigationItem[] };
 export const navigationRegistry: NavigationGroup[] = [
   { label: "workspaceGroup", items: [
     { href: "/admin/dashboard", label: "dashboard", icon: "home" },
-    { href: "/admin/calendar", label: "calendar", icon: "calendar", permissionPrefixes: ["calendar.", "availability."] },
-    { href: "/admin/appointments", label: "bookings", icon: "calendar", permissionPrefixes: ["appointment."] },
+    { href: "/admin/calendar", label: "calendar", icon: "calendar", permissionPrefixes: ["appointment.", "calendar.", "availability."] },
     { href: "/admin/operations/board", label: "operations", icon: "activity", permissionPrefixes: ["operations.", "walkin.", "service_session."] },
     { href: "/admin/pos", label: "pos", icon: "payment", permissionPrefixes: ["pos.", "payment.", "invoice.", "cash_session."] },
   ] },

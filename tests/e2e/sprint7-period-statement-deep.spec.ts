@@ -8,7 +8,7 @@ test("locked statement returns only exact period and staff entries", async () =>
     const created = await accountant.api.post("/v1/commission-adjustments", {
       headers: headers(accountant),
       data: {
-        staffId: "47000000-0000-4000-8000-000000000008",
+        staffId: "47000000-0000-4000-8000-000000000003",
         targetPeriodId: "b2000000-0000-4000-8000-000000000001",
         amountMinor: 4321,
         currency: "VND",
@@ -43,7 +43,7 @@ test("locked statement returns only exact period and staff entries", async () =>
     );
     expect(locked.status()).toBe(201);
     const response = await owner.api.get(
-      "/v1/commission-periods/b2000000-0000-4000-8000-000000000001/staff/47000000-0000-4000-8000-000000000008/statement",
+      "/v1/commission-periods/b2000000-0000-4000-8000-000000000001/staff/47000000-0000-4000-8000-000000000003/statement",
       { headers: headers(owner) },
     );
     expect(response.status()).toBe(200);
@@ -51,7 +51,7 @@ test("locked statement returns only exact period and staff entries", async () =>
     expect(statement.entries.length).toBeGreaterThan(0);
     for (const entry of statement.entries) {
       expect(entry.periodId).toBe("b2000000-0000-4000-8000-000000000001");
-      expect(entry.staffId).toBe("47000000-0000-4000-8000-000000000008");
+      expect(entry.staffId).toBe("47000000-0000-4000-8000-000000000003");
     }
     expect(
       statement.entries.reduce(

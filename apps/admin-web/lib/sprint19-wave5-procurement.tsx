@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { authorizedFetch, getAuthorizedBranchContext, setActiveBranchId } from "./auth";
 
 type AsyncState = "loading" | "ready" | "empty" | "error" | "forbidden";
@@ -22,7 +22,6 @@ const views: Record<string, ProcurementView> = {
   "/admin/procurement/returns": { title: "Vendor returns", endpoint: "/v1/procurement/vendor-returns", kind: "returns", description: "Return quantities and branch scope are checked by the existing workflow." },
 };
 
-const nav = Object.entries(views);
 const columns: Record<string, string[]> = {
   vendors: ["code", "displayName", "currency", "status", "version"],
   requests: ["requestNumber", "branchId", "currency", "requestedTotalMinor", "status", "version"],
@@ -84,6 +83,7 @@ export default function Sprint19Wave5Procurement({ pathname }: { pathname: strin
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchLoading, setBranchLoading] = useState(true);
   const [form, setForm] = useState<Record<string, string>>({});
+  const intentKeys = useRef<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -106,10 +106,13 @@ export default function Sprint19Wave5Procurement({ pathname }: { pathname: strin
   async function command(row: any, commandName: string, body: Record<string, unknown>) {
     if (!navigator.onLine) { setNotice("Internet connection required. Procurement commands are not queued offline."); return; }
     setBusy(true); setError(""); setNotice("");
+    const intent = `${row.id}:${commandName}`;
+    const key = intentKeys.current[intent] ?? (intentKeys.current[intent] = crypto.randomUUID());
     try {
-      const response = await authorizedFetch(`${view.endpoint}/${row.id}/${commandName}`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(body) });
+      const response = await authorizedFetch(`${view.endpoint}/${row.id}/${commandName}`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(body) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error?.code === "VERSION_CONFLICT" ? "Version conflict. Refresh before retrying." : (result.error?.message ?? "Command failed safely."));
+      delete intentKeys.current[intent];
       setNotice(`${commandName} completed and the server view was refreshed.`); await load();
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
@@ -121,10 +124,13 @@ export default function Sprint19Wave5Procurement({ pathname }: { pathname: strin
       ? { code: form.code, displayName: form.displayName, legalName: form.legalName || form.displayName, currency: form.currency || "VND", paymentTermsDays: Number(form.paymentTermsDays || 0) }
       : { branchId, currency: form.currency || "VND", reason: form.reason || "Operational procurement", lines: [{ description: form.description || "Procurement item", quantity: form.quantity || "1", unitPriceMinor: form.unitPriceMinor || "0" }] };
     setBusy(true); setError("");
+    const intent = "create";
+    const key = intentKeys.current[intent] ?? (intentKeys.current[intent] = crypto.randomUUID());
     try {
-      const response = await authorizedFetch(view.endpoint, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(payload) });
+      const response = await authorizedFetch(view.endpoint, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(payload) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error?.message ?? "Validation failed.");
+      delete intentKeys.current[intent];
       setNotice("Created successfully after server confirmation."); setForm({}); await load();
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
@@ -135,7 +141,6 @@ export default function Sprint19Wave5Procurement({ pathname }: { pathname: strin
     : [["description", "Description"], ["quantity", "Quantity"], ["unitPriceMinor", "Unit price (minor)"], ["currency", "Currency"], ["reason", "Reason"]];
 
   return <main className="shell ops-shell">
-    <nav className="topbar" aria-label="Procurement navigation">{nav.map(([href, item]) => <a key={href} href={href} aria-current={href === route ? "page" : undefined}>{item.title}</a>)}</nav>
     <section className="card">
       <p className="eyebrow">SPRINT 19 · WAVE 5 · PROCUREMENT</p>
       <div className="title-row"><div><h1>{view.title}</h1><p className="hint">{view.description}</p></div><button onClick={() => void load()} disabled={state === "loading"}>Refresh</button></div>

@@ -7,6 +7,17 @@ const customerId = "60000000-0000-4000-8000-000000000001";
 let createdAppointmentId = "";
 let createdShiftId = "";
 
+function nextWorkingDate() {
+  const value = new Date();
+  value.setUTCDate(value.getUTCDate() + 1);
+  while (value.getUTCDay() === 0) value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
+}
+
+const fixtureDate = nextWorkingDate();
+const fixtureStartAt = new Date(`${fixtureDate}T01:30:00.000Z`);
+const fixtureEndAt = new Date(`${fixtureDate}T11:00:00.000Z`);
+
 test.afterAll(async () => {
   if (!createdShiftId) return;
   const owner = await authenticated("owner"),
@@ -76,8 +87,8 @@ test.describe.serial("authenticated Admin Web booking lifecycle", () => {
         data: {
           branchId: branchA,
           staffId: technicianAStaff,
-          startAt: "2026-08-10T01:30:00.000Z",
-          endAt: "2026-08-10T11:00:00.000Z",
+          startAt: fixtureStartAt.toISOString(),
+          endAt: fixtureEndAt.toISOString(),
           breakMinutes: 0,
           source: "IMPORT",
         },
@@ -97,28 +108,26 @@ test.describe.serial("authenticated Admin Web booking lifecycle", () => {
     }
 
     await login(page, "staff3@example.test");
-    await page.goto("http://localhost:3000/admin/appointments/new");
+    await page.goto(
+      `http://localhost:3000/admin/appointments/new?branchId=${branchA}&customerId=${customerId}&serviceIds=${serviceId}&staffId=${technicianAStaff}`,
+    );
     await expect(
-      page.getByRole("heading", { name: "Quick create" }),
+      page.getByRole("heading", { name: "Tạo lịch hẹn mới" }),
     ).toBeVisible();
-    await page.locator('select[name="branchId"]').selectOption(branchA);
-    await page.locator('select[name="customerId"]').selectOption(customerId);
-    await page.locator('select[name="serviceIds"]').selectOption([serviceId]);
+    await page.getByLabel("Ngày hẹn").fill(fixtureDate);
+    await expect(
+      page.getByRole("listbox", { name: "Khung giờ khả dụng" }),
+    ).toBeVisible();
     await page
-      .getByLabel("Technician for the first service")
-      .selectOption(technicianAStaff);
-    await page.getByLabel("Date in branch timezone").fill("2026-08-10");
-    await page.getByRole("button", { name: "Find availability" }).click();
-    await expect(page.locator(".slots button").first()).toBeVisible();
-    await page.locator(".slots button").first().click();
-    await page.getByRole("button", { name: "Create and confirm" }).click();
-    await expect(
-      page.getByRole("heading", { name: "Appointment created" }),
-    ).toBeVisible();
-    const href = await page
-      .getByRole("link", { name: "Open appointment" })
-      .getAttribute("href");
-    createdAppointmentId = href?.split("/")[3] ?? "";
+      .getByRole("listbox", { name: "Khung giờ khả dụng" })
+      .getByRole("option")
+      .first()
+      .click();
+    const createButton = page.getByRole("button", { name: "Tạo lịch hẹn" }).first();
+    await expect(createButton).toBeEnabled();
+    await createButton.click();
+    await page.waitForURL(/\/admin\/appointments\/[0-9a-f-]+\/overview/);
+    createdAppointmentId = new URL(page.url()).pathname.split("/")[3] ?? "";
     expect(createdAppointmentId).toMatch(/^[0-9a-f-]{36}$/);
   });
 
@@ -130,14 +139,15 @@ test.describe.serial("authenticated Admin Web booking lifecycle", () => {
     await page.goto(
       `http://localhost:3000/admin/appointments/${createdAppointmentId}/reschedule`,
     );
-    await expect(page.getByLabel("New date")).toBeEnabled();
-    await page.getByLabel("New date").fill("2026-08-10");
-    await page.getByRole("button", { name: "Hold replacement slot" }).click();
-    await expect(
-      page.getByRole("button", { name: "Confirm reschedule" }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Confirm reschedule" }).click();
-    await expect(page.getByRole("status")).toContainText("successfully");
+    await expect(page.getByRole("heading", { name: "Đổi lịch hẹn" })).toBeVisible();
+    const replacementSlot = page.locator("[class*='slotGrid'] button").first();
+    await expect(replacementSlot).toBeVisible();
+    await replacementSlot.click();
+    await expect(page.getByText(/Slot đang được giữ đến/)).toBeVisible();
+    await page.getByText("Tôi đã kiểm tra thời gian mới với khách hàng").click();
+    await expect(page.getByRole("button", { name: /Xác nhận đổi lịch/ }).first()).toBeEnabled();
+    await page.getByRole("button", { name: /Xác nhận đổi lịch/ }).first().click();
+    await page.waitForURL(/\/admin\/appointments\/[0-9a-f-]+\/overview/);
   });
 
   test("assigned technician sees only the assigned appointment item", async ({
@@ -147,8 +157,8 @@ test.describe.serial("authenticated Admin Web booking lifecycle", () => {
     await page.goto(
       `http://localhost:3000/admin/appointments/${createdAppointmentId}/services`,
     );
-    await expect(page.locator(".slots article")).toHaveCount(1);
-    await expect(page.locator(".slots article")).toContainText("Staff 5");
+    await expect(page.getByRole("heading", { name: "Chi tiết lịch hẹn" })).toBeVisible();
+    await expect(page.getByText("Staff 5", { exact: true }).first()).toBeVisible();
   });
 
   test("reception cancels the appointment through the audited command UI", async ({
@@ -158,14 +168,17 @@ test.describe.serial("authenticated Admin Web booking lifecycle", () => {
     await page.goto(
       `http://localhost:3000/admin/appointments/${createdAppointmentId}/cancel`,
     );
-    await page.getByLabel("Note").fill("Sprint 4 deep E2E cancellation");
-    await page.getByRole("button", { name: "Review and cancel" }).click();
-    await expect(page.getByRole("status")).toContainText("successfully");
+    await page.getByLabel("Ghi chú nội bộ").fill("Sprint 4 deep E2E cancellation");
+    await page.getByText("Tôi đã kiểm tra đúng khách hàng và lịch hẹn cần hủy.").click();
+    await page.getByText("Tôi hiểu thao tác này sẽ giải phóng khung giờ hiện tại.").click();
+    await page.getByRole("button", { name: "Xác nhận hủy lịch" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Hủy lịch hẹn" }).click();
+    await page.waitForURL(/\/admin\/appointments\/[0-9a-f-]+\/overview/);
     await page.goto(
       `http://localhost:3000/admin/appointments/${createdAppointmentId}/overview`,
     );
     await expect(
-      page.getByRole("heading", { name: "CANCELLED_BY_SALON" }),
+      page.getByText("Salon đã hủy", { exact: true }).first(),
     ).toBeVisible();
   });
 });
@@ -176,18 +189,18 @@ test("authenticated Admin Web exposes appointment operations and live filters", 
   await login(page, "staff3@example.test");
   await page.goto("http://localhost:3000/admin/appointments");
   await expect(
-    page.getByRole("heading", { name: "Appointments" }),
+    page.getByRole("heading", { name: "Quản lý lịch hẹn" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Create appointment" }),
+    page.getByRole("link", { name: "Tạo lịch hẹn mới" }),
   ).toBeVisible();
   await expect(page.getByRole("table")).toBeVisible();
   await page.goto("http://localhost:3000/admin/appointments/new");
   await expect(
-    page.getByRole("heading", { name: "Quick create" }),
+    page.getByRole("heading", { name: "Tạo lịch hẹn mới" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Find availability" }),
+    page.getByRole("button", { name: "Làm mới khung giờ" }),
   ).toBeEnabled();
 });
 
@@ -210,10 +223,21 @@ test("public booking supports real date, multi-service ordering and scoped manag
   await expect(page.getByText(/Services|Dịch vụ/).first()).toBeVisible();
   const date = page.locator("#booking-date");
   await expect(date).toHaveAttribute("min", /2026-/);
-  await date.fill("2026-08-10");
-  await page.getByRole("button", { name: /Find available times|Tìm giờ trống/ }).click();
+  const minimumDate = (await date.getAttribute("min")) ?? "";
+  const maximumDate = (await date.getAttribute("max")) ?? minimumDate;
+  const toDate = (value: string) => new Date(`${value}T12:00:00Z`);
+  const dateValue = (value: Date) => value.toISOString().slice(0, 10);
+  let foundSlot = false;
+  for (let cursor = toDate(minimumDate); dateValue(cursor) <= maximumDate && !foundSlot; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    await date.fill(dateValue(cursor));
+    await page.getByRole("button", { name: /Find available times|Tìm giờ trống/ }).click();
+    await expect.poll(async () => page.locator(".slot").count(), { timeout: 5000 }).toBeGreaterThan(0).catch(() => undefined);
+    foundSlot = (await page.locator(".slot").count()) > 0;
+    if (!foundSlot) await page.getByRole("button", { name: /Change services or date|Đổi dịch vụ hoặc ngày/ }).click();
+  }
+  expect(foundSlot).toBe(true);
   await expect(page.getByRole("heading", { name: /Available times|Giờ còn trống/ })).toBeVisible();
-  await page.locator(".slots button.choice").first().click();
+  await page.locator(".slot").first().click();
   await expect(page.getByRole("heading", { name: /Contact details|Thông tin liên hệ/ })).toBeVisible();
   await page.locator("#contact-name").fill("Khách E2E Sprint 4");
   await page.locator("#contact-phone").fill(publicPhone);
@@ -238,10 +262,19 @@ test("public booking supports real date, multi-service ordering and scoped manag
   await expect(page.locator("#manage-code")).toHaveValue("123456");
   await page.getByRole("button", { name: /Verify|Xác minh/ }).click();
   await expect(page.getByRole("heading", { name: reference })).toBeVisible();
-  await page.locator("#manage-date").fill("2026-08-10");
-  await page.getByRole("button", { name: /Choose another time|Chọn giờ khác/ }).click();
-  await expect(page.getByRole("heading", { name: /Choose another time|Chọn giờ khác/ })).toBeVisible();
-  await page.locator(".slots button.choice").first().click();
+  const manageDate = page.locator("#manage-date");
+  const manageMin = (await manageDate.getAttribute("min")) ?? "";
+  const manageMax = (await manageDate.getAttribute("max")) ?? manageMin;
+  let replacementFound = false;
+  for (let cursor = toDate(manageMin); dateValue(cursor) <= manageMax && !replacementFound; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    await manageDate.fill(dateValue(cursor));
+    await page.getByRole("button", { name: /Choose another time|Chọn giờ khác/ }).click();
+    await expect.poll(async () => page.locator(".slot").count(), { timeout: 5000 }).toBeGreaterThan(0).catch(() => undefined);
+    replacementFound = (await page.locator(".slot").count()) > 0;
+    if (!replacementFound) await page.getByRole("button", { name: /Back|Quay lại/ }).click();
+  }
+  expect(replacementFound).toBe(true);
+  await page.locator(".slot").first().click();
   await page.getByRole("button", { name: /Confirm booking|Xác nhận đặt lịch/ }).click();
   await expect(page.locator('.success[role="status"]')).toContainText(/confirmed|xác nhận|Thời gian mới/);
   await page.getByRole("button", { name: /Cancel booking|Hủy lịch hẹn/ }).click();

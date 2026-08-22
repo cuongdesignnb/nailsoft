@@ -6,11 +6,7 @@ import { useBenefitMutation, useBenefitResource, benefitApi, formatDate, localiz
 export { benefitApi, formatDate, localized, rows, statusLabel, useBenefitMutation, useBenefitResource };
 
 export function EngagementShell({ title, eyebrow = "CUSTOMER ENGAGEMENT · EMAIL ONLY", children }: { title: string; eyebrow?: string; children: React.ReactNode }) {
-  const links = [
-    ["/admin/communications/templates", "Templates"], ["/admin/communications/rules", "Rules"], ["/admin/communications/messages", "Delivery"],
-    ["/admin/marketing/segments", "Segments"], ["/admin/marketing/campaigns", "Campaigns"], ["/admin/reviews", "Reviews"], ["/admin/review-requests", "Review requests"], ["/admin/service-recovery", "Service recovery"],
-  ];
-  return <main className="s19-benefit-page"><nav className="s19-benefit-nav" aria-label="Engagement navigation">{links.map(([href, label]) => <a href={href} key={href}>{label}</a>)}</nav><header className="s19-page-heading"><div><p className="s19-eyebrow">{eyebrow}</p><h1>{title}</h1><p className="s19-helper">Consent and suppression are checked by the server at delivery time. This workspace supports email only.</p></div><span className="s19-status s19-status-info">Email only</span></header>{children}</main>;
+  return <main className="s19-benefit-page"><header className="s19-page-heading"><div><p className="s19-eyebrow">{eyebrow}</p><h1>{title}</h1><p className="s19-helper">Consent and suppression are checked by the server at delivery time. This workspace supports email only.</p></div><span className="s19-status s19-status-info">Email only</span></header>{children}</main>;
 }
 
 export function EngagementStates({ resource, label }: { resource: ReturnType<typeof useBenefitResource>; label: string }) {

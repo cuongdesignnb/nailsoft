@@ -372,6 +372,19 @@ export class CommunicationService {
       )
       .then((r) => r.rows);
   }
+  marketingTemplateVersions(auth: AccessClaims) {
+    this.access(auth);
+    return this.db
+      .query<any>(
+        `SELECT v.id "templateVersionId",v.template_id "templateId",t.code,t.category,t.channel,v.locale,v.version_number "versionNumber",v.subject,v.plain_text_body "plainTextBody",v.allowed_variables_json "allowedVariables",v.required_variables_json "requiredVariables",v.effective_from "effectiveFrom"
+         FROM communication_template_versions v
+         JOIN communication_templates t ON t.tenant_id=v.tenant_id AND t.id=v.template_id
+         WHERE v.tenant_id=$1 AND t.category='MARKETING' AND t.channel='EMAIL' AND t.status='ACTIVE' AND v.status='ACTIVE'
+         ORDER BY t.code,v.locale`,
+        [auth.tenantId],
+      )
+      .then((r) => r.rows);
+  }
   template(auth: AccessClaims, id: string) {
     this.access(auth);
     return this.db

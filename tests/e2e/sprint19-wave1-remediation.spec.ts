@@ -32,9 +32,9 @@ test.describe("Sprint 19 Wave 1 remediation visual and accessibility evidence", 
   test("booking create has responsive real-data states", async ({ page }) => {
     await signIn(page);
     await page.goto("/admin/appointments/new");
-    await expect(page.getByRole("heading", { name: "Quick create" })).toBeVisible();
-    await expect(page.locator('select[name="branchId"]')).toBeVisible();
-    await expect(page.getByRole("button", { name: "Find availability" })).toBeEnabled();
+    await expect(page.getByRole("heading", { name: "Tạo lịch hẹn mới" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Chi nhánh" }).last()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Làm mới khung giờ" })).toBeEnabled();
     await assertAccessible(page, "19.1.01-booking-create");
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();

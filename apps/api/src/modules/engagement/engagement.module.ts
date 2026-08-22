@@ -7,6 +7,8 @@ import { StoredValueModule } from "../stored-value/stored-value.module.js";
 import { CommunicationService } from "./communication.service.js";
 import { MarketingService } from "./marketing.service.js";
 import { ReviewRecoveryService } from "./review-recovery.service.js";
+import { CustomerCareController } from "./customer-care.controller.js";
+import { CustomerCareService } from "./customer-care.service.js";
 import {
   CommunicationController,
   CustomerSelfEngagementController,
@@ -29,8 +31,19 @@ import {
     MarketingController,
     ReviewRecoveryController,
     PublicEngagementController,
+    CustomerCareController,
   ],
-  providers: [CommunicationService, MarketingService, ReviewRecoveryService],
-  exports: [CommunicationService, MarketingService, ReviewRecoveryService],
+  providers: [
+    CommunicationService,
+    MarketingService,
+    ReviewRecoveryService,
+    CustomerCareService,
+  ],
+  exports: [
+    CommunicationService,
+    MarketingService,
+    ReviewRecoveryService,
+    CustomerCareService,
+  ],
 })
 export class EngagementModule {}

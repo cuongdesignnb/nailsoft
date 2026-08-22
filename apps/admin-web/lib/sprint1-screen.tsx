@@ -19,6 +19,8 @@ import Sprint14Screen from "./sprint14-screen";
 import Sprint15Screen from "./sprint15-screen";
 import Sprint16Screen from "./sprint16-screen";
 import Sprint19Wave1Screen from "./sprint19-wave1-screen";
+import DashboardOverview from "./dashboard-overview";
+import AppointmentsOverview from "./appointments-overview";
 import Sprint19Wave1Remediation, { isWave1RemediationPath } from "./sprint19-wave1-remediation";
 import Sprint19Wave2Screen, { isWave2Path } from "./sprint19-wave2-screen";
 import Sprint19Wave3CustomerScreen, { isWave3Path } from "./sprint19-wave3-screen";
@@ -27,6 +29,23 @@ import Sprint19Wave5Inventory, { isWave5InventoryPath } from "./sprint19-wave5-i
 import Sprint19Wave5Procurement, { isWave5ProcurementPath } from "./sprint19-wave5-procurement";
 import Sprint19Wave5Assets, { isWave5AssetsPath } from "./sprint19-wave5-assets";
 import Sprint19Wave6Screen, { isWave6Path } from "./sprint19-wave6-screen";
+import PosCheckoutWorkspace, { posWorkspaceRoute } from "./pos/pos-checkout-workspace";
+import PosOrderListPage from "./pos/pos-order-list-page";
+import PosOrderDetailPage from "./pos/pos-order-detail";
+import PosRegisterManagementPage from "./pos/pos-register-management";
+import OpenCashSessionPage from "./pos/open-cash-session-page";
+import CashSessionHistoryPage from "./pos/cash-session-history-page";
+import CashSessionDetailPage from "./pos/cash-session-detail-page";
+import CashSessionClosingPage from "./pos/cash-session-closing-page";
+import InvoiceDirectoryPage from "./financial/invoice-directory-page";
+import PaymentTransactionDirectoryPage from "./financial/payment-directory-page";
+import PaymentReconciliationPage from "./financial/payment-reconciliation-page";
+import RefundDirectoryPage from "./financial/refund-directory-page";
+import RefundDetailPage from "./financial/refund-detail-page";
+import CreditNoteDirectoryPage from "./financial/credit-note-directory-page";
+import EmployeeCommissionPage from "./financial/employee-commission-page";
+import CommissionAdjustmentsPage from "./financial/commission-adjustments-page";
+import NetSalesPage from "./financial/net-sales-page";
 
 type Resource = {
   title: string;
@@ -205,11 +224,15 @@ export default function Sprint1Screen() {
   if (isWave1RemediationPath(pathname)) {
     return <Sprint19Wave1Remediation pathname={pathname} />;
   }
+  if (pathname === "/admin/dashboard") return <DashboardOverview />;
   if (
-    pathname === "/admin/dashboard" ||
-    pathname.startsWith("/admin/calendar") ||
     pathname === "/admin/appointments" ||
     pathname === "/admin/appointments/" ||
+    pathname === "/admin/calendar" ||
+    pathname === "/admin/calendar/"
+  ) return <AppointmentsOverview />;
+  if (
+    pathname.startsWith("/admin/calendar") ||
     pathname.startsWith("/admin/availability")
   ) {
     return <Sprint19Wave1Screen pathname={pathname} />;
@@ -243,6 +266,35 @@ export default function Sprint1Screen() {
     /^\/admin\/customers\/[^/]+\/engagement$/.test(pathname)
   )
     return <Sprint11Screen pathname={pathname} />;
+  const posOrderDetailMatch = pathname.match(/^\/admin\/pos\/orders\/([^/]+)\/?$/);
+  if (posOrderDetailMatch) return <PosOrderDetailPage orderId={posOrderDetailMatch[1]!} />;
+  const posWorkspace = posWorkspaceRoute(pathname);
+  if (posWorkspace) {
+    return <PosCheckoutWorkspace orderId={posWorkspace.orderId} mode={posWorkspace.mode} />;
+  }
+  if (pathname === "/admin/pos/orders" || pathname === "/admin/pos/orders/") {
+    return <PosOrderListPage />;
+  }
+  if (pathname === "/admin/pos/registers" || pathname === "/admin/pos/registers/") {
+    return <PosRegisterManagementPage />;
+  }
+  if (pathname === "/admin/pos/cash-sessions" || pathname === "/admin/pos/cash-sessions/") {
+    return <CashSessionHistoryPage />;
+  }
+  if (
+    pathname === "/admin/pos/cash-sessions/open" ||
+    pathname === "/admin/pos/cash-sessions/open/"
+  ) {
+    return <OpenCashSessionPage />;
+  }
+  const cashSessionClosingMatch = pathname.match(/^\/admin\/pos\/cash-sessions\/([^/]+)\/close\/?$/);
+  if (cashSessionClosingMatch) {
+    return <CashSessionClosingPage sessionId={cashSessionClosingMatch[1]!} />;
+  }
+  const cashSessionDetailMatch = pathname.match(/^\/admin\/pos\/cash-sessions\/([^/]+)\/?$/);
+  if (cashSessionDetailMatch) {
+    return <CashSessionDetailPage sessionId={cashSessionDetailMatch[1]!} />;
+  }
   if (
     pathname.startsWith("/admin/stored-value") ||
     pathname.startsWith("/admin/gift-cards") ||
@@ -264,6 +316,39 @@ export default function Sprint1Screen() {
       pathname.endsWith("/benefits"))
   )
     return <Sprint8Screen pathname={pathname} />;
+  if (pathname === "/admin/financial/invoices" || pathname === "/admin/financial/invoices/")
+    return <InvoiceDirectoryPage />;
+  if (pathname === "/admin/financial/payments" || pathname === "/admin/financial/payments/")
+    return <PaymentTransactionDirectoryPage />;
+  if (pathname === "/admin/financial/reconciliation" || pathname === "/admin/financial/reconciliation/")
+    return <PaymentReconciliationPage />;
+  if (pathname === "/admin/refunds" || pathname === "/admin/refunds/")
+    return <RefundDirectoryPage />;
+  if (pathname === "/admin/credit-notes" || pathname === "/admin/credit-notes/")
+    return <CreditNoteDirectoryPage />;
+  if (pathname === "/admin/financial/commission" || pathname === "/admin/financial/commission/")
+    return <EmployeeCommissionPage />;
+  if (pathname === "/admin/commission/adjustments" || pathname === "/admin/commission/adjustments/")
+    return <CommissionAdjustmentsPage />;
+  if (pathname === "/admin/financial/net-sales" || pathname === "/admin/financial/net-sales/")
+    return <NetSalesPage />;
+  const creditNotePathParts = pathname.split("/").filter(Boolean);
+  if (
+    creditNotePathParts[0] === "admin" &&
+    creditNotePathParts[1] === "credit-notes" &&
+    creditNotePathParts.length === 3 &&
+    creditNotePathParts[2]
+  )
+    return <CreditNoteDirectoryPage />;
+  const refundPathParts = pathname.split("/").filter(Boolean);
+  if (
+    refundPathParts[0] === "admin" &&
+    refundPathParts[1] === "refunds" &&
+    refundPathParts.length === 3 &&
+    refundPathParts[2] &&
+    refundPathParts[2] !== "new"
+  )
+    return <RefundDetailPage refundId={refundPathParts[2]} />;
   if (isWave2Path(pathname)) return <Sprint19Wave2Screen pathname={pathname} />;
   if (
     pathname.startsWith("/admin/refunds") ||

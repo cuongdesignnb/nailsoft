@@ -11,9 +11,11 @@ import {
   CreditNoteController,
   RefundController,
   Sprint7FinancialController,
+  PaymentReconciliationController,
 } from "./finance.controller.js";
 import { FinancialReportingService } from "./financial-reporting.service.js";
 import { RefundService } from "./refund.service.js";
+import { PaymentReconciliationService } from "./payment-reconciliation.service.js";
 
 @Module({
   imports: [
@@ -29,8 +31,9 @@ import { RefundService } from "./refund.service.js";
     CreditNoteController,
     CommissionController,
     Sprint7FinancialController,
+    PaymentReconciliationController,
   ],
-  providers: [RefundService, CommissionService, FinancialReportingService],
-  exports: [RefundService, CommissionService, FinancialReportingService],
+  providers: [RefundService, CommissionService, FinancialReportingService, PaymentReconciliationService],
+  exports: [RefundService, CommissionService, FinancialReportingService, PaymentReconciliationService],
 })
 export class FinanceModule {}

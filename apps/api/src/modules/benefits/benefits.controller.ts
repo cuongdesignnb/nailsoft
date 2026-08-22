@@ -7,6 +7,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -20,7 +21,11 @@ import {
 } from "../identity/permission.decorator.js";
 import { BenefitsCatalogService } from "./benefits-catalog.service.js";
 import { BenefitsReportingService } from "./benefits-reporting.service.js";
+import { MembershipHubReportingService } from "./membership-hub-reporting.service.js";
+import { PackageHubReportingService } from "./package-hub-reporting.service.js";
 import { BenefitsTransactionService } from "./benefits-transaction.service.js";
+import { LoyaltyLedgerReportingService } from "./loyalty-ledger-reporting.service.js";
+import { VoucherHubReportingService } from "./voucher-hub-reporting.service.js";
 
 const requestId = (r: any) => r.raw?.requestId ?? "unknown",
   key = (v: string | undefined) => v ?? "";
@@ -137,7 +142,37 @@ export class VoucherCampaignController {
 export class VoucherCodeController {
   constructor(
     @Inject(BenefitsCatalogService) private readonly s: BenefitsCatalogService,
+    @Inject(VoucherHubReportingService)
+    private readonly hub: VoucherHubReportingService,
   ) {}
+  @Get("directory") @RequirePermission("voucher.code.read") async directory(
+    @Query() query: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.hub.directory(r.auth, query), r);
+  }
+  @Get("overview") @RequirePermission("voucher.code.read") async overview(
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.hub.overview(r.auth), r);
+  }
+  @Get(":voucherCodeId/overview")
+  @RequirePermission("voucher.code.read")
+  async overviewDetail(
+    @Param("voucherCodeId") id: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.hub.overviewDetail(r.auth, id), r);
+  }
+  @Post(":voucherCodeId/eligibility-preview")
+  @RequirePermission("benefit.eligibility.read")
+  async eligibilityPreview(
+    @Param("voucherCodeId") id: string,
+    @Body() b: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.hub.eligibilityPreview(r.auth, id, b), r);
+  }
   @Get() @RequirePermission("voucher.code.read") async list(
     @Req() r: AuthenticatedRequest,
   ) {
@@ -179,6 +214,8 @@ export class VoucherWalletController {
     @Inject(BenefitsCatalogService) private readonly s: BenefitsCatalogService,
     @Inject(BenefitsTransactionService)
     private readonly t: BenefitsTransactionService,
+    @Inject(PackageHubReportingService)
+    private readonly reporting: PackageHubReportingService,
   ) {}
   @Get("customers/:customerId/vouchers")
   @RequirePermission("voucher.code.read")
@@ -202,6 +239,8 @@ export class VoucherWalletController {
 export class LoyaltyController {
   constructor(
     @Inject(BenefitsCatalogService) private readonly s: BenefitsCatalogService,
+    @Inject(LoyaltyLedgerReportingService)
+    private readonly ledgerReporting: LoyaltyLedgerReportingService,
   ) {}
   @Get("loyalty-programs")
   @RequirePermission("loyalty.program.read")
@@ -266,6 +305,32 @@ export class LoyaltyController {
     @Req() r: AuthenticatedRequest,
   ) {
     return ok(await this.s.loyaltyLedger(r.auth, id), r);
+  }
+  @Get("customers/:customerId/loyalty/overview")
+  @RequirePermission("loyalty.account.read")
+  async loyaltyOverview(
+    @Param("customerId") id: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.ledgerReporting.overview(r.auth, id), r);
+  }
+  @Get("customers/:customerId/loyalty/ledger/directory")
+  @RequirePermission("loyalty.ledger.read")
+  async loyaltyLedgerDirectory(
+    @Param("customerId") id: string,
+    @Query() query: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.ledgerReporting.directory(r.auth, id, query), r);
+  }
+  @Get("customers/:customerId/loyalty/ledger/:entryId")
+  @RequirePermission("loyalty.ledger.read")
+  async loyaltyLedgerDetail(
+    @Param("customerId") customerId: string,
+    @Param("entryId") entryId: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.ledgerReporting.detail(r.auth, customerId, entryId), r);
   }
   @Post("loyalty-adjustments")
   @RequirePermission("loyalty.adjustment.request")
@@ -356,7 +421,30 @@ export class LoyaltyController {
 export class MembershipController {
   constructor(
     @Inject(BenefitsCatalogService) private readonly s: BenefitsCatalogService,
+    @Inject(MembershipHubReportingService)
+    private readonly hub: MembershipHubReportingService,
   ) {}
+  @Get("memberships/overview")
+  @RequirePermission("membership.assignment.read")
+  async overview(@Req() r: AuthenticatedRequest) {
+    return ok(await this.hub.overview(r.auth), r);
+  }
+  @Get("memberships/directory")
+  @RequirePermission("membership.assignment.read")
+  async directory(
+    @Query() query: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.hub.directory(r.auth, query), r);
+  }
+  @Get("customers/:customerId/membership/summary")
+  @RequirePermission("membership.assignment.read")
+  async summary(
+    @Param("customerId") id: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.hub.summary(r.auth, id), r);
+  }
   @Get("membership-tiers")
   @RequirePermission("membership.tier.read")
   async tiers(@Req() r: AuthenticatedRequest) {
@@ -460,6 +548,8 @@ export class PackageController {
     @Inject(BenefitsCatalogService) private readonly s: BenefitsCatalogService,
     @Inject(BenefitsTransactionService)
     private readonly t: BenefitsTransactionService,
+    @Inject(PackageHubReportingService)
+    private readonly reporting: PackageHubReportingService,
   ) {}
   @Get("service-packages")
   @RequirePermission("package.catalog.read")
@@ -546,6 +636,24 @@ export class PackageController {
       await this.s.issuePackage(r.auth, id, b, key(k), requestId(r)),
       r,
     );
+  }
+  @Get("customer-packages/overview")
+  @RequirePermission("package.entitlement.read")
+  async overview(@Req() r: AuthenticatedRequest) {
+    return ok(await this.reporting.overview(r.auth), r);
+  }
+  @Get("customer-packages/directory")
+  @RequirePermission("package.entitlement.read")
+  async directory(@Query() q: unknown, @Req() r: AuthenticatedRequest) {
+    return ok(await this.reporting.directory(r.auth, q), r);
+  }
+  @Get("customer-packages/:entitlementId/overview")
+  @RequirePermission("package.entitlement.read")
+  async entitlementOverview(
+    @Param("entitlementId") id: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.reporting.entitlementOverview(r.auth, id), r);
   }
   @Get("customer-packages/:entitlementId")
   @RequirePermission("package.entitlement.read")
@@ -825,6 +933,14 @@ export class BenefitsReportController {
   async expiring(@Req() r: AuthenticatedRequest) {
     return ok(await this.s.expiring(r.auth), r);
   }
+  @Get("customer-directory")
+  @RequirePermission("benefit.report.read")
+  async customerDirectory(
+    @Query() query: unknown,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.s.customerDirectory(r.auth, query), r);
+  }
   @Post("exports") @RequirePermission("benefit.report.read") async create(
     @Body() b: unknown,
     @Req() r: AuthenticatedRequest,
@@ -835,6 +951,26 @@ export class BenefitsReportController {
   @RequirePermission("benefit.report.read")
   async export(@Param("exportId") id: string, @Req() r: AuthenticatedRequest) {
     return ok(await this.s.export(r.auth, id), r);
+  }
+}
+
+@ApiTags("customer-benefits")
+@ApiBearerAuth()
+@UseGuards(AuthGuard, PermissionGuard)
+@Controller("customers")
+export class CustomerBenefitsController {
+  constructor(
+    @Inject(BenefitsReportingService)
+    private readonly s: BenefitsReportingService,
+  ) {}
+
+  @Get(":customerId/benefits/summary")
+  @RequirePermission("benefit.report.read")
+  async summary(
+    @Param("customerId") customerId: string,
+    @Req() r: AuthenticatedRequest,
+  ) {
+    return ok(await this.s.customerBenefitSummary(r.auth, customerId), r);
   }
 }
 

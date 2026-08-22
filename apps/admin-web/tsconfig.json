@@ -16,6 +16,8 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
+    ".next-history-build-qa/types/**/*.ts",
+    ".next-qa/types/**/*.ts",
     ".next/types/**/*.ts"
   ],
   "exclude": [

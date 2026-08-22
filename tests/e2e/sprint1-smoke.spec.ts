@@ -8,7 +8,9 @@ test("Admin Web exposes secure authentication routes without seeded credentials"
   await page.goto("/auth/forgot-password");
   await expect(page.getByRole("heading", { name: "Forgot password" })).toBeVisible();
   await page.goto("/auth/mfa");
-  await expect(page.getByRole("heading", { name: "Additional verification" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: /Additional verification|Đăng nhập để xác minh/ }),
+  ).toBeVisible();
 });
 
 test("operational routes render responsive loading and recovery states", async ({ page }) => {

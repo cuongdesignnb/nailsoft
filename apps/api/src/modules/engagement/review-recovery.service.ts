@@ -998,10 +998,44 @@ export class ReviewRecoveryService {
   }
   engagementTimeline(auth: AccessClaims, customerId: string) {
     this.core.access(auth);
+    const branchIds = auth.roles.includes("SALON_OWNER")
+      ? null
+      : auth.supportAccess?.branchIds ?? auth.branchIds;
     return this.core.db
       .query<any>(
-        `SELECT * FROM (SELECT created_at,'CONSENT' type,event_type action,resulting_state status,purpose detail,id FROM customer_consent_events WHERE tenant_id=$1 AND customer_id=$2 UNION ALL SELECT created_at,'MESSAGE',purpose,status,category,id FROM communication_messages WHERE tenant_id=$1 AND customer_id=$2 UNION ALL SELECT submitted_at,'REVIEW','SUBMITTED',status,overall_rating::text,id FROM customer_reviews WHERE tenant_id=$1 AND customer_id=$2 UNION ALL SELECT created_at,'RECOVERY',source,status,severity,id FROM service_recovery_cases WHERE tenant_id=$1 AND customer_id=$2) timeline ORDER BY created_at DESC`,
-        [auth.tenantId, customerId],
+        `SELECT * FROM (
+          SELECT created_at,'CONSENT' type,event_type action,resulting_state status,purpose detail,id
+          FROM customer_consent_events
+          WHERE tenant_id=$1 AND customer_id=$2
+          UNION ALL
+          SELECT COALESCE(sent_at,created_at),'MESSAGE',purpose,status,category,id
+          FROM communication_messages
+          WHERE tenant_id=$1 AND customer_id=$2
+            AND ($3::uuid[] IS NULL OR branch_id IS NULL OR branch_id=ANY($3::uuid[]))
+          UNION ALL
+          SELECT submitted_at,'REVIEW','SUBMITTED',status,overall_rating::text,id
+          FROM customer_reviews
+          WHERE tenant_id=$1 AND customer_id=$2
+            AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))
+          UNION ALL
+          SELECT created_at,'RECOVERY',source,status,severity,id
+          FROM service_recovery_cases
+          WHERE tenant_id=$1 AND customer_id=$2
+            AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))
+          UNION ALL
+          SELECT occurred_at,'CARE_ACTIVITY',activity_type,outcome_code,summary,id
+          FROM customer_care_activities
+          WHERE tenant_id=$1 AND customer_id=$2
+            AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))
+          UNION ALL
+          SELECT created_at,'CARE_FOLLOWUP',reason_code,status,
+            CASE WHEN status IN('OPEN','IN_PROGRESS') AND due_at < now() THEN 'OVERDUE' ELSE status END,
+            id
+          FROM customer_care_followups
+          WHERE tenant_id=$1 AND customer_id=$2
+            AND ($3::uuid[] IS NULL OR branch_id=ANY($3::uuid[]))
+        ) timeline ORDER BY created_at DESC`,
+        [auth.tenantId, customerId, branchIds],
       )
       .then((r) => r.rows);
   }

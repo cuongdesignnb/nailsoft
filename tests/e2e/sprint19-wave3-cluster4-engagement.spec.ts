@@ -26,7 +26,7 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 4 engagement workspace", () => {
       ["/admin/communications/messages", "Message delivery"],
       ["/admin/communications/suppressions", "Contact suppressions"],
       ["/admin/marketing/segments", "Customer segments"],
-      ["/admin/marketing/campaigns", "Email campaigns"],
+      ["/admin/marketing/campaigns", "Marketing khách hàng"],
       ["/admin/reviews", "Reviews"],
       ["/admin/review-requests", "Review requests"],
       ["/admin/service-recovery", "Service recovery"],
@@ -63,9 +63,20 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 4 engagement workspace", () => {
     }
   });
 
-  test("review and engagement route ownership remains explicit", async ({ page }) => {
+  test("customer care global and scoped routes render without fake email metrics", async ({ page }) => {
     await loginUi(page, "owner@example.test");
+    await page.goto("/admin/customer-care");
+    await expect(page.getByRole("heading", { name: "Lịch sử liên hệ & chăm sóc", exact: true })).toBeVisible();
+    const globalBody = await page.locator("body").innerText();
+    expect(globalBody).not.toMatch(/Đã mở|Tỷ lệ mở email|SMS/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+    await expectA11y(page);
+
     await page.goto("/admin/customers/60000000-0000-4000-8000-000000000001/engagement");
-    await expect(page.getByRole("heading", { name: "Customer engagement timeline" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Lịch sử liên hệ & chăm sóc", exact: true })).toBeVisible();
+    const customerBody = await page.locator("body").innerText();
+    expect(customerBody).not.toMatch(/Đã mở|Tỷ lệ mở email|SMS/);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
+    await expectA11y(page);
   });
 });

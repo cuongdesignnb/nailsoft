@@ -24,6 +24,7 @@ import {
   publicCreateAppointmentSchema,
 } from "@nailsoft/validation";
 import type { PoolClient } from "pg";
+import { z } from "zod";
 import { DatabaseService } from "../../infrastructure/database.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
 import { BookingIdempotencyService } from "./booking-idempotency.service.js";
@@ -35,6 +36,18 @@ import {
 } from "./booking-state-machine.js";
 import { BookingTokenService } from "./booking-token.service.js";
 import { ReservationService } from "./reservation.service.js";
+
+const appointmentOverviewQuerySchema = z.object({
+  branchId: z.string().uuid().optional(),
+  staffId: z.string().uuid().optional(),
+  serviceId: z.string().uuid().optional(),
+  status: z.string().trim().max(80).optional(),
+  search: z.string().trim().max(200).optional(),
+  from: z.string().datetime({ offset: true }),
+  to: z.string().datetime({ offset: true }),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
 
 @Injectable()
 export class BookingService {
@@ -219,14 +232,31 @@ export class BookingService {
               [auth.tenantId, phone, email],
             )
           ).rows[0];
-          if (existing) return this.customerView(existing);
+          if (existing) return { ...this.customerView(existing), resolution: "EXISTING" as const };
           const created = (
             await client.query<any>(
               `INSERT INTO customers(tenant_id,display_name,phone_normalized,email_normalized,preferred_locale,is_guest)
-               VALUES($1,$2,$3,$4,$5,false) RETURNING *`,
+               VALUES($1,$2,$3,$4,$5,false)
+               ON CONFLICT DO NOTHING RETURNING *`,
               [auth.tenantId, body.displayName, phone, email, body.locale],
             )
           ).rows[0];
+          if (!created) {
+            const raced = (
+              await client.query<any>(
+                `SELECT * FROM customers WHERE tenant_id=$1 AND status='ACTIVE'
+                 AND (($2::text IS NOT NULL AND phone_normalized=$2)
+                   OR ($3::text IS NOT NULL AND lower(email_normalized)=lower($3)))
+                 ORDER BY created_at LIMIT 1`,
+                [auth.tenantId, phone, email],
+              )
+            ).rows[0];
+            if (raced) return { ...this.customerView(raced), resolution: "EXISTING" as const };
+            throw new ConflictException({
+              code: "CUSTOMER_CREATE_CONFLICT",
+              message: "The customer could not be created because the contact is already in use",
+            });
+          }
           await client.query(
             `INSERT INTO audit_logs(tenant_id,actor_user_id,action,entity_type,entity_id,after_json,request_id)
              VALUES($1,$2,'customer.booking_created','customer',$3,$4,$5)`,
@@ -243,7 +273,7 @@ export class BookingService {
               requestId,
             ],
           );
-          return this.customerView(created);
+          return { ...this.customerView(created), resolution: "CREATED" as const };
         },
       }),
     );
@@ -1055,6 +1085,162 @@ export class BookingService {
     return rows.rows.map((x) => this.summary(x));
   }
 
+  async overview(auth: AccessClaims, input: unknown) {
+    this.denyPlatform(auth);
+    const parsed = appointmentOverviewQuerySchema.safeParse(input);
+    if (!parsed.success)
+      throw new BadRequestException({
+        code: "APPOINTMENT_OVERVIEW_INVALID_QUERY",
+        message: "Invalid appointment overview filters",
+      });
+    const q = parsed.data;
+    const from = new Date(q.from).toISOString();
+    const to = new Date(q.to).toISOString();
+    const own = auth.roles.includes("NAIL_TECHNICIAN")
+      ? await this.ownStaff(auth)
+      : null;
+    const branches = this.owner(auth) ? null : auth.branchIds;
+    const filters = [
+      auth.tenantId,
+      branches,
+      q.branchId ?? null,
+      own,
+      q.status ?? null,
+      from,
+      to,
+      q.serviceId ?? null,
+      q.staffId ?? null,
+      q.search || null,
+    ];
+    const where = `a.tenant_id=$1
+      AND ($2::uuid[] IS NULL OR a.branch_id=ANY($2))
+      AND ($3::uuid IS NULL OR a.branch_id=$3)
+      AND ($4::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM appointment_items own_ai
+        JOIN appointment_item_staff_assignments own_asa
+          ON own_asa.tenant_id=own_ai.tenant_id
+         AND own_asa.appointment_item_id=own_ai.id
+         AND own_asa.status='ACTIVE'
+        WHERE own_ai.tenant_id=a.tenant_id AND own_ai.appointment_id=a.id
+          AND own_asa.staff_id=$4
+      ))
+      AND ($5::text IS NULL OR a.status=$5)
+      AND a.start_at<$7 AND a.end_at>$6
+      AND ($8::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM appointment_items service_ai
+        WHERE service_ai.tenant_id=a.tenant_id
+          AND service_ai.appointment_id=a.id
+          AND service_ai.service_id=$8
+          AND service_ai.status<>'CANCELLED'
+      ))
+      AND ($9::uuid IS NULL OR EXISTS (
+        SELECT 1 FROM appointment_items staff_ai
+        JOIN appointment_item_staff_assignments staff_asa
+          ON staff_asa.tenant_id=staff_ai.tenant_id
+         AND staff_asa.appointment_item_id=staff_ai.id
+         AND staff_asa.status='ACTIVE'
+        WHERE staff_ai.tenant_id=a.tenant_id AND staff_ai.appointment_id=a.id
+          AND staff_asa.staff_id=$9
+      ))
+      AND ($10::text IS NULL OR lower(a.booking_reference)=lower($10)
+        OR lower(a.contact_snapshot_json->>'displayName') LIKE '%'||lower($10)||'%'
+        OR regexp_replace(COALESCE(a.contact_snapshot_json->>'phone',''),'\\D','','g')
+          LIKE '%'||regexp_replace($10,'\\D','','g')||'%')`;
+    const [totalResult, statsResult, rowsResult] = await Promise.all([
+      this.db.query<{ total: string }>(
+        `SELECT COUNT(DISTINCT a.id)::text total FROM appointments a WHERE ${where}`,
+        filters,
+      ),
+      this.db.query<any>(
+        `SELECT
+          COUNT(*)::int total,
+          COUNT(*) FILTER (WHERE a.status='PENDING_CONFIRMATION')::int pending_confirmation,
+          COUNT(*) FILTER (WHERE a.status IN ('IN_SERVICE','PARTIALLY_COMPLETED'))::int in_service,
+          COUNT(*) FILTER (WHERE a.status IN ('COMPLETED','CHECKED_OUT','PAID'))::int completed,
+          COUNT(*) FILTER (WHERE a.status='NO_SHOW')::int no_show,
+          COUNT(*) FILTER (WHERE a.status NOT IN ('DRAFT','SLOT_HELD','EXPIRED','CANCELLED_BY_CUSTOMER','CANCELLED_BY_SALON'))::int eligible_no_show
+         FROM appointments a
+         WHERE a.tenant_id=$1
+           AND ($2::uuid[] IS NULL OR a.branch_id=ANY($2))
+           AND ($3::uuid IS NULL OR a.branch_id=$3)
+           AND a.start_at<$5 AND a.end_at>$4`,
+        [auth.tenantId, branches, q.branchId ?? null, from, to],
+      ),
+      this.db.query<any>(
+        `SELECT
+          a.id,a.booking_reference,a.branch_id,a.customer_id,a.status,a.start_at,a.end_at,
+          a.created_at,a.version,a.customer_note,a.contact_snapshot_json,
+          b.name branch_name,b.timezone,
+          COALESCE(jsonb_agg(
+            jsonb_build_object(
+              'id',ai.id,
+              'serviceId',ai.service_id,
+              'serviceName',COALESCE(ai.service_snapshot_json->'name'->>'vi-VN',ai.service_snapshot_json->'name'->>'en-US',ai.service_snapshot_json->>'code',ai.service_id::text),
+              'startAt',ai.service_start_at,
+              'endAt',ai.service_end_at,
+              'durationMin',ai.duration_min,
+              'status',ai.status,
+              'staffId',asa.staff_id,
+              'staffName',sp.display_name
+            ) ORDER BY ai.sequence_no
+          ) FILTER (WHERE ai.id IS NOT NULL),'[]'::jsonb) items
+         FROM appointments a
+         JOIN branches b ON b.tenant_id=a.tenant_id AND b.id=a.branch_id
+         LEFT JOIN appointment_items ai
+           ON ai.tenant_id=a.tenant_id AND ai.appointment_id=a.id AND ai.status<>'CANCELLED'
+         LEFT JOIN appointment_item_staff_assignments asa
+           ON asa.tenant_id=ai.tenant_id AND asa.appointment_item_id=ai.id
+          AND asa.assignment_role='PRIMARY' AND asa.status='ACTIVE'
+         LEFT JOIN staff_profiles sp ON sp.tenant_id=asa.tenant_id AND sp.id=asa.staff_id
+         WHERE ${where}
+         GROUP BY a.id,b.name,b.timezone
+         ORDER BY a.start_at,a.id
+         LIMIT $11 OFFSET $12`,
+        [...filters, q.pageSize, (q.page - 1) * q.pageSize],
+      ),
+    ]);
+    const stats = statsResult.rows[0] ?? {};
+    const total = Number(totalResult.rows[0]?.total ?? 0);
+    const items = rowsResult.rows.map((row) => ({
+      id: row.id,
+      bookingReference: row.booking_reference,
+      branch: { id: row.branch_id, name: row.branch_name, timezone: row.timezone },
+      customer: {
+        id: row.customer_id,
+        displayName: row.contact_snapshot_json?.displayName ?? "Guest",
+        phone: own ? null : row.contact_snapshot_json?.phone ?? null,
+      },
+      status: row.status,
+      startAt: row.start_at,
+      endAt: row.end_at,
+      createdAt: row.created_at,
+      version: Number(row.version),
+      customerNote: row.customer_note ?? null,
+      items: row.items ?? [],
+    }));
+    const eligibleNoShow = Number(stats.eligible_no_show ?? 0);
+    const noShow = Number(stats.no_show ?? 0);
+    return {
+      timezone: items[0]?.branch.timezone ?? null,
+      summary: {
+        total: Number(stats.total ?? 0),
+        pendingConfirmation: Number(stats.pending_confirmation ?? 0),
+        inService: Number(stats.in_service ?? 0),
+        completed: Number(stats.completed ?? 0),
+        noShow,
+        eligibleNoShow,
+        noShowRate: eligibleNoShow ? noShow / eligibleNoShow : null,
+      },
+      items,
+      pagination: {
+        page: q.page,
+        pageSize: q.pageSize,
+        totalItems: total,
+        totalPages: Math.ceil(total / q.pageSize),
+      },
+    };
+  }
+
   /** Sprint 5 add-service boundary: consumes a Reservation Engine hold into an existing aggregate. */
   async appendServiceFromHold(
     auth: AccessClaims,
@@ -1591,7 +1777,10 @@ export class BookingService {
           "appointment.cancelled",
           body.actorType === "USER" ? auth.userId : null,
           requestId,
-          { outcome },
+          {
+            outcome,
+            sendCancellationEmail: body.sendCancellationEmail,
+          },
         );
         return this.summary(updated);
       },
@@ -2394,6 +2583,8 @@ export class BookingService {
       source: row.source,
       startAt: row.start_at,
       endAt: row.end_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
       scheduleVersion: row.schedule_version,
       version: row.version,
       depositStatus: row.deposit_status,

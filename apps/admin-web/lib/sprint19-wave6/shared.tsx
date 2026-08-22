@@ -88,14 +88,8 @@ export function VersionConflictPanel() { return <StatePanel state="error" title=
 export function SensitiveReference({ value }: { value?: unknown }) { return <span className="ns-sensitive-reference">{value ? "••••" : "Not exposed"}</span>; }
 
 export function WorkspaceNav({ route }: { route: Wave6Route }) {
-  const links = route.area === "analytics"
-    ? [["/admin/analytics", "Command center"], ["/admin/analytics/sales", "Sales"], ["/admin/analytics/bookings", "Bookings"], ["/admin/analytics/staff", "Staff"], ["/admin/analytics/data-quality", "Data quality"]]
-    : route.area.startsWith("platform") || route.area === "support-access"
-      ? [["/platform/plans", "Catalog"], ["/platform/tenants", "Tenants"], ["/platform/invoices", "Invoices"], ["/platform/refunds", "Refunds"], ["/platform/dunning", "Dunning"], ["/platform/support-access", "Support"], ["/platform/break-glass", "Break-glass"]]
-      : route.area === "tenant-billing"
-        ? [["/admin/billing", "Overview"], ["/admin/billing/subscription", "Subscription"], ["/admin/billing/usage", "Usage"], ["/admin/billing/invoices", "Invoices"], ["/admin/billing/payment-methods", "Payment methods"], ["/admin/support-access", "Support access"]]
-        : [["/admin/accounting", "Control center"], ["/admin/accounting/books", "Books"], ["/admin/accounting/periods", "Periods"], ["/admin/accounting/journals", "Journals"], ["/admin/accounting/posting-candidates", "Posting queue"], ["/admin/accounting/reports", "Reports"], ["/admin/accounting/reconciliation", "Banking"], ["/admin/accounting/statement-snapshots", "Snapshots"]];
-  return <nav className="topbar" aria-label="Accounting and platform navigation">{links.map(([href, label]) => <a key={href} href={href} aria-current={route.href === href ? "page" : undefined}>{label}</a>)}</nav>;
+  void route;
+  return null;
 }
 
 export function ReadWorkspace({ route, endpoint, columns, description, actions = [], children, transform, summary }: { route: Wave6Route; endpoint: string; columns: Column[]; description?: string; actions?: WorkspaceAction[]; children?: ReactNode; transform?: (value: any) => any; summary?: (value: any) => ReactNode }) {

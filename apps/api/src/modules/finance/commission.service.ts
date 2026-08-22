@@ -9,8 +9,10 @@ import {
 import { createHash } from "node:crypto";
 import {
   commissionAdjustmentSchema,
+  commissionPeriodOverviewQuerySchema,
   commissionPeriodCommandSchema,
   commissionPeriodSchema,
+  commissionStaffDirectoryQuerySchema,
   commissionRuleSchema,
   refundDecisionSchema,
 } from "@nailsoft/validation";
@@ -364,6 +366,426 @@ export class CommissionService {
       });
     return { ...periodView(row), statements: await this.statements(auth, id) };
   }
+
+  async overview(auth: AccessClaims, periodId: string, input: unknown) {
+    const query = commissionPeriodOverviewQuerySchema.parse(input ?? {});
+    const period = await this.workspacePeriod(auth, periodId);
+    if (query.branchId) this.assertBranch(auth, query.branchId);
+    const branchId = query.branchId ?? null;
+    const allowedBranches = auth.roles.includes("SALON_OWNER")
+      ? null
+      : auth.branchIds;
+    const entryArgs = [
+      auth.tenantId,
+      periodId,
+      period.start_date,
+      period.end_date,
+      branchId,
+      allowedBranches,
+    ];
+    const entryAggregate = (
+      await this.db.query<any>(
+        `SELECT COALESCE(sum(e.base_minor) FILTER(WHERE e.entry_type='EARNING'),0)::bigint eligible_base_minor,
+                COALESCE(sum(e.commission_minor) FILTER(WHERE e.entry_type='EARNING'),0)::bigint earning_minor,
+                COALESCE(sum(e.commission_minor) FILTER(WHERE e.entry_type IN('REFUND_REVERSAL','LOCKED_PERIOD_REFUND_ADJUSTMENT')),0)::bigint refund_reversal_minor,
+                COALESCE(sum(e.commission_minor) FILTER(WHERE e.entry_type='MANUAL_ADJUSTMENT'),0)::bigint manual_adjustment_minor,
+                count(DISTINCT e.staff_id)::int staff_count,
+                count(DISTINCT COALESCE(e.service_session_id,e.invoice_line_id))::int service_count
+           FROM commission_entries e
+          WHERE e.tenant_id=$1
+            AND (e.period_id=$2 OR (e.period_id IS NULL AND e.business_date BETWEEN $3::date AND $4::date))
+            AND ($5::uuid IS NULL OR e.branch_id=$5)
+            AND ($6::uuid[] IS NULL OR e.branch_id=ANY($6::uuid[]))`,
+        entryArgs,
+      )
+    ).rows[0] ?? {};
+    const snapshotAggregate = (
+      await this.db.query<any>(
+        `SELECT COALESCE(sum(s.earning_minor),0)::bigint earning_minor,
+                COALESCE(sum(s.refund_reversal_minor),0)::bigint refund_reversal_minor,
+                COALESCE(sum(s.manual_adjustment_minor),0)::bigint manual_adjustment_minor,
+                COALESCE(sum(s.payable_minor),0)::bigint payable_minor,
+                count(*)::int staff_count
+           FROM commission_period_staff_snapshots s
+          WHERE s.tenant_id=$1 AND s.period_id=$2
+            AND ($3::uuid IS NULL OR EXISTS(
+              SELECT 1 FROM staff_branch_assignments a
+               WHERE a.tenant_id=s.tenant_id AND a.staff_id=s.staff_id
+                 AND a.branch_id=$3 AND a.status='ACTIVE'))
+            AND ($4::uuid[] IS NULL OR EXISTS(
+              SELECT 1 FROM staff_branch_assignments a
+               WHERE a.tenant_id=s.tenant_id AND a.staff_id=s.staff_id
+                 AND a.branch_id=ANY($4::uuid[]) AND a.status='ACTIVE'))`,
+        [auth.tenantId, periodId, branchId, allowedBranches],
+      )
+    ).rows[0] ?? {};
+    const tipTotals = (
+      await this.db.query<any>(
+        `SELECT COALESCE(sum(t.amount_minor),0)::bigint gross_tip_minor
+           FROM pos_tip_allocations t
+           JOIN pos_tips pt ON pt.tenant_id=t.tenant_id AND pt.id=t.pos_tip_id AND pt.status='ACTIVE'
+           JOIN pos_orders o ON o.tenant_id=pt.tenant_id AND o.id=pt.pos_order_id
+           JOIN branches b ON b.tenant_id=o.tenant_id AND b.id=o.branch_id
+           LEFT JOIN invoices i ON i.tenant_id=o.tenant_id AND i.pos_order_id=o.id
+          WHERE t.tenant_id=$1
+            AND (COALESCE(i.issued_at,o.finalized_at,o.created_at) AT TIME ZONE b.timezone)::date BETWEEN $2::date AND $3::date
+            AND ($4::uuid IS NULL OR o.branch_id=$4)
+            AND ($5::uuid[] IS NULL OR o.branch_id=ANY($5::uuid[]))`,
+        [auth.tenantId, period.start_date, period.end_date, branchId, allowedBranches],
+      )
+    ).rows[0] ?? {};
+    const refundedTipTotals = (
+      await this.db.query<any>(
+        `SELECT COALESCE(sum(rta.amount_minor),0)::bigint refunded_tip_minor
+           FROM refund_tip_allocations rta
+           JOIN refund_items ri ON ri.tenant_id=rta.tenant_id AND ri.id=rta.refund_item_id
+           JOIN refunds r ON r.tenant_id=ri.tenant_id AND r.id=ri.refund_id
+           JOIN branches b ON b.tenant_id=r.tenant_id AND b.id=r.branch_id
+          WHERE rta.tenant_id=$1 AND r.status='COMPLETED'
+            AND (r.completed_at AT TIME ZONE b.timezone)::date BETWEEN $2::date AND $3::date
+            AND ($4::uuid IS NULL OR r.branch_id=$4)
+            AND ($5::uuid[] IS NULL OR r.branch_id=ANY($5::uuid[]))`,
+        [auth.tenantId, period.start_date, period.end_date, branchId, allowedBranches],
+      )
+    ).rows[0] ?? {};
+    const live = period.status !== "LOCKED";
+    const earningMinor = live
+      ? Number(entryAggregate.earning_minor ?? 0)
+      : Number(snapshotAggregate.earning_minor ?? 0);
+    const refundReversalMinor = live
+      ? Number(entryAggregate.refund_reversal_minor ?? 0)
+      : Number(snapshotAggregate.refund_reversal_minor ?? 0);
+    const manualAdjustmentMinor = live
+      ? Number(entryAggregate.manual_adjustment_minor ?? 0)
+      : Number(snapshotAggregate.manual_adjustment_minor ?? 0);
+    const payableMinor = live
+      ? earningMinor + refundReversalMinor + manualAdjustmentMinor
+      : Number(snapshotAggregate.payable_minor ?? 0);
+    const grossTipMinor = Number(tipTotals.gross_tip_minor ?? 0);
+    const refundedTipMinor = Number(refundedTipTotals.refunded_tip_minor ?? 0);
+    const blockers: Array<{ code: string; message: string; count: number }> = [];
+    const conflict = (
+      await this.db.query<any>(
+        `SELECT count(*)::int count
+           FROM commission_generation_conflicts c
+           JOIN invoices i ON i.tenant_id=c.tenant_id AND i.id=c.invoice_id
+           JOIN branches b ON b.tenant_id=i.tenant_id AND b.id=i.branch_id
+          WHERE c.tenant_id=$1 AND c.status='OPEN'
+            AND (i.issued_at AT TIME ZONE b.timezone)::date BETWEEN $2::date AND $3::date
+            AND ($4::uuid IS NULL OR i.branch_id=$4)
+            AND ($5::uuid[] IS NULL OR i.branch_id=ANY($5::uuid[]))`,
+        [auth.tenantId, period.start_date, period.end_date, branchId, allowedBranches],
+      )
+    ).rows[0]?.count ?? 0;
+    if (Number(conflict) > 0)
+      blockers.push({ code: "GENERATION_CONFLICT", message: "Còn xung đột sinh commission cần xử lý.", count: Number(conflict) });
+    const pendingAdjustment = (
+      await this.db.query<any>(
+        `SELECT count(*)::int count
+           FROM commission_adjustment_requests a
+          WHERE a.tenant_id=$1 AND (a.target_period_id=$2 OR a.posting_period_id=$2)
+            AND a.status='PENDING'
+            AND ($3::uuid IS NULL OR EXISTS(
+              SELECT 1 FROM staff_branch_assignments ba
+               WHERE ba.tenant_id=a.tenant_id AND ba.staff_id=a.staff_id
+                 AND ba.branch_id=$3 AND ba.status='ACTIVE'))
+            AND ($4::uuid[] IS NULL OR EXISTS(
+              SELECT 1 FROM staff_branch_assignments ba
+               WHERE ba.tenant_id=a.tenant_id AND ba.staff_id=a.staff_id
+                 AND ba.branch_id=ANY($4::uuid[]) AND ba.status='ACTIVE'))`,
+        [auth.tenantId, periodId, branchId, allowedBranches],
+      )
+    ).rows[0]?.count ?? 0;
+    if (Number(pendingAdjustment) > 0)
+      blockers.push({ code: "PENDING_ADJUSTMENT", message: "Còn yêu cầu điều chỉnh commission chưa xử lý.", count: Number(pendingAdjustment) });
+    const missingReversal = (
+      await this.db.query<any>(
+        `SELECT count(*)::int count
+           FROM commission_entries earning
+           JOIN refunds r ON r.tenant_id=earning.tenant_id AND r.invoice_id=earning.invoice_id AND r.status='COMPLETED'
+           JOIN refund_items ri ON ri.tenant_id=r.tenant_id AND ri.refund_id=r.id AND ri.invoice_line_id=earning.invoice_line_id
+          WHERE earning.tenant_id=$1 AND earning.entry_type='EARNING'
+            AND earning.business_date BETWEEN $2::date AND $3::date
+            AND ($4::uuid IS NULL OR earning.branch_id=$4)
+            AND ($5::uuid[] IS NULL OR earning.branch_id=ANY($5::uuid[]))
+            AND NOT EXISTS(
+              SELECT 1 FROM commission_entries reversal
+               WHERE reversal.tenant_id=earning.tenant_id
+                 AND reversal.original_entry_id=earning.id AND reversal.refund_id=r.id
+                 AND reversal.entry_type IN('REFUND_REVERSAL','LOCKED_PERIOD_REFUND_ADJUSTMENT'))`,
+        [auth.tenantId, period.start_date, period.end_date, branchId, allowedBranches],
+      )
+    ).rows[0]?.count ?? 0;
+    if (Number(missingReversal) > 0)
+      blockers.push({ code: "MISSING_REFUND_REVERSAL", message: "Có refund hoàn tất nhưng thiếu bút toán reversal.", count: Number(missingReversal) });
+    const ranking = await this.workspaceRanking(auth, period, branchId, allowedBranches);
+    return {
+      period: periodView(period),
+      totals: {
+        eligibleBaseMinor: Number(entryAggregate.eligible_base_minor ?? 0),
+        earningMinor,
+        refundReversalMinor,
+        manualAdjustmentMinor,
+        payableMinor,
+        grossTipMinor,
+        refundedTipMinor,
+        netTipMinor: grossTipMinor - refundedTipMinor,
+        staffCount: live ? Number(entryAggregate.staff_count ?? 0) : Number(snapshotAggregate.staff_count ?? 0),
+        serviceCount: Number(entryAggregate.service_count ?? 0),
+      },
+      sources: { earningMinor, refundReversalMinor, manualAdjustmentMinor, netTipMinor: grossTipMinor - refundedTipMinor },
+      readiness: {
+        canStartReview: period.status === "OPEN",
+        canLock: period.status === "REVIEW" && blockers.length === 0,
+        blockers,
+        warnings: entryAggregate.staff_count ? [] : [{ code: "NO_COMMISSION_EARNINGS", message: "Chưa có commission entry trong kỳ." }],
+      },
+      ranking,
+    };
+  }
+
+  async staffDirectory(auth: AccessClaims, periodId: string, input: unknown) {
+    const query = commissionStaffDirectoryQuerySchema.parse(input ?? {});
+    const period = await this.workspacePeriod(auth, periodId);
+    if (query.branchId) this.assertBranch(auth, query.branchId);
+    const branchId = query.branchId ?? null;
+    const allowedBranches = auth.roles.includes("SALON_OWNER") ? null : auth.branchIds;
+    const live = period.status !== "LOCKED";
+    const values: unknown[] = [auth.tenantId, periodId, period.start_date, period.end_date, branchId, allowedBranches];
+    const filters = ["tenant_id=$1"];
+    if (query.search) {
+      values.push(`%${query.search.toLowerCase()}%`);
+      filters.push(`(lower(COALESCE(staff_name,'')) LIKE $${values.length} OR lower(COALESCE(employee_code,'')) LIKE $${values.length})`);
+    }
+    if (query.staffId) {
+      values.push(query.staffId);
+      filters.push(`staff_id=$${values.length}`);
+    }
+    if (query.adjustment === "WITH_ADJUSTMENT") filters.push("adjustment_count>0");
+    if (query.adjustment === "WITHOUT_ADJUSTMENT") filters.push("adjustment_count=0");
+    const activityCte = `
+      activity AS (
+        SELECT e.tenant_id,e.staff_id,sp.display_name staff_name,sp.employee_code,sp.level_code,
+               COALESCE(sum(e.base_minor) FILTER(WHERE e.entry_type='EARNING'),0)::bigint eligible_base_minor,
+               COALESCE(sum(e.commission_minor) FILTER(WHERE e.entry_type='EARNING'),0)::bigint earning_minor,
+               COALESCE(sum(e.commission_minor) FILTER(WHERE e.entry_type IN('REFUND_REVERSAL','LOCKED_PERIOD_REFUND_ADJUSTMENT')),0)::bigint refund_reversal_minor,
+               COALESCE(sum(e.commission_minor) FILTER(WHERE e.entry_type='MANUAL_ADJUSTMENT'),0)::bigint manual_adjustment_minor,
+               COALESCE(sum(e.commission_minor),0)::bigint payable_minor,
+               count(DISTINCT COALESCE(e.service_session_id,e.invoice_line_id))::int service_count,
+               count(*) FILTER(WHERE e.entry_type IN('REFUND_REVERSAL','LOCKED_PERIOD_REFUND_ADJUSTMENT','MANUAL_ADJUSTMENT'))::int adjustment_count
+          FROM commission_entries e
+          JOIN staff_profiles sp ON sp.tenant_id=e.tenant_id AND sp.id=e.staff_id
+         WHERE e.tenant_id=$1
+           AND (e.period_id=$2 OR (e.period_id IS NULL AND e.business_date BETWEEN $3::date AND $4::date))
+           AND ($5::uuid IS NULL OR e.branch_id=$5)
+           AND ($6::uuid[] IS NULL OR e.branch_id=ANY($6::uuid[]))
+         GROUP BY e.tenant_id,e.staff_id,sp.display_name,sp.employee_code,sp.level_code
+      ),
+      tip_aggregate AS (
+        SELECT t.staff_id,COALESCE(sum(t.amount_minor),0)::bigint gross_tip_minor
+          FROM pos_tip_allocations t
+          JOIN pos_tips pt ON pt.tenant_id=t.tenant_id AND pt.id=t.pos_tip_id AND pt.status='ACTIVE'
+          JOIN pos_orders o ON o.tenant_id=pt.tenant_id AND o.id=pt.pos_order_id
+          JOIN branches b ON b.tenant_id=o.tenant_id AND b.id=o.branch_id
+          LEFT JOIN invoices i ON i.tenant_id=o.tenant_id AND i.pos_order_id=o.id
+         WHERE t.tenant_id=$1
+           AND (COALESCE(i.issued_at,o.finalized_at,o.created_at) AT TIME ZONE b.timezone)::date BETWEEN $3::date AND $4::date
+           AND ($5::uuid IS NULL OR o.branch_id=$5)
+           AND ($6::uuid[] IS NULL OR o.branch_id=ANY($6::uuid[]))
+         GROUP BY t.staff_id
+      ),
+      refunded_tip_aggregate AS (
+        SELECT rta.staff_id,COALESCE(sum(rta.amount_minor),0)::bigint refunded_tip_minor
+          FROM refund_tip_allocations rta
+          JOIN refund_items ri ON ri.tenant_id=rta.tenant_id AND ri.id=rta.refund_item_id
+          JOIN refunds r ON r.tenant_id=ri.tenant_id AND r.id=ri.refund_id
+          JOIN branches b ON b.tenant_id=r.tenant_id AND b.id=r.branch_id
+         WHERE rta.tenant_id=$1 AND r.status='COMPLETED'
+           AND (r.completed_at AT TIME ZONE b.timezone)::date BETWEEN $3::date AND $4::date
+           AND ($5::uuid IS NULL OR r.branch_id=$5)
+           AND ($6::uuid[] IS NULL OR r.branch_id=ANY($6::uuid[]))
+         GROUP BY rta.staff_id
+      )`;
+    const source = live
+      ? `base AS (SELECT a.* FROM activity a)`
+      : `base AS (
+          SELECT s.tenant_id,s.staff_id,sp.display_name staff_name,sp.employee_code,sp.level_code,
+                 COALESCE(a.eligible_base_minor,0)::bigint eligible_base_minor,
+                 s.earning_minor,s.refund_reversal_minor,s.manual_adjustment_minor,s.payable_minor,
+                 COALESCE(a.service_count,0)::int service_count,
+                 (CASE WHEN s.refund_reversal_minor<>0 OR s.manual_adjustment_minor<>0 THEN 1 ELSE 0 END)::int adjustment_count
+            FROM commission_period_staff_snapshots s
+            JOIN staff_profiles sp ON sp.tenant_id=s.tenant_id AND sp.id=s.staff_id
+            LEFT JOIN activity a ON a.staff_id=s.staff_id
+           WHERE s.tenant_id=$1 AND s.period_id=$2
+             AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM staff_branch_assignments ba WHERE ba.tenant_id=s.tenant_id AND ba.staff_id=s.staff_id AND ba.branch_id=$5 AND ba.status='ACTIVE'))
+             AND ($6::uuid[] IS NULL OR EXISTS(SELECT 1 FROM staff_branch_assignments ba WHERE ba.tenant_id=s.tenant_id AND ba.staff_id=s.staff_id AND ba.branch_id=ANY($6::uuid[]) AND ba.status='ACTIVE'))
+        )`;
+    const base = `WITH ${activityCte}, ${source}, enriched AS (
+        SELECT base.*,COALESCE(t.gross_tip_minor,0)::bigint gross_tip_minor,
+               COALESCE(rt.refunded_tip_minor,0)::bigint refunded_tip_minor,
+               (COALESCE(t.gross_tip_minor,0)-COALESCE(rt.refunded_tip_minor,0))::bigint net_tip_minor
+          FROM base
+          LEFT JOIN tip_aggregate t ON t.staff_id=base.staff_id
+          LEFT JOIN refunded_tip_aggregate rt ON rt.staff_id=base.staff_id
+      ), filtered AS (SELECT * FROM enriched WHERE ${filters.join(" AND ")}), ranked AS (
+        SELECT filtered.*,row_number() OVER(ORDER BY ${this.staffSort(query.sort)})::int global_rank FROM filtered
+      )`;
+    const countRow = (await this.db.query<any>(`${base} SELECT count(*)::int total,count(*) FILTER (WHERE adjustment_count>0)::int with_adjustment FROM ranked`, values)).rows[0] ?? {};
+    const offsetIndex = values.length + 1;
+    const sizeIndex = values.length + 2;
+    const rows = (await this.db.query<any>(`${base} SELECT * FROM ranked ORDER BY global_rank LIMIT $${sizeIndex} OFFSET $${offsetIndex}`, [...values, (query.page - 1) * query.pageSize, query.pageSize])).rows;
+    const total = Number(countRow.total ?? 0);
+    return {
+      items: rows.map((row: any) => ({
+        staffId: row.staff_id,
+        staffName: row.staff_name,
+        employeeCode: row.employee_code,
+        roleLabel: row.level_code,
+        serviceCount: Number(row.service_count ?? 0),
+        eligibleBaseMinor: Number(row.eligible_base_minor ?? 0),
+        earningMinor: Number(row.earning_minor ?? 0),
+        refundReversalMinor: Number(row.refund_reversal_minor ?? 0),
+        manualAdjustmentMinor: Number(row.manual_adjustment_minor ?? 0),
+        payableMinor: Number(row.payable_minor ?? 0),
+        grossTipMinor: Number(row.gross_tip_minor ?? 0),
+        refundedTipMinor: Number(row.refunded_tip_minor ?? 0),
+        netTipMinor: Number(row.net_tip_minor ?? 0),
+        adjustmentCount: Number(row.adjustment_count ?? 0),
+        periodStatus: period.status,
+        rank: Number(row.global_rank ?? 0),
+        currency: period.currency,
+      })),
+      pagination: { page: query.page, pageSize: query.pageSize, total, totalPages: Math.max(1, Math.ceil(total / query.pageSize)) },
+      counts: { total, withAdjustment: Number(countRow.with_adjustment ?? 0) },
+    };
+  }
+  async staffOverview(auth: AccessClaims, periodId: string, staffId: string, input: unknown) {
+    const query = commissionPeriodOverviewQuerySchema.parse(input ?? {});
+    const period = await this.workspacePeriod(auth, periodId);
+    if (query.branchId) this.assertBranch(auth, query.branchId);
+    const branchId = query.branchId ?? null;
+    const allowedBranches = auth.roles.includes("SALON_OWNER") ? null : auth.branchIds;
+    const staff = (
+      await this.db.query<any>(
+        `SELECT sp.id,sp.display_name,sp.employee_code,sp.level_code
+           FROM staff_profiles sp
+          WHERE sp.tenant_id=$1 AND sp.id=$2
+            AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM staff_branch_assignments ba WHERE ba.tenant_id=sp.tenant_id AND ba.staff_id=sp.id AND ba.branch_id=$3 AND ba.status='ACTIVE'))
+            AND ($4::uuid[] IS NULL OR EXISTS(SELECT 1 FROM staff_branch_assignments ba WHERE ba.tenant_id=sp.tenant_id AND ba.staff_id=sp.id AND ba.branch_id=ANY($4::uuid[]) AND ba.status='ACTIVE'))`,
+        [auth.tenantId, staffId, branchId, allowedBranches],
+      )
+    ).rows[0];
+    if (!staff)
+      throw new NotFoundException({ code: "COMMISSION_STAFF_NOT_FOUND", message: "Staff commission statement not found" });
+    const entries = (
+      await this.db.query<any>(
+        `SELECT e.*,sp.display_name
+           FROM commission_entries e
+           JOIN staff_profiles sp ON sp.tenant_id=e.tenant_id AND sp.id=e.staff_id
+          WHERE e.tenant_id=$1 AND e.staff_id=$2
+            AND (e.period_id=$3 OR (e.period_id IS NULL AND e.business_date BETWEEN $4::date AND $5::date))
+            AND ($6::uuid IS NULL OR e.branch_id=$6)
+            AND ($7::uuid[] IS NULL OR e.branch_id=ANY($7::uuid[]))
+          ORDER BY e.business_date,e.created_at,e.id`,
+        [auth.tenantId, staffId, periodId, period.start_date, period.end_date, branchId, allowedBranches],
+      )
+    ).rows;
+    const snapshot = (
+      await this.db.query<any>(
+        "SELECT * FROM commission_period_staff_snapshots WHERE tenant_id=$1 AND period_id=$2 AND staff_id=$3",
+        [auth.tenantId, periodId, staffId],
+      )
+    ).rows[0];
+    const live = period.status !== "LOCKED";
+    const earningMinor = live
+      ? entries.filter((entry: any) => entry.entry_type === "EARNING").reduce((sum: number, entry: any) => sum + Number(entry.commission_minor), 0)
+      : Number(snapshot?.earning_minor ?? 0);
+    const refundReversalMinor = live
+      ? entries.filter((entry: any) => ["REFUND_REVERSAL", "LOCKED_PERIOD_REFUND_ADJUSTMENT"].includes(entry.entry_type)).reduce((sum: number, entry: any) => sum + Number(entry.commission_minor), 0)
+      : Number(snapshot?.refund_reversal_minor ?? 0);
+    const manualAdjustmentMinor = live
+      ? entries.filter((entry: any) => entry.entry_type === "MANUAL_ADJUSTMENT").reduce((sum: number, entry: any) => sum + Number(entry.commission_minor), 0)
+      : Number(snapshot?.manual_adjustment_minor ?? 0);
+    const payableMinor = live
+      ? earningMinor + refundReversalMinor + manualAdjustmentMinor
+      : Number(snapshot?.payable_minor ?? 0);
+    const eligibleBaseMinor = entries.filter((entry: any) => entry.entry_type === "EARNING").reduce((sum: number, entry: any) => sum + Number(entry.base_minor), 0);
+    const tip = (
+      await this.db.query<any>(
+        `SELECT COALESCE(sum(t.amount_minor),0)::bigint gross_tip_minor
+           FROM pos_tip_allocations t
+           JOIN pos_tips pt ON pt.tenant_id=t.tenant_id AND pt.id=t.pos_tip_id AND pt.status='ACTIVE'
+           JOIN pos_orders o ON o.tenant_id=pt.tenant_id AND o.id=pt.pos_order_id
+           JOIN branches b ON b.tenant_id=o.tenant_id AND b.id=o.branch_id
+           LEFT JOIN invoices i ON i.tenant_id=o.tenant_id AND i.pos_order_id=o.id
+          WHERE t.tenant_id=$1 AND t.staff_id=$2
+            AND (COALESCE(i.issued_at,o.finalized_at,o.created_at) AT TIME ZONE b.timezone)::date BETWEEN $3::date AND $4::date
+            AND ($5::uuid IS NULL OR o.branch_id=$5)
+            AND ($6::uuid[] IS NULL OR o.branch_id=ANY($6::uuid[]))`,
+        [auth.tenantId, staffId, period.start_date, period.end_date, branchId, allowedBranches],
+      )
+    ).rows[0] ?? {};
+    const refundedTip = (
+      await this.db.query<any>(
+        `SELECT COALESCE(sum(rta.amount_minor),0)::bigint refunded_tip_minor
+           FROM refund_tip_allocations rta
+           JOIN refund_items ri ON ri.tenant_id=rta.tenant_id AND ri.id=rta.refund_item_id
+           JOIN refunds r ON r.tenant_id=ri.tenant_id AND r.id=ri.refund_id
+           JOIN branches b ON b.tenant_id=r.tenant_id AND b.id=r.branch_id
+          WHERE rta.tenant_id=$1 AND rta.staff_id=$2 AND r.status='COMPLETED'
+            AND (r.completed_at AT TIME ZONE b.timezone)::date BETWEEN $3::date AND $4::date
+            AND ($5::uuid IS NULL OR r.branch_id=$5)
+            AND ($6::uuid[] IS NULL OR r.branch_id=ANY($6::uuid[]))`,
+        [auth.tenantId, staffId, period.start_date, period.end_date, branchId, allowedBranches],
+      )
+    ).rows[0] ?? {};
+    const adjustments = (
+      await this.db.query<any>(
+        `SELECT id,amount_minor,currency,reason_code,note,status,requested_by_user_id,decided_by_user_id,created_at
+           FROM commission_adjustment_requests
+          WHERE tenant_id=$1 AND staff_id=$2 AND (target_period_id=$3 OR posting_period_id=$3)
+          ORDER BY created_at DESC,id`,
+        [auth.tenantId, staffId, periodId],
+      )
+    ).rows;
+    const ruleEvidence = new Map<string, any>();
+    for (const entry of entries) {
+      const snapshotValue = entry.rule_snapshot_json ?? {};
+      const key = JSON.stringify(snapshotValue);
+      if (!ruleEvidence.has(key)) ruleEvidence.set(key, snapshotValue);
+    }
+    return {
+      period: periodView(period),
+      staff: { staffId: staff.id, staffName: staff.display_name, employeeCode: staff.employee_code, roleLabel: staff.level_code },
+      summary: {
+        eligibleBaseMinor,
+        earningMinor,
+        refundReversalMinor,
+        manualAdjustmentMinor,
+        payableMinor,
+        grossTipMinor: Number(tip.gross_tip_minor ?? 0),
+        refundedTipMinor: Number(refundedTip.refunded_tip_minor ?? 0),
+        netTipMinor: Number(tip.gross_tip_minor ?? 0) - Number(refundedTip.refunded_tip_minor ?? 0),
+        serviceCount: new Set(entries.map((entry: any) => entry.service_session_id ?? entry.invoice_line_id).filter(Boolean)).size,
+        adjustmentCount: adjustments.length,
+      },
+      entries: entries.map(entryView),
+      ruleEvidence: [...ruleEvidence.values()],
+      adjustments: adjustments.map((row: any) => ({
+        id: row.id,
+        amountMinor: Number(row.amount_minor),
+        currency: row.currency,
+        reasonCode: row.reason_code,
+        note: row.note,
+        status: row.status,
+        requestedByUserId: row.requested_by_user_id,
+        decidedByUserId: row.decided_by_user_id,
+        createdAt: row.created_at,
+      })),
+    };
+  }
+
   async createPeriod(
     auth: AccessClaims,
     input: unknown,
@@ -701,14 +1123,52 @@ export class CommissionService {
     };
   }
 
-  async adjustments(auth: AccessClaims) {
+  async adjustments(auth: AccessClaims, input: unknown = {}) {
     this.assertTenant(auth);
-    return (
+    const query = commissionPeriodOverviewQuerySchema.parse(input ?? {});
+    if (query.branchId) this.assertBranch(auth, query.branchId);
+    const allowedBranches = auth.roles.includes("SALON_OWNER") ? null : auth.branchIds;
+    const rows = (
       await this.db.query<any>(
-        "SELECT * FROM commission_adjustment_requests WHERE tenant_id=$1 ORDER BY created_at DESC,id",
-        [auth.tenantId],
+        `SELECT a.*,
+                sp.display_name staff_name,
+                sp.employee_code,
+                tp.code target_period_code,
+                tp.start_date target_start_date,
+                tp.end_date target_end_date,
+                tp.status target_period_status,
+                pp.code posting_period_code,
+                pp.start_date posting_start_date,
+                pp.end_date posting_end_date,
+                pp.status posting_period_status,
+                requester.display_name requested_by_name,
+                decider.display_name decided_by_name,
+                EXISTS(
+                  SELECT 1 FROM commission_entries e
+                   WHERE e.tenant_id=a.tenant_id AND e.adjustment_request_id=a.id
+                ) has_entry
+           FROM commission_adjustment_requests a
+           JOIN staff_profiles sp ON sp.tenant_id=a.tenant_id AND sp.id=a.staff_id
+           JOIN commission_periods tp ON tp.tenant_id=a.tenant_id AND tp.id=a.target_period_id
+           LEFT JOIN commission_periods pp ON pp.tenant_id=a.tenant_id AND pp.id=a.posting_period_id
+           LEFT JOIN users requester ON requester.id=a.requested_by_user_id
+           LEFT JOIN users decider ON decider.id=a.decided_by_user_id
+          WHERE a.tenant_id=$1
+            AND ($2::uuid IS NULL OR EXISTS(
+              SELECT 1 FROM staff_branch_assignments selected_branch
+               WHERE selected_branch.tenant_id=a.tenant_id AND selected_branch.staff_id=a.staff_id
+                 AND selected_branch.branch_id=$2 AND selected_branch.status='ACTIVE'
+            ))
+            AND ($3::uuid[] IS NULL OR EXISTS(
+              SELECT 1 FROM staff_branch_assignments ba
+               WHERE ba.tenant_id=a.tenant_id AND ba.staff_id=a.staff_id
+                 AND ba.branch_id=ANY($3::uuid[]) AND ba.status='ACTIVE'
+            ))
+          ORDER BY a.created_at DESC,a.id`,
+        [auth.tenantId, query.branchId ?? null, allowedBranches],
       )
-    ).rows.map(adjustmentView);
+    ).rows;
+    return rows.map(adjustmentView);
   }
   async createAdjustment(
     auth: AccessClaims,
@@ -765,11 +1225,19 @@ export class CommissionService {
                 code: "COMMISSION_CURRENCY_MISMATCH",
                 message: "Adjustment currency must match posting period",
               });
+            const allowedBranches = auth.roles.includes("SALON_OWNER") ? null : auth.branchIds;
             if (
               !(
                 await client.query(
-                  "SELECT 1 FROM staff_profiles WHERE tenant_id=$1 AND id=$2",
-                  [auth.tenantId, body.staffId],
+                  `SELECT 1
+                     FROM staff_profiles sp
+                    WHERE sp.tenant_id=$1 AND sp.id=$2
+                      AND ($3::uuid[] IS NULL OR EXISTS(
+                        SELECT 1 FROM staff_branch_assignments ba
+                         WHERE ba.tenant_id=sp.tenant_id AND ba.staff_id=sp.id
+                           AND ba.branch_id=ANY($3::uuid[]) AND ba.status='ACTIVE'
+                      ))`,
+                  [auth.tenantId, body.staffId, allowedBranches],
                 )
               ).rowCount
             )
@@ -1033,6 +1501,81 @@ export class CommissionService {
       )
       .then((x) => ({ ...x.data, idempotencyReplayed: x.replayed }));
   }
+  private async workspacePeriod(auth: AccessClaims, id: string) {
+    this.assertTenant(auth);
+    const row = (
+      await this.db.query<any>(
+        "SELECT * FROM commission_periods WHERE tenant_id=$1 AND id=$2",
+        [auth.tenantId, id],
+      )
+    ).rows[0];
+    if (!row)
+      throw new NotFoundException({
+        code: "COMMISSION_PERIOD_NOT_FOUND",
+        message: "Commission period not found",
+      });
+    return row;
+  }
+
+  private staffSort(sort: string) {
+    return {
+      REVENUE_DESC: "eligible_base_minor DESC,staff_name ASC,staff_id",
+      COMMISSION_DESC: "earning_minor DESC,staff_name ASC,staff_id",
+      TIP_DESC: "net_tip_minor DESC,staff_name ASC,staff_id",
+      NAME_ASC: "staff_name ASC,staff_id",
+    }[sort as "REVENUE_DESC" | "COMMISSION_DESC" | "TIP_DESC" | "NAME_ASC"] ?? "eligible_base_minor DESC,staff_name ASC,staff_id";
+  }
+
+  private async workspaceRanking(auth: AccessClaims, period: any, branchId: string | null, allowedBranches: string[] | null) {
+    const args = [auth.tenantId, period.id, period.start_date, period.end_date, branchId, allowedBranches];
+    const rows = period.status !== "LOCKED"
+      ? (await this.db.query<any>(
+          `SELECT e.staff_id,sp.display_name staff_name,
+                  COALESCE(sum(e.base_minor) FILTER(WHERE e.entry_type='EARNING'),0)::bigint eligible_base_minor,
+                  COALESCE(sum(e.commission_minor) FILTER(WHERE e.entry_type='EARNING'),0)::bigint earning_minor,
+                  COALESCE(sum(e.commission_minor),0)::bigint payable_minor
+             FROM commission_entries e
+             JOIN staff_profiles sp ON sp.tenant_id=e.tenant_id AND sp.id=e.staff_id
+            WHERE e.tenant_id=$1
+              AND (e.period_id=$2 OR (e.period_id IS NULL AND e.business_date BETWEEN $3::date AND $4::date))
+              AND ($5::uuid IS NULL OR e.branch_id=$5)
+              AND ($6::uuid[] IS NULL OR e.branch_id=ANY($6::uuid[]))
+            GROUP BY e.staff_id,sp.display_name
+            ORDER BY eligible_base_minor DESC,sp.display_name ASC,e.staff_id
+            LIMIT 5`,
+          args,
+        )).rows
+      : (await this.db.query<any>(
+          `WITH activity AS (
+            SELECT e.staff_id,COALESCE(sum(e.base_minor) FILTER(WHERE e.entry_type='EARNING'),0)::bigint eligible_base_minor
+              FROM commission_entries e
+             WHERE e.tenant_id=$1
+               AND (e.period_id=$2 OR (e.period_id IS NULL AND e.business_date BETWEEN $3::date AND $4::date))
+               AND ($5::uuid IS NULL OR e.branch_id=$5)
+               AND ($6::uuid[] IS NULL OR e.branch_id=ANY($6::uuid[]))
+             GROUP BY e.staff_id)
+          SELECT s.staff_id,sp.display_name staff_name,COALESCE(a.eligible_base_minor,0)::bigint eligible_base_minor,
+                 s.earning_minor,s.payable_minor
+            FROM commission_period_staff_snapshots s
+            JOIN staff_profiles sp ON sp.tenant_id=s.tenant_id AND sp.id=s.staff_id
+            LEFT JOIN activity a ON a.staff_id=s.staff_id
+           WHERE s.tenant_id=$1 AND s.period_id=$2
+             AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM staff_branch_assignments ba WHERE ba.tenant_id=s.tenant_id AND ba.staff_id=s.staff_id AND ba.branch_id=$5 AND ba.status='ACTIVE'))
+             AND ($6::uuid[] IS NULL OR EXISTS(SELECT 1 FROM staff_branch_assignments ba WHERE ba.tenant_id=s.tenant_id AND ba.staff_id=s.staff_id AND ba.branch_id=ANY($6::uuid[]) AND ba.status='ACTIVE'))
+           ORDER BY eligible_base_minor DESC,sp.display_name ASC,s.staff_id
+           LIMIT 5`,
+          args,
+        )).rows;
+    return rows.map((row: any) => ({
+      staffId: row.staff_id,
+      staffName: row.staff_name,
+      eligibleBaseMinor: Number(row.eligible_base_minor ?? 0),
+      earningMinor: Number(row.earning_minor ?? 0),
+      payableMinor: Number(row.payable_minor ?? 0),
+      currency: period.currency,
+    }));
+  }
+
   private async ensurePeriod(auth: AccessClaims, id: string) {
     const p = await this.periods(auth);
     if (!p.some((x) => x.id === id))
@@ -1165,8 +1708,28 @@ const snapshotView = (r: any) => ({
 const adjustmentView = (r: any) => ({
   id: r.id,
   staffId: r.staff_id,
+  staffName: r.staff_name,
+  employeeCode: r.employee_code,
   targetPeriodId: r.target_period_id,
+  targetPeriod: r.target_period_code
+    ? {
+        id: r.target_period_id,
+        code: r.target_period_code,
+        startDate: r.target_start_date,
+        endDate: r.target_end_date,
+        status: r.target_period_status,
+      }
+    : null,
   postingPeriodId: r.posting_period_id,
+  postingPeriod: r.posting_period_code
+    ? {
+        id: r.posting_period_id,
+        code: r.posting_period_code,
+        startDate: r.posting_start_date,
+        endDate: r.posting_end_date,
+        status: r.posting_period_status,
+      }
+    : null,
   amountMinor: Number(r.amount_minor),
   currency: r.currency,
   reasonCode: r.reason_code,
@@ -1174,9 +1737,13 @@ const adjustmentView = (r: any) => ({
   status: r.status,
   version: Number(r.version),
   requestedByUserId: r.requested_by_user_id,
+  requestedByName: r.requested_by_name,
   decidedByUserId: r.decided_by_user_id,
+  decidedByName: r.decided_by_name,
   decisionReason: r.decision_reason,
   createdAt: r.created_at,
+  decidedAt: r.decided_at,
+  hasEntry: Boolean(r.has_entry),
 });
 
 function canonicalJson(value: unknown): string {

@@ -1470,14 +1470,20 @@ export class BenefitsTransactionService {
           [tenantId, customerId],
         )
       ).rows[0];
+    const lifetimePoints = (
+      await c.query<any>(
+        "SELECT COALESCE(lifetime_earned_points,0)::bigint lifetime_earned_points FROM loyalty_accounts WHERE tenant_id=$1 AND customer_id=$2",
+        [tenantId, customerId],
+      )
+    ).rows[0]?.lifetime_earned_points ?? 0;
     await c.query(
       `INSERT INTO customer_membership_metrics(
-         tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,window_started_at,last_evaluated_at)
-       VALUES($1,$2,$3,$4,$5,now()-make_interval(days=>$6),now())
+         tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,points_earned,window_started_at,last_evaluated_at)
+       VALUES($1,$2,$3,$4,$5,$6,now()-make_interval(days=>$7),now())
        ON CONFLICT(tenant_id,customer_id) DO UPDATE SET
          rolling_spend_minor=EXCLUDED.rolling_spend_minor,
          lifetime_spend_minor=EXCLUDED.lifetime_spend_minor,
-         visit_count=EXCLUDED.visit_count,window_started_at=EXCLUDED.window_started_at,
+         visit_count=EXCLUDED.visit_count,points_earned=EXCLUDED.points_earned,window_started_at=EXCLUDED.window_started_at,
          last_evaluated_at=now(),version=customer_membership_metrics.version+1`,
       [
         tenantId,
@@ -1485,6 +1491,7 @@ export class BenefitsTransactionService {
         rolling.spend_minor,
         lifetime.spend_minor,
         rolling.visit_count,
+        lifetimePoints,
         windowDays,
       ],
     );

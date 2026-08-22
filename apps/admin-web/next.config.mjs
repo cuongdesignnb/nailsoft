@@ -15,6 +15,8 @@ const securityHeaders = [
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Keep QA builds isolated when the local dev server owns the default .next directory.
+  distDir: process.env.NAILSOFT_NEXT_DIST_DIR ?? ".next",
   allowedDevOrigins: ["localhost", "127.0.0.1"],
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];

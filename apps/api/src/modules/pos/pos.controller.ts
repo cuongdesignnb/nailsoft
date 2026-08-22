@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Headers,
+  Header,
   Inject,
   Param,
   Post,
@@ -63,6 +64,21 @@ export class AppointmentPosController {
 @Controller("pos-orders")
 export class PosOrderController {
   constructor(@Inject(PosService) private readonly service: PosService) {}
+  @Get("directory/export")
+  @Header("content-type", "text/csv; charset=utf-8")
+  @RequirePermission("pos.order.read")
+  async directoryExport(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.service.directoryExport(request.auth, query);
+  }
+  @Get("directory") @RequirePermission("pos.order.read") async directory(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.service.directory(request.auth, query), request);
+  }
   @Get() @RequirePermission("pos.order.read") async list(
     @Query() query: unknown,
     @Req() request: AuthenticatedRequest,
@@ -271,6 +287,22 @@ export class PosDiscountApprovalController {
 @Controller("payments")
 export class PaymentController {
   constructor(@Inject(PosService) private readonly service: PosService) {}
+  @Get("export")
+  @Header("content-type", "text/csv; charset=utf-8")
+  @Header("content-disposition", "attachment; filename=payment-transactions.csv")
+  @RequirePermission("payment.read")
+  async directoryExport(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.service.paymentDirectoryExport(request.auth, query);
+  }
+  @Get("directory") @RequirePermission("payment.read") async directory(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.service.paymentDirectory(request.auth, query), request);
+  }
   @Get() @RequirePermission("payment.read") async list(
     @Query() query: unknown,
     @Req() request: AuthenticatedRequest,
@@ -296,6 +328,22 @@ export class InvoiceController {
     @Req() request: AuthenticatedRequest,
   ) {
     return response(await this.service.invoices(request.auth, query), request);
+  }
+  @Get("export")
+  @Header("content-type", "text/csv; charset=utf-8")
+  @Header("content-disposition", "attachment; filename=invoices.csv")
+  @RequirePermission("invoice.read")
+  async directoryExport(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.service.invoiceDirectoryExport(request.auth, query);
+  }
+  @Get("directory") @RequirePermission("invoice.read") async directory(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.service.invoiceDirectory(request.auth, query), request);
   }
   @Get(":invoiceId") @RequirePermission("invoice.read") async detail(
     @Param("invoiceId") id: string,
@@ -338,17 +386,49 @@ export class CashSessionController {
   constructor(
     @Inject(CashSessionService) private readonly service: CashSessionService,
   ) {}
+  @Get("pos-registers/overview") @RequirePermission("cash_session.read") async overview(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.service.overview(request.auth, query), request);
+  }
   @Get("pos-registers") @RequirePermission("cash_session.read") async registers(
     @Query() query: unknown,
     @Req() request: AuthenticatedRequest,
   ) {
     return response(await this.service.registers(request.auth, query), request);
   }
+  @Get("pos-registers/:registerId/access-status")
+  @RequirePermission("cash_session.open")
+  async accessStatus(
+    @Param("registerId") id: string,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.service.accessStatus(request.auth, id), request);
+  }
   @Get("cash-sessions") @RequirePermission("cash_session.read") async list(
     @Query() query: unknown,
     @Req() request: AuthenticatedRequest,
   ) {
     return response(await this.service.list(request.auth, query), request);
+  }
+  @Get("cash-sessions/export")
+  @Header("content-type", "text/csv; charset=utf-8")
+  @Header("content-disposition", "attachment; filename=cash-session-history.csv")
+  @RequirePermission("cash_session.read")
+  async directoryExport(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.service.directoryExport(request.auth, query);
+  }
+  @Get("cash-sessions/directory")
+  @RequirePermission("cash_session.read")
+  async directory(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(await this.service.directory(request.auth, query), request);
   }
   @Post("cash-sessions/open")
   @RequirePermission("cash_session.open")
@@ -364,6 +444,18 @@ export class CashSessionController {
         idem(key),
         requestId(request),
       ),
+      request,
+    );
+  }
+  @Get("cash-sessions/:sessionId/overview")
+  @RequirePermission("cash_session.read")
+  async sessionOverview(
+    @Param("sessionId") id: string,
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return response(
+      await this.service.sessionOverview(request.auth, id, query),
       request,
     );
   }

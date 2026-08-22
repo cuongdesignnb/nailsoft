@@ -1,10 +1,32 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { FormEvent, ReactNode, useCallback, useEffect, useState } from "react";
-import { authorizedFetch } from "./auth";
+import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ACTIVE_BRANCH_CHANGED_EVENT, authorizedFetch, getAuthorizedBranchContext, setActiveBranchId } from "./auth";
+import CreateAppointmentPage from "./create-appointment";
+import AppointmentDetailPage from "./sprint19-wave1/appointment-detail";
+import AppointmentReschedulePage from "./sprint19-wave1/appointment-reschedule";
+import AppointmentCancelPage from "./sprint19-wave1/appointment-cancel";
+import AppointmentCheckInPage from "./sprint19-wave1/appointment-check-in";
+import AppointmentAddServicePage from "./sprint19-wave1/appointment-add-service";
+import AppointmentCheckoutSummaryPage from "./sprint19-wave1/appointment-checkout-summary";
+import ServiceSessionPage from "./sprint19-wave1/service-session-page";
 
 type State = "loading" | "ready" | "empty" | "error" | "forbidden" | "offline";
+
+function zonedDateTimeToIso(localDate: string, localTime: string, timeZone: string) {
+  const [year, month, day] = localDate.split("-").map(Number);
+  const [hour = 0, minute = 0, second = 0] = localTime.split(":").map(Number);
+  const desired = Date.UTC(year!, month! - 1, day, hour, minute, second);
+  let guess = desired;
+  for (let index = 0; index < 3; index += 1) {
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(new Date(guess));
+    const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, Number(part.value)])) as Record<string, number>;
+    const localAsUtc = Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day), Number(values.hour), Number(values.minute), Number(values.second));
+    guess = desired - (localAsUtc - guess);
+  }
+  return new Date(guess).toISOString();
+}
 
 function rows(value: any): any[] {
   const data = value?.data ?? value;
@@ -28,10 +50,10 @@ async function request(path: string, init?: RequestInit) {
   return body?.data ?? body;
 }
 
-function command(path: string, body: unknown) {
+function command(path: string, body: unknown, idempotencyKey = crypto.randomUUID()) {
   return request(path, {
     method: "POST",
-    headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+    headers: { "content-type": "application/json", "idempotency-key": idempotencyKey },
     body: JSON.stringify(body),
   });
 }
@@ -63,7 +85,7 @@ function useRemote(path: string | null, empty = false) {
 
 function StatePanel({ state, error, retry, label }: { state: State; error?: string; retry: () => void; label: string }) {
   if (state === "loading") return <div className="s19-state s19-state-loading" role="status"><span className="s19-spinner" />Đang tải {label}…</div>;
-  if (state === "forbidden") return <div className="s19-state s19-state-danger" role="alert"><strong>Không có quyền truy cập</strong><span>Vai trò hoặc phạm vi chi nhánh hiện tại không cho phép xem khu vực này.</span></div>;
+  if (state === "forbidden") return <div className="s19-state s19-state-danger" role="alert"><strong>Không có quyền truy cập</strong><span>{error || "Vai trò hoặc phạm vi chi nhánh hiện tại không cho phép xem khu vực này."}</span><button className="s19-button s19-button-secondary" onClick={retry}>Thử lại</button></div>;
   if (state === "offline") return <div className="s19-state" role="alert"><strong>Cần kết nối Internet</strong><span>Thao tác nghiệp vụ không được xác nhận khi offline.</span><button className="s19-button s19-button-secondary" onClick={retry}>Thử lại</button></div>;
   if (state === "error") return <div className="s19-state s19-state-danger" role="alert"><strong>Không thể tải dữ liệu</strong><span>{error ?? "Có lỗi xảy ra."}</span><button className="s19-button s19-button-secondary" onClick={retry}>Thử lại</button></div>;
   if (state === "empty") return <div className="s19-state" role="status"><strong>Chưa có dữ liệu</strong><span>Không có bản ghi phù hợp với bộ lọc hiện tại.</span><button className="s19-button s19-button-secondary" onClick={retry}>Làm mới</button></div>;
@@ -71,7 +93,7 @@ function StatePanel({ state, error, retry, label }: { state: State; error?: stri
 }
 
 function Shell({ title, eyebrow, description, accessibilityTitle, actions, children }: { title: string; eyebrow: string; description: string; accessibilityTitle?: string; actions?: ReactNode; children: ReactNode }) {
-  return <main className="s19-remediation-shell"><header className="s19-remediation-header"><div className="s19-brand-row"><a className="s19-brand" href="/admin/dashboard">NAILSOFT</a><span className="s19-workspace-chip">Salon operations</span><nav aria-label="Điều hướng nghiệp vụ"><a href="/admin/appointments">Lịch hẹn</a><a href="/admin/operations/board">Hàng đợi</a><a href="/admin/service-sessions/">Phiên dịch vụ</a></nav></div><div className="s19-breadcrumb"><span>Vận hành</span><span aria-hidden="true">/</span><strong>{eyebrow}</strong></div></header><section className="s19-remediation-page"><div className="s19-page-heading"><div><p className="s19-eyebrow">{eyebrow}</p><h1 aria-label={accessibilityTitle}>{title}</h1><p>{description}</p></div>{actions ? <div className="s19-page-actions">{actions}</div> : null}</div>{children}</section></main>;
+  return <main className="s19-remediation-shell"><section className="s19-remediation-page"><div className="s19-page-heading"><div><p className="s19-eyebrow">Vận hành · {eyebrow}</p><h1 aria-label={accessibilityTitle}>{title}</h1><p>{description}</p></div>{actions ? <div className="s19-page-actions">{actions}</div> : null}</div>{children}</section></main>;
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string | undefined; children: ReactNode }) {
@@ -83,14 +105,14 @@ function Notice({ tone = "success", children }: { tone?: "success" | "error" | "
 }
 
 function useLookups() {
-  const [state, setState] = useState<State>("loading"), [error, setError] = useState(""), [value, setValue] = useState({ branches: [] as any[], services: [] as any[], customers: [] as any[], staff: [] as any[] });
+  const [state, setState] = useState<State>("loading"), [error, setError] = useState(""), [value, setValue] = useState({ branches: [] as any[], activeBranchId: undefined as string | undefined, services: [] as any[], customers: [] as any[], staff: [] as any[] });
   const load = useCallback(async () => {
     setState("loading");
     try {
-      const [branches, services, customers, staff] = await Promise.all([
-        request("/v1/branches"), request("/v1/services?status=ACTIVE&pageSize=100"), request("/v1/customers?limit=100"), request("/v1/staff?status=ACTIVE"),
+      const [branchContext, services, customers, staff] = await Promise.all([
+        getAuthorizedBranchContext(), request("/v1/services?status=ACTIVE&pageSize=100"), request("/v1/customers?limit=100"), request("/v1/staff?status=ACTIVE"),
       ]);
-      setValue({ branches: rows(branches), services: rows(services), customers: rows(customers), staff: rows(staff) });
+      setValue({ branches: branchContext.branches, activeBranchId: branchContext.branchId, services: rows(services), customers: rows(customers), staff: rows(staff) });
       setState("ready");
     } catch (cause: any) { setError(cause?.message ?? "Không thể tải danh mục"); setState(cause?.forbidden ? "forbidden" : "error"); }
   }, []);
@@ -98,56 +120,239 @@ function useLookups() {
   return { state, error, ...value, load, setValue };
 }
 
-function CreateBooking() {
+export function CreateBookingScreen() {
   const lookup = useLookups();
-  const [step, setStep] = useState(1), [branchId, setBranchId] = useState(""), [customerId, setCustomerId] = useState(""), [serviceIds, setServiceIds] = useState<string[]>([]), [staffId, setStaffId] = useState(""), [date, setDate] = useState(""), [note, setNote] = useState(""), [slots, setSlots] = useState<any[]>([]), [version, setVersion] = useState<number>(), [selected, setSelected] = useState<any>(), [result, setResult] = useState<any>(), [state, setState] = useState<State>("ready"), [error, setError] = useState(""), [saving, setSaving] = useState(false);
-  useEffect(() => { if (!branchId && lookup.branches[0]?.id) setBranchId(lookup.branches[0].id); if (!customerId && lookup.customers[0]?.id) setCustomerId(lookup.customers[0].id); }, [branchId, customerId, lookup.branches, lookup.customers]);
+  const [step, setStep] = useState(1);
+  const [branchId, setBranchId] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [serviceIds, setServiceIds] = useState<string[]>([]);
+  const [staffId, setStaffId] = useState("");
+  const [date, setDate] = useState("");
+  const [note, setNote] = useState("");
+  const [slots, setSlots] = useState<any[]>([]);
+  const [version, setVersion] = useState<number>();
+  const [selected, setSelected] = useState<any>();
+  const [result, setResult] = useState<any>();
+  const [state, setState] = useState<State>("ready");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const intentKeys = useRef<{ hold?: string; appointment?: string }>({});
   const branch = lookup.branches.find((item) => item.id === branchId);
   const selectedServices = lookup.services.filter((item) => serviceIds.includes(item.id));
-  const findSlots = async (event: FormEvent) => { event.preventDefault(); setError(""); if (!branchId || !customerId || !serviceIds.length || !date) { setState("error"); setError("Hãy chọn khách hàng, dịch vụ, chi nhánh và ngày."); return; } setState("loading"); try { const data = await request(`/v1/availability?branchId=${branchId}&serviceId=${serviceIds[0]}&dateFrom=${date}&dateTo=${date}&slotIntervalMin=15${staffId ? `&staffId=${staffId}` : ""}`); const found = data.days?.flatMap((day: any) => day.slots ?? []) ?? []; setSlots(found); setVersion(data.dataVersion); setState(found.length ? "ready" : "empty"); if (found.length) setStep(3); } catch (cause: any) { setError(cause?.message ?? "Không thể tìm slot"); setState(cause?.forbidden ? "forbidden" : "error"); } };
-  const create = async () => { if (!selected || saving) return; setSaving(true); setState("loading"); try { const hold = await command("/v1/slot-holds", { branchId, desiredStartAt: selected.startAt, availabilityDataVersion: version, source: "RECEPTION", clientKey: crypto.randomUUID(), items: serviceIds.map((id, index) => ({ serviceId: id, staffPreference: index === 0 && staffId ? { type: "SPECIFIC", staffId } : { type: "ANY" }, ...(index === 0 ? { availabilityFingerprint: selected.fingerprint } : {}) })) }); const appointment = await command("/v1/appointments", { holdId: hold.holdId, holdToken: hold.holdToken, customer: { customerId, locale: "vi-VN" }, customerNote: note || undefined, confirm: true }); setResult(appointment); setStep(5); setState("ready"); } catch (cause: any) { setError(cause?.code === "BOOKING_VERSION_CONFLICT" || cause?.code === "AVAILABILITY_CHANGED" ? "Slot đã thay đổi. Hãy tìm lại availability trước khi thử lại." : cause?.message ?? "Không thể tạo lịch hẹn"); setState(cause?.forbidden ? "forbidden" : "error"); } finally { setSaving(false); } };
-  return <Shell accessibilityTitle="Quick create" eyebrow="Tạo lịch hẹn" title="Tạo booking trong vài bước" description="Chọn khách, dịch vụ và slot hợp lệ theo múi giờ chi nhánh. Giá và lịch được snapshot khi hold được consume." actions={<a className="s19-button s19-button-secondary" href="/admin/appointments">Quay về danh sách</a>}><ol className="s19-stepper" aria-label="Các bước tạo lịch hẹn">{["Khách hàng", "Dịch vụ", "Slot", "Review", "Hoàn tất"].map((item, index) => <li className={step === index + 1 ? "is-active" : step > index + 1 ? "is-done" : ""} key={item}><span>{index + 1}</span>{item}</li>)}</ol><StatePanel state={lookup.state} error={lookup.error} retry={lookup.load} label="danh mục" />{lookup.state === "ready" && step < 3 ? <form className="s19-form-card" onSubmit={findSlots}><div className="s19-form-grid"><Field label="Chi nhánh" hint={branch?.timezone ? `Múi giờ: ${branch.timezone}` : undefined}><select name="branchId" value={branchId} onChange={(event) => setBranchId(event.target.value)} required><option value="">Chọn chi nhánh</option>{lookup.branches.map((item) => <option key={item.id} value={item.id}>{item.name ?? item.code}</option>)}</select></Field><Field label="Tìm khách hàng"><select name="customerId" value={customerId} onChange={(event) => setCustomerId(event.target.value)} required><option value="">Chọn khách hàng</option>{lookup.customers.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.phone ?? item.email ?? item.id}</option>)}</select></Field><Field label="Dịch vụ" hint="Có thể chọn tối đa 5 dịch vụ theo thứ tự thực hiện"><select name="serviceIds" multiple size={Math.min(5, Math.max(3, lookup.services.length))} value={serviceIds} onChange={(event) => setServiceIds(Array.from(event.target.selectedOptions).map((option) => option.value))} required>{lookup.services.map((item) => <option key={item.id} value={item.id}>{labelOf(item)} · {item.defaultDurationMin ?? "—"} phút</option>)}</select></Field><Field label="Nhân sự ưu tiên"><select aria-label="Technician for the first service" value={staffId} onChange={(event) => setStaffId(event.target.value)}><option value="">Bất kỳ nhân sự đủ điều kiện</option>{lookup.staff.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field><Field label="Ngày theo múi giờ chi nhánh"><input aria-label="Date in branch timezone" type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></Field><Field label="Ghi chú khách hàng" hint="Không lưu thông tin nhạy cảm ngoài mục đích phục vụ"><textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} /></Field></div>{error ? <Notice tone="error">{error}</Notice> : null}<div className="s19-form-actions"><button aria-label="Find availability" className="s19-button s19-button-primary" disabled={state === "loading"}>{state === "loading" ? "Đang tìm slot…" : "Tìm slot khả dụng"}</button></div></form> : null}<StatePanel state={state} error={error} retry={() => { setStep(1); setState("ready"); }} label="availability" />{step === 3 && state === "ready" ? <section className="s19-card"><div className="s19-card-heading"><div><p className="s19-eyebrow">Availability</p><h2>Chọn slot phù hợp</h2></div><span className="s19-status s19-status-info">{slots.length} slot</span></div><div className="slots s19-slot-grid">{slots.slice(0, 24).map((slot) => <button type="button" className={`s19-slot ${selected?.fingerprint === slot.fingerprint ? "is-selected" : ""}`} key={slot.fingerprint} onClick={() => { setSelected(slot); setStep(4); }}><strong>{new Date(slot.startAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: branch?.timezone })}</strong><span>{slot.staffCandidates?.[0]?.displayName ?? "Nhân sự phù hợp"}</span><small>{slot.priceReference?.amount ?? "—"} {slot.priceReference?.currency ?? "VND"}</small></button>)}</div><p className="s19-helper">Slot chỉ là estimate hiện tại; Booking Engine mới tạo hold có hiệu lực.</p></section> : null}{step === 4 && selected ? <section className="s19-card s19-review"><div className="s19-card-heading"><div><p className="s19-eyebrow">Review trước khi tạo</p><h2>Xác nhận thông tin booking</h2></div></div><dl className="s19-summary-grid"><div><dt>Khách hàng</dt><dd>{lookup.customers.find((item) => item.id === customerId)?.displayName ?? customerId}</dd></div><div><dt>Chi nhánh</dt><dd>{branch?.name ?? branchId} · {branch?.timezone ?? "timezone"}</dd></div><div><dt>Slot</dt><dd>{new Date(selected.startAt).toLocaleString("vi-VN", { timeZone: branch?.timezone })}</dd></div><div><dt>Dịch vụ</dt><dd>{selectedServices.map(labelOf).join(" · ")}</dd></div><div><dt>Ghi chú</dt><dd>{note || "Không có"}</dd></div></dl><div className="s19-form-actions"><button className="s19-button s19-button-secondary" onClick={() => setStep(3)}>Chọn slot khác</button><button aria-label="Create and confirm" className="s19-button s19-button-primary" onClick={() => void create()} disabled={saving}>{saving ? "Đang tạo…" : "Tạo và xác nhận booking"}</button></div></section> : null}{step === 5 && result ? <section className="s19-success-card" role="status"><span className="s19-success-icon">✓</span><div><p className="s19-eyebrow">Đã tạo thành công</p><h2 aria-label="Appointment created">{result.bookingReference}</h2><p>Booking đã được xác nhận và sẵn sàng cho vận hành.</p><a aria-label="Open appointment" className="s19-button s19-button-primary" href={`/admin/appointments/${result.id}/overview`}>Mở booking detail</a></div></section> : null}</Shell>;
-}
 
-function BookingDetail({ id, tab }: { id: string; tab: string }) {
-  const appointment = useRemote(`/v1/appointments/${id}`), history = useRemote(`/v1/appointments/${id}/history`);
-  const row = appointment.data;
-  if (appointment.state !== "ready") return <Shell eyebrow="Booking detail" title="Chi tiết booking" description="Thông tin snapshot và các hành động theo trạng thái."><StatePanel state={appointment.state} error={appointment.error} retry={appointment.load} label="booking" /></Shell>;
-  const actions = row.status?.startsWith("CANCEL") || row.status === "NO_SHOW" ? [] : [<a className="s19-button s19-button-secondary" href={`/admin/appointments/${id}/reschedule`} key="reschedule">Đổi lịch</a>, <a className="s19-button s19-button-danger" href={`/admin/appointments/${id}/cancel`} key="cancel">Hủy booking</a>, <a className="s19-button s19-button-primary" href={`/admin/appointments/${id}/check-in`} key="checkin">Check-in</a>];
-  return <Shell eyebrow="Booking detail" title={row.bookingReference ?? "Booking"} description={`${row.contact?.displayName ?? "Khách hàng"} · ${row.status} · phiên bản ${row.version}`} actions={<>{actions}</>}><div className="s19-detail-tabs" role="tablist"><a className={tab === "overview" ? "is-active" : ""} href={`/admin/appointments/${id}/overview`}>Tổng quan</a><a className={tab === "history" ? "is-active" : ""} href={`/admin/appointments/${id}/history`}>Timeline</a><a href={`/admin/appointments/${id}/execution`}>Service session</a></div><div className="s19-sr-only"><h2>{row.status}</h2></div><div className="s19-detail-layout"><section className="s19-card"><div className="s19-card-heading"><div><p className="s19-eyebrow">Snapshot</p><h2>Thông tin lịch hẹn</h2></div><span className="s19-status s19-status-info">{row.status}</span></div><dl className="s19-summary-grid"><div><dt>Khách hàng</dt><dd>{row.contact?.displayName ?? "—"}</dd></div><div><dt>Chi nhánh</dt><dd>{row.branch?.name ?? row.branchId}</dd></div><div><dt>Thời gian</dt><dd>{new Date(row.startAt).toLocaleString("vi-VN")} – {new Date(row.endAt).toLocaleTimeString("vi-VN")}</dd></div><div><dt>Múi giờ</dt><dd>{row.branch?.timezone ?? "Theo chi nhánh"}</dd></div><div><dt>Ghi chú</dt><dd>{row.customerNote || "Không có ghi chú"}</dd></div><div><dt>Nguồn</dt><dd>{row.source ?? "BOOKING"}</dd></div></dl></section><section className="s19-card"><div className="s19-card-heading"><div><p className="s19-eyebrow">Services</p><h2>Dịch vụ đã đặt</h2></div></div><div className="slots s19-item-list">{(row.items ?? []).map((item: any) => <article className="s19-item" key={item.id}><div><strong>{labelOf(item.service)}</strong><span>{item.staff?.displayName ?? "Bất kỳ nhân sự phù hợp"}</span></div><span>{item.serviceStartAt ? new Date(item.serviceStartAt).toLocaleTimeString("vi-VN") : "—"}</span></article>)}</div></section></div>{tab === "history" ? <section className="s19-card"><div className="s19-card-heading"><div><p className="s19-eyebrow">Audit timeline</p><h2>Lịch sử thay đổi</h2></div></div><StatePanel state={history.state} error={history.error} retry={history.load} label="timeline" />{history.state === "ready" ? <ol className="s19-timeline">{rows(history.data).map((entry: any) => <li key={entry.id}><span className="s19-timeline-dot" /><div><strong>{entry.from_status ?? "CREATED"} → {entry.to_status}</strong><small>{entry.reason_code ?? "Command"} · {entry.created_at ? new Date(entry.created_at).toLocaleString("vi-VN") : ""}</small></div></li>)}</ol> : null}</section> : null}</Shell>;
-}
+  useEffect(() => {
+    if (!branchId && lookup.activeBranchId) setBranchId(lookup.activeBranchId);
+    else if (!branchId && lookup.branches.length === 1 && lookup.branches[0]?.id) setBranchId(lookup.branches[0].id);
+  }, [branchId, lookup.activeBranchId, lookup.branches]);
 
-function Reschedule({ id }: { id: string }) {
-  const appointment = useRemote(`/v1/appointments/${id}`), [date, setDate] = useState(""), [slots, setSlots] = useState<any[]>([]), [availabilityVersion, setAvailabilityVersion] = useState<number>(), [selected, setSelected] = useState<any>(), [hold, setHold] = useState<any>(), [state, setState] = useState<State>("ready"), [error, setError] = useState(""), [saving, setSaving] = useState(false), [message, setMessage] = useState("");
-  const row = appointment.data;
-  const find = async (event?: FormEvent<HTMLFormElement>) => { event?.preventDefault(); if (!row || !date) return; setState("loading"); setError(""); try { const item = row.items?.[0]; const params = new URLSearchParams({ branchId: row.branchId, serviceId: item.service.serviceId, dateFrom: date, dateTo: date, slotIntervalMin: "15", excludeAppointmentId: id }); if (item.staff?.id) params.set("staffId", item.staff.id); const data = await request(`/v1/availability?${params}`); const found = data.days?.flatMap((day: any) => day.slots ?? []) ?? []; setSlots(found); setAvailabilityVersion(data.dataVersion); setState(found.length ? "ready" : "empty"); if (found.length) void prepare(found[0], data.dataVersion); } catch (cause: any) { setError(cause?.message ?? "Không thể tìm slot"); setState(cause?.forbidden ? "forbidden" : "error"); } };
-  const prepare = async (slot: any, versionOverride?: number) => { setSelected(slot); setSaving(true); try { const data = await command(`/v1/appointments/${id}/reschedule-hold`, { branchId: row.branchId, desiredStartAt: slot.startAt, availabilityDataVersion: versionOverride ?? availabilityVersion, source: "RECEPTION", clientKey: crypto.randomUUID(), items: row.items.map((item: any, index: number) => ({ serviceId: item.service.serviceId, staffPreference: item.staff?.id ? { type: "SPECIFIC", staffId: item.staff.id } : { type: "ANY" }, ...(index === 0 ? { availabilityFingerprint: slot.fingerprint } : {}) })) }); setHold(data); } catch (cause: any) { setError(cause?.message ?? "Không thể giữ slot"); } finally { setSaving(false); } };
-  const confirm = async () => { if (!hold || saving) return; setSaving(true); try { await command(`/v1/appointments/${id}/reschedule`, { version: row.version, replacementHoldId: hold.holdId, replacementHoldToken: hold.holdToken, reasonCode: "CUSTOMER_REQUEST" }); setError(""); setMessage("Reschedule completed successfully."); setHold(undefined); await appointment.load(); } catch (cause: any) { setError(cause?.code === "VERSION_CONFLICT" ? "Booking đã thay đổi. Đã tải lại để kiểm tra." : cause?.message ?? "Không thể đổi lịch"); await appointment.load(); } finally { setSaving(false); } };
-  if (appointment.state !== "ready") return <Shell eyebrow="Đổi lịch" title="Chọn thời gian mới" description="Booking hiện tại vẫn giữ nguyên cho tới khi slot mới được xác nhận."><StatePanel state={appointment.state} error={appointment.error} retry={appointment.load} label="booking" /></Shell>;
-  return <Shell eyebrow="Đổi lịch" title="Đổi lịch an toàn" description="Slot mới được kiểm tra qua Availability Engine và loại trừ chính booking hiện tại." actions={<a className="s19-button s19-button-secondary" href={`/admin/appointments/${id}/overview`}>Hủy thay đổi</a>}><section className="s19-card s19-current-booking"><div><p className="s19-eyebrow">Lịch hiện tại</p><h2>{row.bookingReference}</h2><p>{row.contact?.displayName} · {new Date(row.startAt).toLocaleString("vi-VN")}</p></div><span className="s19-status s19-status-info">{row.status}</span></section><form className="s19-form-card" onSubmit={find}><Field label="Ngày mới" hint={`Múi giờ: ${row.branch?.timezone ?? "chi nhánh"}`}><input aria-label="New date" type="date" value={date} onChange={(event) => setDate(event.target.value)} required /></Field><button aria-label="Hold replacement slot" className="s19-button s19-button-primary" disabled={state === "loading"}>{state === "loading" ? "Đang tìm…" : "Tìm slot mới"}</button></form>{message ? <Notice>{message}</Notice> : null}{error ? <Notice tone="error">{error}<button className="s19-link-button" onClick={() => setError("")}>Đóng</button></Notice> : null}<StatePanel state={state} error={error} retry={() => void find()} label="slot" />{state === "ready" ? <div className="s19-slot-grid">{slots.map((slot) => <button type="button" className={`s19-slot ${selected?.fingerprint === slot.fingerprint ? "is-selected" : ""}`} key={slot.fingerprint} onClick={() => void prepare(slot)}><strong>{new Date(slot.startAt).toLocaleTimeString("vi-VN")}</strong><span>{slot.staffCandidates?.[0]?.displayName ?? "Nhân sự phù hợp"}</span><small>Kiểm tra realtime</small></button>)}</div> : null}{hold ? <section className="s19-confirm-card"><p className="s19-eyebrow">Xác nhận cuối</p><h2>{new Date(selected.startAt).toLocaleString("vi-VN")}</h2><p>Slot mới đang được giữ. Lịch cũ chưa bị mutation.</p><button aria-label="Confirm reschedule" className="s19-button s19-button-primary" onClick={() => void confirm()} disabled={saving}>{saving ? "Đang xác nhận…" : "Xác nhận đổi lịch"}</button></section> : null}</Shell>;
-}
+  const resetAvailability = () => {
+    setStep(1);
+    setSlots([]);
+    setSelected(undefined);
+    setVersion(undefined);
+    setError("");
+    setState("ready");
+  };
 
-function CancelBooking({ id }: { id: string }) {
-  const appointment = useRemote(`/v1/appointments/${id}`), [reason, setReason] = useState("CUSTOMER_REQUEST"), [note, setNote] = useState(""), [saving, setSaving] = useState(false), [message, setMessage] = useState("");
-  const submit = async (event: FormEvent) => { event.preventDefault(); if (!appointment.data || saving) return; setSaving(true); try { await command(`/v1/appointments/${id}/cancel`, { version: appointment.data.version, reasonCode: reason, note, actorType: "USER" }); setMessage("Cancellation completed successfully."); await appointment.load(); } catch (cause: any) { setMessage(cause?.code === "VERSION_CONFLICT" ? "Booking đã thay đổi. Đã tải lại trước khi thử lại." : cause?.message ?? "Không thể hủy booking"); await appointment.load(); } finally { setSaving(false); } };
-  if (appointment.state !== "ready") return <Shell eyebrow="Hủy booking" title="Hủy lịch hẹn" description="Hủy là một trạng thái có audit, không xóa dữ liệu."><StatePanel state={appointment.state} error={appointment.error} retry={appointment.load} label="booking" /></Shell>;
-  return <Shell eyebrow="Hủy booking" title="Hủy lịch hẹn" description="Kiểm tra hậu quả và lý do trước khi gửi command." actions={<a className="s19-button s19-button-secondary" href={`/admin/appointments/${id}/overview`}>Giữ booking</a>}><section className="s19-card s19-danger-summary"><p className="s19-eyebrow">Booking sẽ chuyển trạng thái</p><h2>{appointment.data.bookingReference}</h2><p>{appointment.data.contact?.displayName} · {new Date(appointment.data.startAt).toLocaleString("vi-VN")}</p></section><form className="s19-form-card" onSubmit={submit}><Field label="Loại hủy"><select value={reason} onChange={(event) => setReason(event.target.value)}><option value="CUSTOMER_REQUEST">Khách yêu cầu</option><option value="SALON_UNAVAILABLE">Salon không thể phục vụ</option><option value="DUPLICATE">Trùng booking</option></select></Field><Field label="Ghi chú"><textarea aria-label="Note" rows={4} value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} /></Field>{message ? <Notice tone={message.startsWith("Đã") || message.includes("successfully") ? "success" : "error"}>{message}</Notice> : null}<button aria-label="Review and cancel" className="s19-button s19-button-danger" disabled={saving || appointment.data.status?.startsWith("CANCEL")}>{saving ? "Đang hủy…" : "Xác nhận hủy booking"}</button></form></Shell>;
+  const selectBranch = (nextBranchId: string) => {
+    setBranchId(nextBranchId);
+    setActiveBranchId(nextBranchId || undefined);
+    resetAvailability();
+  };
+
+  useEffect(() => {
+    const handleBranchChange = (event: Event) => {
+      const nextBranchId = (event as CustomEvent<string | undefined>).detail;
+      if (!nextBranchId || lookup.branches.some((item) => item.id === nextBranchId)) {
+        setBranchId(nextBranchId ?? "");
+        resetAvailability();
+      }
+    };
+    window.addEventListener(ACTIVE_BRANCH_CHANGED_EVENT, handleBranchChange);
+    return () => window.removeEventListener(ACTIVE_BRANCH_CHANGED_EVENT, handleBranchChange);
+  }, [lookup.branches]);
+
+  const findSlots = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setSelected(undefined);
+    if (!branchId || !customerId || !serviceIds.length || !date) {
+      setState("error");
+      setError("Hãy chọn khách hàng, dịch vụ, chi nhánh và ngày.");
+      return;
+    }
+    setState("loading");
+    try {
+      const params = new URLSearchParams({ branchId, serviceId: serviceIds[0] ?? "", dateFrom: date, dateTo: date, slotIntervalMin: "15" });
+      if (staffId) params.set("staffId", staffId);
+      const data = await request(`/v1/availability?${params.toString()}`);
+      const found = data.days?.flatMap((day: any) => day.slots ?? []) ?? [];
+      setSlots(found);
+      setVersion(data.dataVersion);
+      setState(found.length ? "ready" : "empty");
+      if (found.length) setStep(3);
+    } catch (cause: any) {
+      setError(cause?.forbidden ? "Chi nhánh hoặc quyền hiện tại không cho phép tìm khung giờ. Hãy chọn chi nhánh được cấp quyền rồi thử lại." : cause?.message ?? "Không thể tìm slot");
+      setState(cause?.forbidden ? "forbidden" : "error");
+    }
+  };
+
+  const create = async () => {
+    if (!selected || saving) return;
+    setSaving(true);
+    setState("loading");
+    try {
+      const hold = await command("/v1/slot-holds", {
+        branchId,
+        desiredStartAt: selected.startAt,
+        availabilityDataVersion: version,
+        source: "RECEPTION",
+        clientKey: intentKeys.current.hold ?? (intentKeys.current.hold = crypto.randomUUID()),
+        items: serviceIds.map((id, index) => ({ serviceId: id, staffPreference: index === 0 && staffId ? { type: "SPECIFIC", staffId } : { type: "ANY" }, ...(index === 0 ? { availabilityFingerprint: selected.fingerprint } : {}) })),
+      }, intentKeys.current.hold);
+      const appointment = await command("/v1/appointments", {
+        holdId: hold.holdId,
+        holdToken: hold.holdToken,
+        customer: { customerId, locale: "vi-VN" },
+        customerNote: note || undefined,
+        confirm: true,
+      }, intentKeys.current.appointment ?? (intentKeys.current.appointment = crypto.randomUUID()));
+      setResult(appointment);
+      intentKeys.current = {};
+      setStep(5);
+      setState("ready");
+    } catch (cause: any) {
+      setError(cause?.code === "BOOKING_VERSION_CONFLICT" || cause?.code === "AVAILABILITY_CHANGED" ? "Slot đã thay đổi. Hãy tìm lại availability trước khi thử lại." : cause?.message ?? "Không thể tạo lịch hẹn");
+      setState(cause?.forbidden ? "forbidden" : "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Shell accessibilityTitle="Quick create" eyebrow="Tạo lịch hẹn" title="Tạo booking trong vài bước" description="Chọn khách, dịch vụ và slot hợp lệ theo múi giờ chi nhánh. Giá và lịch được snapshot khi hold được consume." actions={<a className="s19-button s19-button-secondary" href="/admin/appointments">Quay về danh sách</a>}>
+      <ol className="s19-stepper" aria-label="Các bước tạo lịch hẹn">
+        {["Khách hàng", "Dịch vụ", "Slot", "Review", "Hoàn tất"].map((item, index) => <li className={step === index + 1 ? "is-active" : step > index + 1 ? "is-done" : ""} key={item}><span>{index + 1}</span>{item}</li>)}
+      </ol>
+
+      <StatePanel state={lookup.state} error={lookup.error} retry={lookup.load} label="danh mục" />
+
+      {lookup.state === "ready" && step < 3 ? (
+        <form className="s19-form-card" onSubmit={findSlots}>
+          <div className="s19-form-grid">
+            <Field label="Chi nhánh" hint={branch?.timezone ? `Múi giờ: ${branch.timezone}` : "Chọn chi nhánh được cấp quyền"}>
+              <select name="branchId" value={branchId} onChange={(event) => selectBranch(event.target.value)} required>
+                <option value="">Chọn chi nhánh</option>
+                {lookup.branches.map((item) => <option key={item.id} value={item.id}>{item.name ?? item.code}</option>)}
+              </select>
+            </Field>
+            <Field label="Tìm khách hàng" hint="Chọn khách hàng cụ thể để tránh tạo nhầm booking">
+              <select name="customerId" value={customerId} onChange={(event) => { setCustomerId(event.target.value); setError(""); }} required>
+                <option value="">Chọn khách hàng</option>
+                {lookup.customers.map((item) => <option key={item.id} value={item.id}>{item.displayName} · {item.phone ?? item.email ?? item.id}</option>)}
+              </select>
+            </Field>
+            <Field label="Dịch vụ" hint={serviceIds.length ? `Đã chọn ${serviceIds.length}/5 dịch vụ theo thứ tự thực hiện` : "Chọn tối đa 5 dịch vụ theo thứ tự thực hiện"}>
+              <select name="serviceIds" multiple size={Math.min(5, Math.max(3, lookup.services.length))} value={serviceIds} onChange={(event) => { setServiceIds(Array.from(event.target.selectedOptions).map((option) => option.value)); setError(""); }} required>
+                {lookup.services.map((item) => <option key={item.id} value={item.id}>{labelOf(item)} · {item.defaultDurationMin ?? "—"} phút</option>)}
+              </select>
+            </Field>
+            <Field label="Nhân sự ưu tiên">
+              <select aria-label="Technician for the first service" value={staffId} onChange={(event) => setStaffId(event.target.value)}>
+                <option value="">Bất kỳ nhân sự đủ điều kiện</option>
+                {lookup.staff.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}
+              </select>
+            </Field>
+            <Field label="Ngày theo múi giờ chi nhánh">
+              <input aria-label="Date in branch timezone" type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+            </Field>
+            <Field label="Ghi chú khách hàng" hint="Không lưu thông tin nhạy cảm ngoài mục đích phục vụ">
+              <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} rows={3} />
+            </Field>
+          </div>
+
+          {state !== "ready" ? <StatePanel state={state} error={error} retry={resetAvailability} label="khung giờ" /> : null}
+
+          <div className="s19-form-actions">
+            <button aria-label="Find availability" className="s19-button s19-button-primary" disabled={state === "loading"}>
+              {state === "loading" ? "Đang tìm slot…" : "Tìm slot khả dụng"}
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {step >= 3 && state !== "ready" ? <StatePanel state={state} error={error} retry={resetAvailability} label="khung giờ" /> : null}
+
+      {step === 3 && state === "ready" ? (
+        <section className="s19-card">
+          <div className="s19-card-heading"><div><p className="s19-eyebrow">Availability</p><h2>Chọn slot phù hợp</h2></div><span className="s19-status s19-status-info">{slots.length} slot</span></div>
+          <div className="slots s19-slot-grid">
+            {slots.slice(0, 24).map((slot) => <button type="button" className={`s19-slot ${selected?.fingerprint === slot.fingerprint ? "is-selected" : ""}`} key={slot.fingerprint} onClick={() => { setSelected(slot); setStep(4); }}><strong>{new Date(slot.startAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: branch?.timezone })}</strong><span>{slot.staffCandidates?.[0]?.displayName ?? "Nhân sự phù hợp"}</span><small>{slot.priceReference?.amount ?? "—"} {slot.priceReference?.currency ?? "VND"}</small></button>)}
+          </div>
+          <p className="s19-helper">Slot chỉ là estimate hiện tại; Booking Engine mới tạo hold có hiệu lực.</p>
+        </section>
+      ) : null}
+
+      {step === 4 && selected ? (
+        <section className="s19-card s19-review">
+          <div className="s19-card-heading"><div><p className="s19-eyebrow">Review trước khi tạo</p><h2>Xác nhận thông tin booking</h2></div></div>
+          <dl className="s19-summary-grid">
+            <div><dt>Khách hàng</dt><dd>{lookup.customers.find((item) => item.id === customerId)?.displayName ?? customerId}</dd></div>
+            <div><dt>Chi nhánh</dt><dd>{branch?.name ?? branchId} · {branch?.timezone ?? "timezone"}</dd></div>
+            <div><dt>Slot</dt><dd>{new Date(selected.startAt).toLocaleString("vi-VN", { timeZone: branch?.timezone })}</dd></div>
+            <div><dt>Dịch vụ</dt><dd>{selectedServices.map(labelOf).join(" · ")}</dd></div>
+            <div><dt>Ghi chú</dt><dd>{note || "Không có"}</dd></div>
+          </dl>
+          <div className="s19-form-actions"><button type="button" className="s19-button s19-button-secondary" onClick={() => { setState("ready"); setStep(3); }}>Chọn slot khác</button><button type="button" aria-label="Create and confirm" className="s19-button s19-button-primary" onClick={() => void create()} disabled={saving}>{saving ? "Đang tạo…" : "Tạo và xác nhận booking"}</button></div>
+        </section>
+      ) : null}
+
+      {step === 5 && result ? <section className="s19-success-card" role="status"><span className="s19-success-icon">✓</span><div><p className="s19-eyebrow">Đã tạo thành công</p><h2 aria-label="Appointment created">{result.bookingReference}</h2><p>Booking đã được xác nhận và sẵn sàng cho vận hành.</p><a aria-label="Open appointment" className="s19-button s19-button-primary" href={`/admin/appointments/${result.id}/overview`}>Mở booking detail</a></div></section> : null}
+    </Shell>
+  );
 }
 
 function BusyBlocks() {
-  const branch = useRemote("/v1/branches"), [staff, setStaff] = useState<any[]>([]), [rowsValue, setRows] = useState<any[]>([]), [state, setState] = useState<State>("loading"), [error, setError] = useState(""), [message, setMessage] = useState("");
-  const branchId = rows(branch.data)[0]?.id ?? "";
-  const load = useCallback(async () => { if (!branchId) return; setState("loading"); try { const data = await request(`/v1/availability-blocks?branchId=${branchId}&from=2026-01-01T00:00:00+07:00&to=2027-01-01T00:00:00+07:00`); setRows(rows(data)); setState(rows(data).length ? "ready" : "empty"); } catch (cause: any) { setError(cause?.message ?? "Không thể tải busy block"); setState(cause?.forbidden ? "forbidden" : "error"); } }, [branchId]);
-  useEffect(() => { void load(); if (branchId) void request("/v1/staff?status=ACTIVE").then((data) => setStaff(rows(data))).catch(() => undefined); }, [branchId, load]);
-  const create = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { await command("/v1/availability-blocks", { branchId, staffId: form.get("staffId"), blockType: "MANUAL", title: form.get("title"), startAt: form.get("startAt"), endAt: form.get("endAt") }); setMessage("Đã tạo busy block và invalidated availability."); await load(); } catch (cause: any) { setError(cause?.code === "BUSY_BLOCK_VERSION_CONFLICT" ? "Busy block bị thay đổi. Hãy tải lại." : cause?.message ?? "Không thể tạo busy block"); setState(cause?.forbidden ? "forbidden" : "error"); } };
-  const cancel = async (item: any) => { try { await command(`/v1/availability-blocks/${item.id}/cancel`, { version: item.version }); setMessage("Đã hủy busy block."); await load(); } catch (cause: any) { setError(cause?.message ?? "Không thể hủy busy block"); } };
-  return <Shell eyebrow="Busy block" title="Chặn thời gian vận hành" description="Một block chỉ ảnh hưởng staff/resource trong đúng branch và được phản ánh vào availability." actions={<a className="s19-button s19-button-secondary" href="/admin/availability/search">Kiểm tra availability</a>}><div className="s19-two-column"><form className="s19-form-card" onSubmit={create}><Field label="Nhân sự"><select name="staffId" required><option value="">Chọn nhân sự</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field><Field label="Tiêu đề"><input name="title" defaultValue="Đào tạo nội bộ" required /></Field><Field label="Bắt đầu"><input name="startAt" type="datetime-local" required /></Field><Field label="Kết thúc"><input name="endAt" type="datetime-local" required /></Field><button aria-label="Create manual block" className="s19-button s19-button-primary">Tạo busy block</button></form><section className="s19-card"><div className="s19-card-heading"><div><p className="s19-eyebrow">Đã tạo</p><h2>Ảnh hưởng availability</h2></div></div>{message ? <Notice>{message}</Notice> : null}<StatePanel state={branch.state === "loading" ? "loading" : state} error={error} retry={load} label="busy block" />{state === "ready" ? <div className="s19-item-list">{rowsValue.map((item) => <article className="s19-item" key={item.id}><div><strong>{item.title}</strong><span>{item.staffId} · {item.status}</span></div><button className="s19-button s19-button-danger" onClick={() => void cancel(item)}>Hủy</button></article>)}</div> : null}</section></div></Shell>;
+  const [branches, setBranches] = useState<any[]>([]), [branchId, setBranchId] = useState(""), [timezone, setTimezone] = useState("UTC");
+  const [staff, setStaff] = useState<any[]>([]), [rowsValue, setRows] = useState<any[]>([]), [state, setState] = useState<State>("loading"), [error, setError] = useState(""), [message, setMessage] = useState("");
+  const intentKeys = useRef<{ create?: string; cancel: Record<string, string> }>({ cancel: {} });
+  useEffect(() => {
+    let cancelled = false;
+    void getAuthorizedBranchContext().then(({ branches: authorizedBranches, branchId: selected }) => {
+      if (cancelled) return;
+      setBranches(authorizedBranches);
+      setBranchId(selected ?? "");
+      setTimezone(authorizedBranches.find((branch) => branch.id === selected)?.timezone ?? "UTC");
+    }).catch((cause: any) => { if (!cancelled) { setError(cause?.message ?? "Không thể tải chi nhánh"); setState(cause?.forbidden ? "forbidden" : "error"); } });
+    const handleBranchChange = (event: Event) => {
+      const next = (event as CustomEvent<string | undefined>).detail ?? "";
+      const branch = branches.find((item) => item.id === next);
+      setBranchId(next); setTimezone(branch?.timezone ?? "UTC");
+    };
+    window.addEventListener(ACTIVE_BRANCH_CHANGED_EVENT, handleBranchChange);
+    return () => { cancelled = true; window.removeEventListener(ACTIVE_BRANCH_CHANGED_EVENT, handleBranchChange); };
+  }, [branches]);
+  const load = useCallback(async () => {
+    if (!branchId) { setState("empty"); return; }
+    setState("loading"); setError("");
+    try { const data = await request(`/v1/availability-blocks?branchId=${encodeURIComponent(branchId)}&status=ACTIVE`); const next = rows(data); setRows(next); setState(next.length ? "ready" : "empty"); }
+    catch (cause: any) { setError(cause?.message ?? "Không thể tải busy block"); setState(cause?.forbidden ? "forbidden" : "error"); }
+  }, [branchId]);
+  useEffect(() => { void load(); if (branchId) void request(`/v1/staff?status=ACTIVE&branchId=${encodeURIComponent(branchId)}`).then((data) => setStaff(rows(data))).catch(() => undefined); }, [branchId, load]);
+  const create = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget); const startAt = String(form.get("startAt") ?? ""), endAt = String(form.get("endAt") ?? "");
+    if (!branchId || !startAt || !endAt) return;
+    try { await command("/v1/availability-blocks", { branchId, staffId: form.get("staffId") || null, blockType: "MANUAL", title: form.get("title"), startAt: zonedDateTimeToIso(startAt.slice(0, 10), startAt.slice(11), timezone), endAt: zonedDateTimeToIso(endAt.slice(0, 10), endAt.slice(11), timezone) }, intentKeys.current.create ?? (intentKeys.current.create = crypto.randomUUID())); setMessage("Đã tạo busy block và cập nhật availability."); delete intentKeys.current.create; await load(); }
+    catch (cause: any) { setError(cause?.code === "BUSY_BLOCK_VERSION_CONFLICT" ? "Busy block bị thay đổi. Hãy tải lại." : cause?.message ?? "Không thể tạo busy block"); setState(cause?.forbidden ? "forbidden" : "error"); }
+  };
+  const cancel = async (item: any) => { try { await command(`/v1/availability-blocks/${item.id}/cancel`, { version: item.version }, intentKeys.current.cancel[item.id] ?? (intentKeys.current.cancel[item.id] = crypto.randomUUID())); setMessage("Đã hủy busy block."); delete intentKeys.current.cancel[item.id]; await load(); } catch (cause: any) { setError(cause?.message ?? "Không thể hủy busy block"); } };
+  return <Shell eyebrow="Busy block" title="Chặn thời gian vận hành" description="Một block chỉ ảnh hưởng staff/resource trong đúng chi nhánh và được phản ánh vào availability." actions={<a className="s19-button s19-button-secondary" href="/admin/availability/search">Kiểm tra availability</a>}><div className="s19-two-column"><form className="s19-form-card" onSubmit={create}><Field label="Chi nhánh"><select value={branchId} onChange={(event) => { setBranchId(event.target.value); setTimezone(branches.find((branch) => branch.id === event.target.value)?.timezone ?? "UTC"); setActiveBranchId(event.target.value || undefined); }} required><option value="">Chọn chi nhánh</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name ?? branch.code}</option>)}</select></Field><Field label="Nhân sự"><select name="staffId"><option value="">Toàn chi nhánh</option>{staff.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field><Field label="Tiêu đề"><input name="title" defaultValue="Đào tạo nội bộ" required /></Field><Field label={`Bắt đầu · ${timezone}`}><input name="startAt" type="datetime-local" required /></Field><Field label={`Kết thúc · ${timezone}`}><input name="endAt" type="datetime-local" required /></Field><button aria-label="Create manual block" className="s19-button s19-button-primary">Tạo busy block</button></form><section className="s19-card"><div className="s19-card-heading"><div><p className="s19-eyebrow">Đã tạo</p><h2>Ảnh hưởng availability</h2></div></div>{message ? <Notice>{message}</Notice> : null}<StatePanel state={state} error={error} retry={load} label="busy block" />{state === "ready" ? <div className="s19-item-list">{rowsValue.map((item) => <article className="s19-item" key={item.id}><div><strong>{item.title}</strong><span>{item.staffId ?? "Toàn chi nhánh"} · {item.status}</span></div><button className="s19-button s19-button-danger" onClick={() => void cancel(item)}>Hủy</button></article>)}</div> : null}</section></div></Shell>;
 }
 
 function WalkInCreate() {
-  const lookup = useLookups(), [branchId, setBranchId] = useState(""), [message, setMessage] = useState(""), [saving, setSaving] = useState(false);
+  const lookup = useLookups(), [branchId, setBranchId] = useState(""), [message, setMessage] = useState(""), [saving, setSaving] = useState(false), intentKey = useRef<string | undefined>(undefined);
   useEffect(() => { if (!branchId && lookup.branches[0]?.id) setBranchId(lookup.branches[0].id); }, [branchId, lookup.branches]);
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (saving) return; setSaving(true); const form = new FormData(event.currentTarget); try { const item = await command("/v1/walk-ins", { branchId, displayName: form.get("displayName"), phone: form.get("phone") || undefined, note: form.get("note") || undefined, items: [{ serviceId: form.get("serviceId"), staffPreference: { type: "ANY" } }] }); location.href = `/admin/operations/walk-ins/${item.id}`; } catch (cause: any) { setMessage(cause?.message ?? "Không thể tạo walk-in"); } finally { setSaving(false); } };
+  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (saving) return; setSaving(true); const form = new FormData(event.currentTarget); try { const item = await command("/v1/walk-ins", { branchId, displayName: form.get("displayName"), phone: form.get("phone") || undefined, note: form.get("note") || undefined, items: [{ serviceId: form.get("serviceId"), staffPreference: { type: "ANY" } }] }, intentKey.current ?? (intentKey.current = crypto.randomUUID())); intentKey.current = undefined; location.href = `/admin/operations/walk-ins/${item.id}`; } catch (cause: any) { setMessage(cause?.message ?? "Không thể tạo walk-in"); } finally { setSaving(false); } };
   return <Shell accessibilityTitle="Register walk-in" eyebrow="Walk-in" title="Tiếp nhận khách tại quầy" description="Tạo queue entry nhanh, hiển thị ETA là estimate và chuyển đổi qua Booking Engine khi có slot."><StatePanel state={lookup.state} error={lookup.error} retry={lookup.load} label="danh mục" />{message ? <Notice tone={message.startsWith("Đã") ? "success" : "error"}>{message}</Notice> : null}<form className="s19-form-card" onSubmit={submit}><div className="s19-form-grid"><Field label="Chi nhánh"><select aria-label="Branch" name="branchId" value={branchId} onChange={(event) => setBranchId(event.target.value)} required><option value="">Chọn chi nhánh</option>{lookup.branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><Field label="Tên hiển thị"><input aria-label="Display name" name="displayName" required maxLength={200} /></Field><Field label="Số điện thoại (tùy chọn)"><input name="phone" inputMode="tel" maxLength={32} /></Field><Field label="Dịch vụ yêu cầu"><select aria-label="Service" name="serviceId" required><option value="">Chọn dịch vụ</option>{lookup.services.map((item) => <option key={item.id} value={item.id}>{labelOf(item)} · {item.defaultDurationMin ?? "—"} phút</option>)}</select></Field><Field label="Ghi chú"><textarea name="note" rows={3} maxLength={1000} /></Field></div><p className="s19-helper">ETA là estimate, không phải reservation. Không có hard conflict nào được override.</p><button aria-label="Create queue entry" className="s19-button s19-button-primary" disabled={saving}>{saving ? "Đang tạo…" : "Thêm vào hàng đợi"}</button></form></Shell>;
 }
 
@@ -159,31 +364,10 @@ function QueueBoard() {
 }
 
 function WalkInDetail({ id }: { id: string }) {
-  const walkIn = useRemote(`/v1/walk-ins/${id}`), [message, setMessage] = useState(""), [saving, setSaving] = useState(false);
-  const action = async (name: string, extra: any = {}) => { if (!walkIn.data || saving) return; setSaving(true); try { const result = name === "convert" ? await command(`/v1/walk-ins/${id}/conversion-holds`, {}).then((hold) => command(`/v1/walk-ins/${id}/convert`, { version: walkIn.data.version, holdId: hold.holdId })) : await command(`/v1/walk-ins/${id}/${name}`, { version: walkIn.data.version, ...extra }); setMessage(name === "convert" ? `Đã chuyển thành appointment ${result.appointmentId}.` : "Đã cập nhật hàng đợi."); await walkIn.load(); } catch (cause: any) { setMessage(cause?.code === "VERSION_CONFLICT" ? "Queue entry đã thay đổi. Đã tải lại." : cause?.message ?? "Không thể cập nhật"); await walkIn.load(); } finally { setSaving(false); } };
+  const walkIn = useRemote(`/v1/walk-ins/${id}`), [message, setMessage] = useState(""), [saving, setSaving] = useState(false), intentKeys = useRef<Record<string, string>>({});
+  const intentKeyFor = (name: string) => intentKeys.current[name] ?? (intentKeys.current[name] = crypto.randomUUID());
+  const action = async (name: string, extra: any = {}) => { if (!walkIn.data || saving) return; setSaving(true); try { const result = name === "convert" ? await command(`/v1/walk-ins/${id}/conversion-holds`, {}, intentKeyFor("conversion-hold")).then((hold) => command(`/v1/walk-ins/${id}/convert`, { version: walkIn.data.version, holdId: hold.holdId }, intentKeyFor("convert"))) : await command(`/v1/walk-ins/${id}/${name}`, { version: walkIn.data.version, ...extra }, intentKeyFor(name)); setMessage(name === "convert" ? `Đã chuyển thành appointment ${result.appointmentId}.` : "Đã cập nhật hàng đợi."); delete intentKeys.current[name]; if (name === "convert") { delete intentKeys.current["conversion-hold"]; delete intentKeys.current.convert; } await walkIn.load(); } catch (cause: any) { setMessage(cause?.code === "VERSION_CONFLICT" ? "Queue entry đã thay đổi. Đã tải lại." : cause?.message ?? "Không thể cập nhật"); await walkIn.load(); } finally { setSaving(false); } };
   return <Shell eyebrow="Walk-in detail" title={`Queue #${walkIn.data?.queueNumber ?? "—"}`} description="Theo dõi trạng thái, ETA và chuyển đổi qua Booking Engine."><StatePanel state={walkIn.state} error={walkIn.error} retry={walkIn.load} label="walk-in" />{message ? <Notice tone={message.startsWith("Đã") ? "success" : "error"}>{message}</Notice> : null}{walkIn.state === "ready" ? <div className="s19-detail-layout"><section className="s19-card"><div className="s19-card-heading"><div><p className="s19-eyebrow">Khách tại quầy</p><h2>{walkIn.data.contact?.displayName ?? walkIn.data.customerDisplayName}</h2></div><p className="s19-status s19-status-info">{walkIn.data.status}</p></div><dl className="s19-summary-grid"><div><dt>ETA</dt><dd>{walkIn.data.estimatedWaitMinutes ?? "—"} phút · estimate</dd></div><div><dt>Vị trí</dt><dd>{walkIn.data.queuePosition ?? "—"}</dd></div><div><dt>Ưu tiên</dt><dd>{walkIn.data.priority ?? "NORMAL"}</dd></div></dl><ul className="s19-service-list">{(walkIn.data.items ?? []).map((item: any) => <li key={item.id}>{labelOf(item.service)}</li>)}</ul></section><section className="s19-card"><p className="s19-eyebrow">Actions</p><div className="s19-action-stack">{walkIn.data.status === "WAITING" ? <button className="s19-button s19-button-primary" disabled={saving} aria-label="Ready" onClick={() => void action("ready")}>Sẵn sàng</button> : null}{walkIn.data.status === "READY" ? <button className="s19-button s19-button-primary" disabled={saving} aria-label="Call" onClick={() => void action("call")}>Gọi khách</button> : null}{["READY", "CALLED"].includes(walkIn.data.status) ? <button className="s19-button s19-button-secondary" disabled={saving} onClick={() => void action("convert")}>Chuyển thành appointment</button> : null}{["WAITING", "READY"].includes(walkIn.data.status) ? <button className="s19-button s19-button-danger" disabled={saving} onClick={() => void action("cancel", { reasonCode: "CUSTOMER_REQUEST" })}>Hủy queue entry</button> : null}</div></section></div> : null}</Shell>;
-}
-
-function CheckIn({ id }: { id: string }) {
-  const appointment = useRemote(`/v1/appointments/${id}`), [message, setMessage] = useState(""), [saving, setSaving] = useState(false);
-  const submit = async () => { if (!appointment.data || saving) return; setSaving(true); try { await command(`/v1/appointments/${id}/arrive`, { arrivalMethod: "RECEPTION", partySize: 1 }); await command(`/v1/appointments/${id}/check-in`, { version: appointment.data.version }); setMessage("Đã check-in và tạo service sessions."); await appointment.load(); } catch (cause: any) { setMessage(cause?.code === "APPOINTMENT_ALREADY_CHECKED_IN" ? "Appointment đã check-in trước đó." : cause?.message ?? "Không thể check-in"); await appointment.load(); } finally { setSaving(false); } };
-  return <Shell eyebrow="Check-in" title="Xác nhận khách đã đến" description="Kiểm tra thời gian, dịch vụ và warning early/late trước khi tạo session thực tế."><StatePanel state={appointment.state} error={appointment.error} retry={appointment.load} label="appointment" />{message ? <Notice tone={message.startsWith("Đã") || message.includes("đã check") ? "success" : "error"}>{message}</Notice> : null}{appointment.state === "ready" ? <section className="s19-card s19-checkin-card"><div><p className="s19-eyebrow">Arrival review</p><h2>{appointment.data.bookingReference}</h2><p>{appointment.data.contact?.displayName} · {appointment.data.status}</p><dl className="s19-summary-grid"><div><dt>Giờ hẹn</dt><dd>{new Date(appointment.data.startAt).toLocaleString("vi-VN")}</dd></div><div><dt>Dịch vụ</dt><dd>{(appointment.data.items ?? []).map((item: any) => labelOf(item.service)).join(" · ")}</dd></div><div><dt>Nhân sự</dt><dd>{(appointment.data.items ?? []).map((item: any) => item.staff?.displayName ?? "Bất kỳ").join(" · ")}</dd></div></dl></div><button className="s19-button s19-button-primary" disabled={saving || !["CONFIRMED", "PENDING_CONFIRMATION"].includes(appointment.data.status)} onClick={() => void submit()}>{saving ? "Đang check-in…" : "Khách đã đến · Check-in"}</button></section> : null}</Shell>;
-}
-
-function AddService({ id }: { id: string }) {
-  const appointment = useRemote(`/v1/appointments/${id}`), services = useRemote("/v1/services?status=ACTIVE&pageSize=100"), [plan, setPlan] = useState<any>(), [message, setMessage] = useState(""), [saving, setSaving] = useState(false);
-  const preview = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { const value = await command(`/v1/appointments/${id}/add-service-plans`, { serviceId: form.get("serviceId"), staffPreference: { type: "ANY" } }); setPlan({ ...value, serviceId: form.get("serviceId") }); setMessage("Đã revalidate schedule và price. Chưa commit thay đổi."); } catch (cause: any) { setMessage(cause?.message ?? "Không thể lập kế hoạch add-service"); } };
-  const commit = async () => { if (!plan || !appointment.data || saving) return; setSaving(true); try { const hold = await command(`/v1/appointments/${id}/add-service-holds`, { serviceId: plan.serviceId, staffPreference: { type: "ANY" } }); await command(`/v1/appointments/${id}/add-service`, { holdId: hold.holdId, version: appointment.data.version, customerApprovalMethod: "VERBAL" }); setPlan(undefined); setMessage("Đã thêm dịch vụ sau khi customer approval."); await appointment.load(); } catch (cause: any) { setMessage(cause?.code === "VERSION_CONFLICT" ? "Appointment đã thay đổi. Đã tải lại để retry an toàn." : cause?.message ?? "Không thể commit add-service"); await appointment.load(); } finally { setSaving(false); } };
-  return <Shell eyebrow="Add-service approval" title="Thêm dịch vụ có kiểm soát" description="Preview schedule impact và giá snapshot trước khi tạo hold/commit."><StatePanel state={appointment.state} error={appointment.error} retry={appointment.load} label="appointment" />{message ? <Notice tone={message.startsWith("Đã") ? "success" : "info"}>{message}</Notice> : null}{appointment.state === "ready" && services.state === "ready" ? <form className="s19-form-card" onSubmit={preview}><Field label="Dịch vụ phát sinh"><select name="serviceId" required><option value="">Chọn dịch vụ</option>{rows(services.data).map((item) => <option key={item.id} value={item.id}>{labelOf(item)} · {item.defaultDurationMin ?? "—"} phút</option>)}</select></Field><button className="s19-button s19-button-primary">Preview lịch và giá</button></form> : null}{plan ? <section className="s19-confirm-card"><p className="s19-eyebrow">Pending approval</p><h2>{labelOf(rows(services.data).find((item) => item.id === plan.serviceId))}</h2><p>{plan.startAt} → {plan.endAt}</p><p>Ảnh hưởng lịch: +{plan.scheduleImpact?.extendsMinutes ?? 0} phút. Snapshot cũ không đổi.</p><button className="s19-button s19-button-primary" onClick={() => void commit()} disabled={saving}>{saving ? "Đang commit…" : "Customer đã duyệt · Thêm dịch vụ"}</button></section> : null}</Shell>;
-}
-
-function ServiceSession({ id }: { id: string }) {
-  const session = useRemote(`/v1/service-sessions/${id}`), staff = useRemote("/v1/staff?status=ACTIVE"), notes = useRemote(`/v1/service-sessions/${id}/notes`), [message, setMessage] = useState(""), [saving, setSaving] = useState(false);
-  const act = async (name: string, extra: any = {}) => { if (!session.data || saving) return; setSaving(true); try { await command(`/v1/service-sessions/${id}/${name}`, { version: session.data.version, ...extra }); setMessage(`Đã ${name} service session.`); await session.load(); } catch (cause: any) { setMessage(cause?.code?.includes("VERSION") ? "Version conflict. Đã tải lại session." : cause?.message ?? "Không thể cập nhật session"); await session.load(); } finally { setSaving(false); } };
-  const saveNote = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { await command(`/v1/service-sessions/${id}/notes`, { visibility: "TECHNICIAN", note: form.get("note") }); setMessage("Đã lưu note và sanitize phía server."); await notes.load(); event.currentTarget.reset(); } catch (cause: any) { setMessage(cause?.message ?? "Không thể lưu note"); } };
-  if (session.state !== "ready") return <Shell eyebrow="Service session" title="Workspace thực hiện dịch vụ" description="Tập trung vào service hiện tại và lịch sử attribution."><StatePanel state={session.state} error={session.error} retry={session.load} label="service session" /></Shell>;
-  const current = session.data; const staffRows = rows(staff.data);
-  return <Shell eyebrow="Service session" title="Workspace thực hiện dịch vụ" description={`${current.customerDisplayName ?? "Khách hàng"} · ${current.status} · work ${current.actualWorkSeconds ?? 0}s`} actions={<a className="s19-button s19-button-secondary" href={`/admin/appointments/${current.appointmentId}/overview`}>Mở booking</a>}><div className="s19-session-layout"><section className="s19-card s19-session-primary"><div className="s19-session-hero"><div><p className="s19-eyebrow">Current service</p><h2>{current.service?.name?.["vi-VN"] ?? current.service?.code ?? current.appointmentItemId}</h2><p>{current.scheduledStartAt ? new Date(current.scheduledStartAt).toLocaleString("vi-VN") : "Theo lịch hẹn"}</p></div><span className={`s19-session-state s19-session-${String(current.status).toLowerCase()}`}>{current.status}</span></div><div className="s19-action-row">{current.status === "PENDING" ? <button className="s19-button s19-button-primary" disabled={saving} onClick={() => void act("start", { staffId: staffRows[0]?.id })}>Bắt đầu</button> : null}{current.status === "IN_PROGRESS" ? <button className="s19-button s19-button-secondary" disabled={saving} onClick={() => void act("pause", { reasonCode: "CUSTOMER_BREAK" })}>Tạm dừng</button> : null}{current.status === "PAUSED" ? <button className="s19-button s19-button-primary" disabled={saving} onClick={() => void act("resume", { staffId: staffRows[0]?.id })}>Tiếp tục</button> : null}{["IN_PROGRESS", "PAUSED"].includes(current.status) ? <button className="s19-button s19-button-primary" disabled={saving} onClick={() => void act("complete")}>Hoàn thành</button> : null}<a className="s19-button s19-button-secondary" href={`/admin/appointments/${current.appointmentId}/add-service`}>Yêu cầu thêm dịch vụ</a></div><dl className="s19-summary-grid"><div><dt>Thời gian làm</dt><dd>{current.actualWorkSeconds ?? 0} giây</dd></div><div><dt>Tạm dừng</dt><dd>{current.totalPauseSeconds ?? 0} giây</dd></div><div><dt>Version</dt><dd>{current.version}</dd></div></dl></section><section className="s19-card"><div className="s19-card-heading"><div><p className="s19-eyebrow">Attribution history</p><h2>Staff segments</h2></div></div><div className="s19-item-list">{(current.segments ?? []).map((item: any) => <article className="s19-item" key={item.id}><div><strong>{item.staffId ?? item.staff_id}</strong><span>{item.endedAt ?? item.ended_at ? "Đã đóng" : "Đang thực hiện"}</span></div><small>{item.startedAt ?? item.started_at}</small></article>)}</div>{["IN_PROGRESS", "PAUSED"].includes(current.status) ? <form className="s19-inline-form" onSubmit={(event) => { event.preventDefault(); void act("transfer-staff", { targetStaffId: String(new FormData(event.currentTarget).get("targetStaffId")), reasonCode: "SHIFT_CHANGE" }); }}><Field label="Chuyển cho"><select name="targetStaffId" required><option value="">Chọn staff đủ điều kiện</option>{staffRows.filter((item) => item.id !== current.currentStaffId).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field><button className="s19-button s19-button-secondary">Transfer staff</button></form> : null}</section><section className="s19-card"><div className="s19-card-heading"><div><p className="s19-eyebrow">Technician notes</p><h2>Ghi chú làm dịch vụ</h2></div></div><StatePanel state={notes.state} error={notes.error} retry={notes.load} label="notes" />{notes.state === "ready" ? <div className="s19-note-list">{rows(notes.data).map((item) => <p key={item.id}>{item.note}</p>)}</div> : null}<form onSubmit={saveNote} className="s19-note-form"><Field label="Ghi chú mới"><textarea name="note" required maxLength={4000} rows={4} /></Field><button className="s19-button s19-button-primary">Lưu ghi chú</button></form>{message ? <Notice tone={message.includes("không") || message.includes("conflict") ? "error" : "success"}>{message}</Notice> : null}</section></div></Shell>;
 }
 
 export function isWave1RemediationPath(pathname: string) {
@@ -192,12 +376,12 @@ export function isWave1RemediationPath(pathname: string) {
 
 export default function Sprint19Wave1Remediation({ pathname }: { pathname: string }) {
   const parts = pathname.split("/").filter(Boolean);
-  if (pathname === "/admin/appointments/new") return <CreateBooking />;
-  if (pathname.startsWith("/admin/appointments/")) { const id = parts[2] ?? ""; const tab = parts[3] ?? "overview"; if (tab === "reschedule") return <Reschedule id={id} />; if (tab === "cancel") return <CancelBooking id={id} />; if (tab === "check-in") return <CheckIn id={id} />; if (tab === "add-service") return <AddService id={id} />; return <BookingDetail id={id} tab={tab} />; }
+  if (pathname === "/admin/appointments/new") return <CreateAppointmentPage />;
+  if (pathname.startsWith("/admin/appointments/")) { const id = parts[2] ?? ""; const tab = parts[3] ?? "overview"; if (tab === "reschedule") return <AppointmentReschedulePage appointmentId={id} />; if (tab === "cancel") return <AppointmentCancelPage appointmentId={id} />; if (tab === "check-in") return <AppointmentCheckInPage appointmentId={id} />; if (tab === "add-service") return <AppointmentAddServicePage appointmentId={id} />; if (tab === "checkout-summary") return <AppointmentCheckoutSummaryPage appointmentId={id} />; return <AppointmentDetailPage id={id} tab={tab} />; }
   if (pathname.startsWith("/admin/scheduling/blocks")) return <BusyBlocks />;
   if (pathname === "/admin/operations/walk-ins/new") return <WalkInCreate />;
   if (pathname.startsWith("/admin/operations/walk-ins/")) return <WalkInDetail id={parts[3] ?? ""} />;
   if (pathname.startsWith("/admin/operations")) return <QueueBoard />;
-  if (pathname.startsWith("/admin/service-sessions/")) return <ServiceSession id={parts[2] ?? ""} />;
+  if (pathname.startsWith("/admin/service-sessions/")) return <ServiceSessionPage sessionId={parts[2] ?? ""} />;
   return null;
 }

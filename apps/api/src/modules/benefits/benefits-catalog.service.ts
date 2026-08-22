@@ -509,7 +509,7 @@ export class BenefitsCatalogService {
     this.access(auth);
     return this.db
       .query(
-        `SELECT id,entry_type "entryType",pending_delta "pendingDelta",available_delta "availableDelta",reserved_delta "reservedDelta",lifetime_delta "lifetimeDelta",expires_at "expiresAt",created_at "createdAt" FROM loyalty_ledger_entries WHERE tenant_id=$1 AND customer_id=$2 ORDER BY created_at DESC,id DESC`,
+        `SELECT id,entry_type "entryType",pending_delta "pendingDelta",available_delta "availableDelta",reserved_delta "reservedDelta",lifetime_delta "lifetimeDelta",pos_order_id "posOrderId",invoice_id "invoiceId",expires_at "expiresAt",created_at "createdAt" FROM loyalty_ledger_entries WHERE tenant_id=$1 AND customer_id=$2 ORDER BY created_at DESC,id DESC`,
         [auth.tenantId, customerId],
       )
       .then((r) => r.rows);
@@ -916,14 +916,20 @@ export class BenefitsCatalogService {
           [auth.tenantId, customerId],
         )
       ).rows[0] ?? { spend_minor: 0 };
+      const lifetimePoints = (
+        await c.query<any>(
+          "SELECT COALESCE(lifetime_earned_points,0)::bigint lifetime_earned_points FROM loyalty_accounts WHERE tenant_id=$1 AND customer_id=$2",
+          [auth.tenantId, customerId],
+        )
+      ).rows[0]?.lifetime_earned_points ?? 0;
       await c.query(
         `INSERT INTO customer_membership_metrics(
-           tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,window_started_at,last_evaluated_at)
-         VALUES($1,$2,$3,$4,$5,now()-make_interval(days=>$6),now())
+           tenant_id,customer_id,rolling_spend_minor,lifetime_spend_minor,visit_count,points_earned,window_started_at,last_evaluated_at)
+         VALUES($1,$2,$3,$4,$5,$6,now()-make_interval(days=>$7),now())
          ON CONFLICT(tenant_id,customer_id) DO UPDATE SET
            rolling_spend_minor=EXCLUDED.rolling_spend_minor,
            lifetime_spend_minor=EXCLUDED.lifetime_spend_minor,
-           visit_count=EXCLUDED.visit_count,window_started_at=EXCLUDED.window_started_at,
+           visit_count=EXCLUDED.visit_count,points_earned=EXCLUDED.points_earned,window_started_at=EXCLUDED.window_started_at,
            last_evaluated_at=now(),version=customer_membership_metrics.version+1`,
         [
           auth.tenantId,
@@ -931,6 +937,7 @@ export class BenefitsCatalogService {
           metrics.spend_minor,
           lifetime.spend_minor,
           metrics.visit_count,
+          lifetimePoints,
           windowDays,
         ],
       );
@@ -938,15 +945,16 @@ export class BenefitsCatalogService {
         await c.query<any>(
           `SELECT t.*
            FROM membership_tiers t
-           CROSS JOIN LATERAL sprint8_membership_metrics(
-             $1,$2,now(),CASE WHEN t.qualification_type IN('ROLLING_SPEND','VISIT_COUNT')
-               THEN COALESCE(t.rolling_window_days,365) ELSE NULL END
-           ) m
-           WHERE t.tenant_id=$1 AND t.status='ACTIVE' AND t.effective_from<=now()
-             AND (t.effective_to IS NULL OR t.effective_to>now())
-             AND ((t.qualification_type='ROLLING_SPEND' AND t.qualification_threshold<=m.spend_minor)
-               OR (t.qualification_type='VISIT_COUNT' AND t.qualification_threshold<=m.visit_count))
-           ORDER BY t.priority DESC LIMIT 1`,
+            CROSS JOIN LATERAL sprint8_membership_metrics(
+              $1,$2,now(),CASE WHEN t.qualification_type IN('ROLLING_SPEND','VISIT_COUNT')
+                THEN COALESCE(t.rolling_window_days,365) ELSE NULL END
+            ) m
+            WHERE t.tenant_id=$1 AND t.status='ACTIVE' AND t.qualification_type<>'MANUAL' AND t.effective_from<=now()
+              AND (t.effective_to IS NULL OR t.effective_to>now())
+              AND ((t.qualification_type IN('ROLLING_SPEND','LIFETIME_SPEND') AND t.qualification_threshold<=m.spend_minor)
+                OR (t.qualification_type='VISIT_COUNT' AND t.qualification_threshold<=m.visit_count)
+                OR (t.qualification_type='POINTS_EARNED' AND t.qualification_threshold<=COALESCE((SELECT lifetime_earned_points FROM loyalty_accounts WHERE tenant_id=$1 AND customer_id=$2),0)))
+           ORDER BY t.priority DESC,t.qualification_threshold DESC LIMIT 1`,
           [auth.tenantId, customerId],
         )
       ).rows[0];
@@ -956,6 +964,7 @@ export class BenefitsCatalogService {
            FROM customer_membership_assignments a
            JOIN membership_tiers t ON t.tenant_id=a.tenant_id AND t.id=a.tier_id
            WHERE a.tenant_id=$1 AND a.customer_id=$2 AND a.status='ACTIVE'
+             AND a.effective_from<=now() AND (a.effective_to IS NULL OR a.effective_to>now())
            ORDER BY a.effective_from DESC LIMIT 1 FOR UPDATE OF a`,
           [auth.tenantId, customerId],
         )
@@ -966,6 +975,17 @@ export class BenefitsCatalogService {
           changed: false,
           assignmentId: current.id,
           reasonCodes: ["MANUAL_ASSIGNMENT_PROTECTED"],
+        };
+      if (
+        current?.grace_until &&
+        new Date(current.grace_until) > new Date() &&
+        (!tier || Number(tier.priority) < Number(current.current_priority ?? 0))
+      )
+        return {
+          customerId,
+          changed: false,
+          assignmentId: current.id,
+          reasonCodes: ["GRACE_PERIOD_PROTECTED"],
         };
       if (!tier) {
         if (!current)

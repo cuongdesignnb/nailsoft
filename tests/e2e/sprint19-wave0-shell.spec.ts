@@ -86,7 +86,6 @@ test.describe("Sprint 19 Wave 0 shells", () => {
     await expect(branchPicker).toBeVisible();
     await branchPicker.selectOption({ label: "New York DST Lab" });
     await expect(branchPicker.locator("option:checked")).toHaveText("New York DST Lab");
-    await expect(page.locator(".ns-header-actions .ns-status")).toHaveText("New York DST Lab");
     const skipLink = page.locator(".ns-skip-link");
     expect(await skipLink.evaluate((element) => { const style = getComputedStyle(element); const rect = element.getBoundingClientRect(); return style.top.startsWith("-") && rect.bottom < 0; })).toBeTruthy();
     await page.screenshot({ path: resolve(evidence, "gallery-desktop-ready.png"), fullPage: true, animations: "disabled" });

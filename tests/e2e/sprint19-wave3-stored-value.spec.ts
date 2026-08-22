@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 import { authenticated, close } from "./auth/setup";
@@ -22,7 +23,7 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 3", () => {
     await page.goto("/admin/vouchers/campaigns");
     await expect(page.getByRole("heading", { name: "Voucher campaigns" })).toBeVisible();
     await page.goto("/admin/vouchers/codes");
-    await expect(page.getByRole("heading", { name: "Voucher codes" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Voucher khách hàng", exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("code_hash");
     await expectA11y(page);
   });
@@ -43,11 +44,23 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 3", () => {
   test("customer credit and adjustment screens expose approval states", async ({ page }) => {
     await loginUi(page);
     await page.goto("/admin/customer-credit");
-    await expect(page.getByRole("heading", { name: "Customer credit" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Store Credit", exact: true })).toBeVisible();
     await page.goto("/admin/stored-value/adjustments");
     await expect(page.getByRole("heading", { name: "Stored-value adjustments" })).toBeVisible();
     await expect(page.getByText("Approval required")).toBeVisible();
     await expectA11y(page);
+  });
+
+  test("customer store credit hub has a stable desktop visual", async ({ page }) => {
+    await loginUi(page);
+    await page.setViewportSize({ width: 1672, height: 941 });
+    await page.goto("/admin/customer-credit");
+    await expect(page.getByRole("heading", { name: "Store Credit", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const result = await new AxeBuilder({ page }).analyze();
+    expect(result.violations.filter((item) => item.impact === "critical" || item.impact === "serious")).toEqual([]);
+    fs.mkdirSync("artifacts/sprint19/screens", { recursive: true });
+    await page.screenshot({ path: "artifacts/sprint19/screens/customer-store-credit.png", fullPage: true });
   });
 
   test("stored-value POS and liability routes remain owned by their legacy renderers", async ({ page }) => {
@@ -74,7 +87,7 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 3", () => {
     await loginUi(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/admin/gift-cards");
-    await expect(page.getByRole("heading", { name: "Gift cards" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Gift cards", exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 });

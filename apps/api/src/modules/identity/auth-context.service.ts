@@ -39,8 +39,8 @@ export class AuthContextService {
     const ownerHasTenantScope = auth.roles.includes("SALON_OWNER") && !auth.supportAccess;
     const branches = platformWithoutGrant
       ? []
-      : (await this.db.query<{ id: string; name: string; status: string }>(
-          `SELECT id,name,status FROM branches WHERE tenant_id=$1
+      : (await this.db.query<{ id: string; name: string; status: string; timezone: string }>(
+          `SELECT id,name,status,timezone FROM branches WHERE tenant_id=$1
            AND status<>'ARCHIVED' AND ($2::boolean OR id=ANY($3::uuid[])) ORDER BY name,id`,
           [auth.tenantId, ownerHasTenantScope, allowedBranchIds],
         )).rows;

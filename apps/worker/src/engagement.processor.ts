@@ -38,6 +38,14 @@ export class EngagementProcessor implements OnModuleDestroy {
     ).rows;
     let count = 0;
     for (const event of events) {
+      if (event.event_type === "appointment.cancelled") {
+        await this.pool.query(
+          `UPDATE communication_messages SET status='CANCELLED',suppression_reason='APPOINTMENT_CHANGED',updated_at=now()
+           WHERE tenant_id=$1 AND appointment_id=$2 AND purpose='APPOINTMENT_REMINDER' AND status IN('PENDING','SCHEDULED')`,
+          [event.tenant_id, event.aggregate_id],
+        );
+        if (event.payload_json?.sendCancellationEmail === false) continue;
+      }
       const rule = (
         await this.pool.query<any>(
           `SELECT r.*,v.locale,v.subject,v.html_body,v.plain_text_body,v.allowed_variables_json,v.required_variables_json FROM communication_rules r JOIN communication_template_versions v ON v.tenant_id=r.tenant_id AND v.id=r.template_version_id WHERE r.tenant_id=$1 AND r.domain_event=$2 AND r.status='ACTIVE' AND (r.branch_id IS NULL OR r.branch_id=$3) ORDER BY r.branch_id NULLS LAST LIMIT 1`,
@@ -100,10 +108,7 @@ export class EngagementProcessor implements OnModuleDestroy {
         ],
       );
       count += result.rowCount ?? 0;
-      if (
-        event.event_type === "appointment.rescheduled" ||
-        event.event_type === "appointment.cancelled"
-      )
+      if (event.event_type === "appointment.rescheduled")
         await this.pool.query(
           `UPDATE communication_messages SET status='CANCELLED',suppression_reason='APPOINTMENT_CHANGED',updated_at=now() WHERE tenant_id=$1 AND appointment_id=$2 AND purpose='APPOINTMENT_REMINDER' AND status IN('PENDING','SCHEDULED') AND generation_key<>$3`,
           [event.tenant_id, event.aggregate_id, `event:${event.id}`],

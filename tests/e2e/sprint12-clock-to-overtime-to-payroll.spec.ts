@@ -14,6 +14,25 @@ test("authenticated clock flow produces overtime classification and payroll earn
   const accountant = await login("accountant@example.test");
   const technician = await login("staff5@example.test");
   try {
+    // Keep this closure valid when the suite is run on a different day. The
+    // clock commands use the branch-local current date, while the seed period
+    // is intentionally historical.
+    await db.query(
+      `UPDATE timesheet_periods
+       SET starts_on=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+           ends_on=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+           state='SUBMISSION_OPEN'
+       WHERE tenant_id=$1 AND id='f1200000-0000-4000-8000-000000000051'`,
+      [tenant],
+    );
+    await db.query(
+      `UPDATE payroll_periods
+       SET starts_on=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+           ends_on=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+           pay_date=(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+       WHERE tenant_id=$1 AND id='f1200000-0000-4000-8000-000000000082'`,
+      [tenant],
+    );
     await db.query(
       `UPDATE attendance_sessions SET state='VOIDED' WHERE tenant_id=$1 AND staff_id='47000000-0000-4000-8000-000000000005' AND state='OPEN'`,
       [tenant],

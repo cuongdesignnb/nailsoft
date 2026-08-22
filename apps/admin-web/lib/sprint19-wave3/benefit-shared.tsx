@@ -114,7 +114,7 @@ export function BenefitStatePanel({ resource, label, partial = false }: { resour
 }
 
 export function BenefitShell({ title, eyebrow = "CUSTOMER BENEFITS", backHref = "/admin/benefits", children }: { title: string; eyebrow?: string; backHref?: string; children: React.ReactNode }) {
-  return <main className="s19-benefit-page"><nav className="s19-benefit-nav" aria-label="Benefits navigation"><a href="/admin/benefits">Benefits wallet</a><a href="/admin/loyalty/programs">Loyalty programs</a><a href="/admin/loyalty/adjustments">Adjustments</a><a href="/admin/membership/tiers">Membership tiers</a><a href="/admin/packages/catalog">Packages</a></nav><header className="s19-page-heading"><div><p className="s19-eyebrow">{eyebrow}</p><h1>{title}</h1></div><a className="s19-button s19-button-secondary" href={backHref}>Back</a></header>{children}</main>;
+  return <main className="s19-benefit-page"><header className="s19-page-heading"><div><p className="s19-eyebrow">{eyebrow}</p><h1>{title}</h1></div><a className="s19-button s19-button-secondary" href={backHref}>Quay lại</a></header>{children}</main>;
 }
 
 export function CustomerBenefitHeader({ customerId, backHref = "/admin/benefits" }: { customerId: string; backHref?: string }) {

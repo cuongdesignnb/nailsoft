@@ -47,6 +47,12 @@ test.describe.serial("Sprint 19 Wave 6 accounting and banking", () => {
     await loginUi(page);
     await expectWorkspace(page, "/admin/accounting/reconciliation", "Bank accounts & imports");
     await expectWorkspace(page, "/admin/accounting/reconciliation/exceptions", "Reconciliation & exceptions");
+    const bookSelector = page.getByLabel("Accounting book");
+    await expect(bookSelector).toBeVisible();
+    // The test creates the authorized book above; the deterministic seed does
+    // not require an unrelated second book just to exercise this workspace.
+    await expect(bookSelector.locator("option")).toHaveCount(1);
+    await bookSelector.selectOption({ index: 0 });
     await expect(page.getByText(/Request manual reconciliation adjustment/i)).toBeVisible();
     await expect(page.getByText(/manual ledger adjustment.*deferred/i)).toHaveCount(0);
     await expectWorkspace(page, "/admin/accounting/statement-snapshots", "Statement snapshots");

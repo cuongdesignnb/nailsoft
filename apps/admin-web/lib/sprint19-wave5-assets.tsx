@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { authorizedFetch, getAuthorizedBranchContext, setActiveBranchId } from "./auth";
 
 type State = "loading" | "ready" | "empty" | "error" | "forbidden";
@@ -22,7 +22,6 @@ const views: Record<string, AssetView> = {
   "/admin/assets/reports": { title: "Asset reports", endpoint: "/v1/assets/reports/register", kind: "reports", description: "Read-only register and valuation evidence from the accounting source." },
 };
 
-const nav = Object.entries(views);
 const columns: Record<string, string[]> = {
   register: ["assetCode", "name", "branchId", "status", "currency", "grossCarryingAmountMinor", "version"],
   candidates: ["id", "sourceType", "description", "amountMinor", "status", "version"],
@@ -81,6 +80,7 @@ export default function Sprint19Wave5Assets({ pathname }: { pathname: string }) 
   const [busy, setBusy] = useState(false);
   const [branchId, setBranchId] = useState<string | undefined>();
   const [branches, setBranches] = useState<Branch[]>([]);
+  const intentKeys = useRef<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -100,17 +100,19 @@ export default function Sprint19Wave5Assets({ pathname }: { pathname: string }) 
   async function run(row: any, command: string, body: Record<string, unknown>) {
     if (!navigator.onLine) { setNotice("Internet connection required. Asset commands are not queued offline."); return; }
     setBusy(true); setNotice(""); setError("");
+    const intent = `${row.id}:${command}`;
+    const key = intentKeys.current[intent] ?? (intentKeys.current[intent] = crypto.randomUUID());
     try {
-      const response = await authorizedFetch(`${view.endpoint}/${row.id}/${command}`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(body) });
+      const response = await authorizedFetch(`${view.endpoint}/${row.id}/${command}`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(body) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error?.code === "VERSION_CONFLICT" ? "Version conflict. Refresh before retrying." : (result.error?.message ?? "Command failed safely."));
+      delete intentKeys.current[intent];
       setNotice(`${command} completed after server confirmation.`); await load();
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
   const visibleColumns = columns[view.kind] ?? [];
   return <main className="shell ops-shell">
-    <nav className="topbar" aria-label="Fixed assets navigation">{nav.map(([href, item]) => <a key={href} href={href} aria-current={href === route ? "page" : undefined}>{item.title}</a>)}</nav>
     <section className="card">
       <p className="eyebrow">SPRINT 19 · WAVE 5 · FIXED ASSETS</p>
       <div className="title-row"><div><h1>{view.title}</h1><p className="hint">{view.description}</p></div><button onClick={() => void load()} disabled={state === "loading"}>Refresh</button></div>

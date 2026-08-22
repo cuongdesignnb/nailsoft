@@ -14,6 +14,9 @@ import {
   posAssignRegisterSchema,
   posManualLineSchema,
   posOrderCreateSchema,
+  posOrderDirectoryQuerySchema,
+  invoiceDirectoryQuerySchema,
+  paymentDirectoryQuerySchema,
   posOrderVersionSchema,
   posPaymentSchema,
   posTipSchema,
@@ -299,6 +302,200 @@ export class PosService {
         values,
       )
     ).rows.map(orderSummary);
+  }
+
+  async directory(auth: AccessClaims, input: unknown) {
+    const query = posOrderDirectoryQuerySchema.parse(input ?? {});
+    this.assertTenantAccess(auth);
+    if (query.branchId) this.assertBranch(auth, query.branchId);
+
+    const branches = auth.roles.includes("SALON_OWNER") ? null : auth.branchIds;
+    const values: unknown[] = [auth.tenantId, branches, query.branchId ?? null];
+    const where = [
+      "o.tenant_id=$1",
+      "($2::uuid[] IS NULL OR o.branch_id=ANY($2::uuid[]))",
+      "($3::uuid IS NULL OR o.branch_id=$3)",
+    ];
+    if (query.search) {
+      values.push(`%${query.search.toLowerCase()}%`);
+      const index = values.length;
+      where.push(
+        `(lower(o.order_number) LIKE $${index}
+          OR lower(COALESCE(o.customer_snapshot_json->>'displayName', o.customer_snapshot_json->>'display_name', '')) LIKE $${index}
+          OR lower(COALESCE(o.customer_snapshot_json->>'phone', '')) LIKE $${index}
+          OR lower(COALESCE(a.booking_reference, o.appointment_snapshot_json->>'bookingReference', '')) LIKE $${index})`,
+      );
+    }
+    const statuses = query.status
+      ? Array.isArray(query.status)
+        ? query.status
+        : [query.status]
+      : undefined;
+    if (statuses?.length) {
+      values.push(statuses);
+      where.push(`o.status=ANY($${values.length}::text[])`);
+    }
+    if (query.source) {
+      values.push(query.source);
+      where.push(`o.source=$${values.length}`);
+    }
+    if (query.tenderType) {
+      values.push(query.tenderType);
+      where.push(
+        `EXISTS (SELECT 1 FROM payments tf WHERE tf.tenant_id=o.tenant_id AND tf.pos_order_id=o.id AND tf.status='CAPTURED' AND tf.tender_type=$${values.length})`,
+      );
+    }
+    if (query.dateFrom) {
+      values.push(query.dateFrom);
+      where.push(
+        `(o.created_at AT TIME ZONE b.timezone)::date >= $${values.length}::date`,
+      );
+    }
+    if (query.dateTo) {
+      values.push(query.dateTo);
+      where.push(
+        `(o.created_at AT TIME ZONE b.timezone)::date <= $${values.length}::date`,
+      );
+    }
+    if (query.refundFilter === "HAS_REFUND") {
+      where.push(
+        "EXISTS (SELECT 1 FROM refunds rf WHERE rf.tenant_id=o.tenant_id AND rf.pos_order_id=o.id)",
+      );
+    } else if (query.refundFilter === "NO_REFUND") {
+      where.push(
+        "NOT EXISTS (SELECT 1 FROM refunds rf WHERE rf.tenant_id=o.tenant_id AND rf.pos_order_id=o.id)",
+      );
+    }
+
+    const from = `
+      FROM pos_orders o
+      JOIN branches b ON b.tenant_id=o.tenant_id AND b.id=o.branch_id
+      LEFT JOIN appointments a ON a.tenant_id=o.tenant_id AND a.id=o.appointment_id
+      LEFT JOIN LATERAL (
+        SELECT count(*)::int item_count,
+               COALESCE(jsonb_agg(l.description_snapshot_json ORDER BY l.line_no,l.id) FILTER (WHERE l.status='ACTIVE'),'[]'::jsonb) item_summary
+          FROM pos_order_lines l
+         WHERE l.tenant_id=o.tenant_id AND l.pos_order_id=o.id
+      ) lines ON true
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(sum(p.captured_minor),0)::bigint paid_minor,
+               COALESCE(array_agg(DISTINCT p.tender_type ORDER BY p.tender_type) FILTER (WHERE p.status='CAPTURED'),'{}'::text[]) payment_methods,
+               (array_agg(p.created_by_user_id ORDER BY p.captured_at DESC NULLS LAST,p.created_at DESC,p.id DESC) FILTER (WHERE p.status='CAPTURED'))[1] cashier_user_id
+          FROM payments p
+         WHERE p.tenant_id=o.tenant_id AND p.pos_order_id=o.id
+      ) payments ON true
+          LEFT JOIN users cashier ON cashier.id=payments.cashier_user_id
+      LEFT JOIN LATERAL (
+        SELECT i.id invoice_id,i.status invoice_status,i.invoice_number
+          FROM invoices i
+         WHERE i.tenant_id=o.tenant_id AND i.pos_order_id=o.id
+         ORDER BY i.created_at DESC,i.id DESC LIMIT 1
+      ) invoice ON true
+      WHERE ${where.join(" AND ")}`;
+
+    const countResult = await this.db.query<any>(
+      `WITH filtered AS (
+         SELECT o.status,(o.total_minor+o.tip_minor)::bigint grand_total_minor ${from}
+       ), status_counts AS (
+         SELECT status,count(*)::int status_count FROM filtered GROUP BY status
+       )
+       SELECT count(*)::int total,
+              COALESCE(sum(grand_total_minor),0)::bigint total_grand_total_minor,
+              COALESCE(avg(grand_total_minor),0)::numeric average_grand_total_minor,
+              COALESCE((SELECT jsonb_object_agg(status,status_count) FROM status_counts),'{}'::jsonb) status_counts
+         FROM filtered`,
+      values,
+    );
+    const countRow = countResult.rows[0] ?? { total: 0, status_counts: {} };
+    const orderBy = {
+      NEWEST: "o.created_at DESC,o.id DESC",
+      OLDEST: "o.created_at ASC,o.id ASC",
+      AMOUNT_DESC: "(o.total_minor+o.tip_minor) DESC,o.created_at DESC,o.id DESC",
+      AMOUNT_ASC: "(o.total_minor+o.tip_minor) ASC,o.created_at ASC,o.id ASC",
+    }[query.sort];
+    const offset = (query.page - 1) * query.pageSize;
+    const pageIndex = values.length + 1;
+    const sizeIndex = values.length + 2;
+    const rows = await this.db.query<any>(
+      `SELECT o.id,o.branch_id,o.register_id,o.appointment_id,o.customer_id,o.order_number,o.source,o.status,o.currency,
+              o.subtotal_minor,o.discount_minor,o.taxable_minor,o.tax_minor,o.total_minor,o.tip_minor,
+              o.amount_paid_minor,o.amount_due_minor,o.finalized_at,o.paid_at,o.created_at,o.updated_at,
+              a.booking_reference,
+              COALESCE(o.customer_snapshot_json->>'displayName',o.customer_snapshot_json->>'display_name','Khách vãng lai') customer_display_name,
+              COALESCE(o.customer_snapshot_json->>'phone','') customer_phone,
+              lines.item_count,lines.item_summary,
+              payments.payment_methods, payments.paid_minor captured_paid_minor,
+              payments.cashier_user_id, cashier.display_name cashier_name,
+              invoice.invoice_id,invoice.invoice_status,invoice.invoice_number
+         ${from}
+        ORDER BY ${orderBy}
+        LIMIT $${pageIndex} OFFSET $${sizeIndex}`,
+      [...values, query.pageSize, offset],
+    );
+    const total = Number(countRow.total ?? 0);
+    return {
+      items: rows.rows.map((row) => ({
+        ...orderSummary(row),
+        bookingReference: row.booking_reference,
+        customerDisplayName: row.customer_display_name,
+        customerPhone: row.customer_phone,
+        itemCount: Number(row.item_count ?? 0),
+        itemSummary: row.item_summary ?? [],
+        paymentMethods: row.payment_methods ?? [],
+        cashier: row.cashier_user_id
+          ? { userId: row.cashier_user_id, displayName: row.cashier_name ?? "" }
+          : null,
+        invoice: row.invoice_id
+          ? {
+              id: row.invoice_id,
+              invoiceNumber: row.invoice_number,
+              status: row.invoice_status,
+            }
+          : null,
+      })),
+      pagination: {
+        page: query.page,
+        pageSize: query.pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / query.pageSize)),
+      },
+      counts: {
+        total,
+        byStatus: countRow.status_counts ?? {},
+      },
+      summary: {
+        totalGrandTotalMinor: Number(countRow.total_grand_total_minor ?? 0),
+        averageGrandTotalMinor: Number(countRow.average_grand_total_minor ?? 0),
+      },
+      query,
+    };
+  }
+
+  async directoryExport(auth: AccessClaims, input: unknown) {
+    const query = posOrderDirectoryQuerySchema.parse({
+      ...(input as Record<string, unknown>),
+      page: 1,
+      pageSize: 100,
+    });
+    const result = await this.directory(auth, query);
+    const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const rows = result.items.map((item: any) => [
+      item.orderNumber,
+      item.customerDisplayName,
+      item.customerPhone,
+      item.source,
+      item.itemCount,
+      item.grandTotalMinor,
+      item.amountPaidMinor,
+      item.amountDueMinor,
+      item.status,
+      item.cashier?.displayName ?? "",
+      item.createdAt,
+    ].map(escape).join(","));
+    return [
+      "Mã đơn,Khách hàng,Số điện thoại,Nguồn,Số dịch vụ,Tổng tiền minor,Đã thanh toán minor,Còn phải thu minor,Trạng thái,Thu ngân,Thời gian tạo",
+      ...rows,
+    ].join("\n");
   }
 
   async detail(auth: AccessClaims, id: string) {
@@ -1376,6 +1573,289 @@ export class PosService {
     ).rows.map(paymentView);
   }
 
+  async paymentDirectory(auth: AccessClaims, input: unknown) {
+    const query = paymentDirectoryQuerySchema.parse(input ?? {});
+    this.assertTenantAccess(auth);
+    if (query.branchId) this.assertBranch(auth, query.branchId);
+
+    const branches = auth.roles.includes("SALON_OWNER") ? null : auth.branchIds;
+    const values: unknown[] = [auth.tenantId, branches, query.branchId ?? null];
+    const where = [
+      "tenant_id=$1",
+      "($2::uuid[] IS NULL OR branch_id=ANY($2))",
+      "($3::uuid IS NULL OR branch_id=$3)",
+    ];
+    const canSeeCustomerPhone = !auth.supportAccess && !auth.roles.includes("PLATFORM_SUPER_ADMIN");
+    if (query.search) {
+      values.push(`%${query.search.toLowerCase()}%`);
+      const index = values.length;
+      where.push(
+        `(lower(COALESCE(payment_reference,'')) LIKE $${index}
+          OR lower(COALESCE(order_number,'')) LIKE $${index}
+          OR lower(COALESCE(invoice_number,'')) LIKE $${index}
+          OR lower(COALESCE(customer_display_name,'')) LIKE $${index}
+          OR lower(COALESCE(booking_reference,'')) LIKE $${index}
+          OR lower(COALESCE(provider_transaction_id_suffix,'')) LIKE $${index})`,
+      );
+    }
+    if (query.tenderType) {
+      values.push(query.tenderType);
+      where.push(`tender_type=$${values.length}`);
+    }
+    if (query.status) {
+      values.push(query.status);
+      where.push(`payment_status=$${values.length}`);
+    }
+    if (query.reconciliation === "NEEDS_ATTENTION") where.push("reconciliation_state='NEEDS_ATTENTION'");
+    if (query.reconciliation === "NORMAL") where.push("reconciliation_state<>'NEEDS_ATTENTION'");
+    if (query.refund === "HAS_REFUND") where.push("refund_relation_count>0");
+    if (query.refund === "NO_REFUND") where.push("refund_relation_count=0");
+    if (query.orderId) {
+      values.push(query.orderId);
+      where.push(`order_id=$${values.length}`);
+    }
+    if (query.invoiceId) {
+      values.push(query.invoiceId);
+      where.push(`invoice_id=$${values.length}`);
+    }
+    if (query.cashSessionId) {
+      values.push(query.cashSessionId);
+      where.push(`cash_session_id=$${values.length}`);
+    }
+    if (query.dateFrom) {
+      values.push(query.dateFrom);
+      where.push(`(COALESCE(captured_at,created_at) AT TIME ZONE branch_timezone)::date >= $${values.length}::date`);
+    }
+    if (query.dateTo) {
+      values.push(query.dateTo);
+      where.push(`(COALESCE(captured_at,created_at) AT TIME ZONE branch_timezone)::date <= $${values.length}::date`);
+    }
+
+    const base = `
+      WITH base AS (
+        SELECT p.tenant_id,p.id,p.branch_id,p.pos_order_id order_id,p.payment_reference,
+               p.tender_type,p.status payment_status,p.currency,p.requested_minor,p.captured_minor,
+               p.cash_received_minor,p.change_due_minor,p.provider,p.provider_transaction_id,
+               right(COALESCE(p.provider_transaction_id,''),8) provider_transaction_id_suffix,
+               p.terminal_id,p.card_brand,p.card_last4,p.cash_session_id,p.register_id,
+               p.captured_at,p.created_at,p.created_by_user_id,
+               o.order_number,o.source order_source,o.appointment_id,o.customer_id,
+               a.booking_reference,
+               i.id invoice_id,i.invoice_number,i.status invoice_status,
+               b.name branch_name,b.code branch_code,b.timezone branch_timezone,
+               r.code register_code,r.name register_name,
+               actor.display_name cashier_display_name,
+               cs.status cash_session_status,cs.business_date cash_business_date,
+               COALESCE(o.customer_snapshot_json->>'displayName',o.customer_snapshot_json->>'display_name','Khách vãng lai') customer_display_name,
+               COALESCE(o.customer_snapshot_json->>'phone','') customer_phone,
+               CASE WHEN p.tender_type='CASH' AND p.status='CAPTURED' AND cash.matched_movement_id IS NOT NULL
+                    THEN 'MATCHED'
+                    WHEN p.tender_type='CASH' AND p.status='CAPTURED' THEN 'NEEDS_ATTENTION'
+                    WHEN p.status='FAILED' OR attempts.unknown_attempt_count > 0 OR refunds.unknown_refund_count > 0
+                    THEN 'NEEDS_ATTENTION'
+                    ELSE 'NOT_APPLICABLE' END reconciliation_state,
+               CASE WHEN p.status='FAILED' THEN 'PAYMENT_FAILED'
+                    WHEN p.tender_type='CASH' AND p.status='CAPTURED' AND cash.matched_movement_id IS NULL THEN 'CASH_MOVEMENT_MISSING'
+                    WHEN attempts.unknown_attempt_count > 0 THEN 'PAYMENT_ATTEMPT_UNKNOWN'
+                    WHEN refunds.unknown_refund_count > 0 THEN 'REFUND_STATUS_UNKNOWN'
+                    ELSE NULL END attention_code,
+               CASE WHEN p.status='FAILED' THEN 'Giao dịch capture thất bại cần kiểm tra'
+                    WHEN p.tender_type='CASH' AND p.status='CAPTURED' AND cash.matched_movement_id IS NULL THEN 'Chưa xác minh được CASH_SALE trong phiên thu ngân'
+                    WHEN attempts.unknown_attempt_count > 0 THEN 'Payment attempt có kết quả chưa xác định'
+                    WHEN refunds.unknown_refund_count > 0 THEN 'Có refund provider event chưa xác định'
+                    ELSE NULL END attention_message,
+               CASE WHEN p.status='FAILED' OR (p.tender_type='CASH' AND p.status='CAPTURED' AND cash.matched_movement_id IS NULL)
+                    THEN 'WARNING'
+                    WHEN attempts.unknown_attempt_count > 0 OR refunds.unknown_refund_count > 0 THEN 'WARNING'
+                    ELSE NULL END attention_severity,
+               cash.matched_movement_id,
+               refunds.refund_amount_minor,refunds.refund_count,refunds.refund_relation_count,refunds.latest_refund_id,
+               refunds.latest_refund_reference,refunds.latest_refund_status,
+               refunds.unknown_refund_count,
+               attempts.unknown_attempt_count,
+               COALESCE(cash.cash_sale_count,0)::int cash_sale_count
+          FROM payments p
+          JOIN pos_orders o ON o.tenant_id=p.tenant_id AND o.id=p.pos_order_id
+          JOIN branches b ON b.tenant_id=p.tenant_id AND b.id=p.branch_id
+          LEFT JOIN appointments a ON a.tenant_id=o.tenant_id AND a.id=o.appointment_id
+          LEFT JOIN invoices i ON i.tenant_id=o.tenant_id AND i.pos_order_id=o.id
+          LEFT JOIN pos_registers r ON r.tenant_id=p.tenant_id AND r.id=p.register_id
+          LEFT JOIN users actor ON actor.origin_tenant_id=p.tenant_id AND actor.id=p.created_by_user_id
+          LEFT JOIN cash_sessions cs ON cs.tenant_id=p.tenant_id AND cs.id=p.cash_session_id
+          LEFT JOIN LATERAL (
+            SELECT count(*) FILTER (WHERE cm.movement_type='CASH_SALE')::int cash_sale_count,
+                   (array_agg(cm.id ORDER BY cm.occurred_at DESC,cm.id DESC)
+                      FILTER (WHERE cm.movement_type='CASH_SALE' AND cm.amount_minor=p.captured_minor))[1] matched_movement_id
+              FROM cash_movements cm
+             WHERE cm.tenant_id=p.tenant_id AND cm.related_payment_id=p.id
+          ) cash ON true
+          LEFT JOIN LATERAL (
+            SELECT COALESCE(sum(a.completed_minor) FILTER (WHERE a.status='COMPLETED'),0)::bigint refund_amount_minor,
+                   count(*) FILTER (WHERE a.status='COMPLETED')::int refund_count,
+                   count(*)::int refund_relation_count,
+                   count(*) FILTER (WHERE a.status='UNKNOWN')::int unknown_refund_count,
+                   (array_agg(rf.id ORDER BY rf.created_at DESC,rf.id DESC))[1] latest_refund_id,
+                   (array_agg(rf.refund_reference ORDER BY rf.created_at DESC,rf.id DESC))[1] latest_refund_reference,
+                   (array_agg(rf.status ORDER BY rf.created_at DESC,rf.id DESC))[1] latest_refund_status
+              FROM refund_payment_allocations a
+              JOIN refunds rf ON rf.tenant_id=a.tenant_id AND rf.id=a.refund_id
+             WHERE a.tenant_id=p.tenant_id AND a.original_payment_id=p.id
+          ) refunds ON true
+          LEFT JOIN LATERAL (
+            SELECT count(*) FILTER (WHERE pa.result='UNKNOWN')::int unknown_attempt_count
+              FROM payment_attempts pa
+             WHERE pa.tenant_id=p.tenant_id AND pa.payment_id=p.id
+          ) attempts ON true
+      ), filtered AS (
+        SELECT * FROM base WHERE ${where.join(" AND ")}
+      )`;
+
+    const aggregate = await this.db.query<any>(
+      `${base}
+       SELECT count(*)::int total,
+              count(*) FILTER (WHERE payment_status='CAPTURED')::int captured,
+              count(*) FILTER (WHERE payment_status IN ('PENDING','AUTHORIZED'))::int processing,
+              count(*) FILTER (WHERE payment_status='FAILED')::int failed,
+              count(*) FILTER (WHERE attention_code IS NOT NULL)::int needs_attention,
+              COALESCE(sum(captured_minor) FILTER (WHERE payment_status='CAPTURED'),0)::bigint captured_minor,
+              COALESCE(sum(captured_minor) FILTER (WHERE payment_status='CAPTURED'),0)::bigint successful_amount_minor
+         FROM filtered`,
+      values,
+    );
+    const mix = await this.db.query<any>(
+      `${base}
+       SELECT tender_type,count(*)::int transaction_count,
+              COALESCE(sum(captured_minor) FILTER (WHERE payment_status='CAPTURED'),0)::bigint captured_minor
+         FROM filtered
+        WHERE payment_status='CAPTURED'
+        GROUP BY tender_type
+        ORDER BY tender_type`,
+      values,
+    );
+    const countRow = aggregate.rows[0] ?? {};
+    const total = Number(countRow.total ?? 0);
+    const capturedCount = Number(countRow.captured ?? 0);
+    const capturedMinor = minorNumber(countRow.captured_minor);
+    const totalPages = Math.max(1, Math.ceil(total / query.pageSize));
+    const orderBy = {
+      NEWEST: "COALESCE(captured_at,created_at) DESC,id DESC",
+      OLDEST: "COALESCE(captured_at,created_at) ASC,id ASC",
+      AMOUNT_DESC: "captured_minor DESC,COALESCE(captured_at,created_at) DESC,id DESC",
+      AMOUNT_ASC: "captured_minor ASC,COALESCE(captured_at,created_at) ASC,id ASC",
+    }[query.sort];
+    const offset = (query.page - 1) * query.pageSize;
+    const pageIndex = values.length + 1;
+    const sizeIndex = values.length + 2;
+    const rows = await this.db.query<any>(
+      `${base}
+       SELECT * FROM filtered ORDER BY ${orderBy} LIMIT $${pageIndex} OFFSET $${sizeIndex}`,
+      [...values, query.pageSize, offset],
+    );
+    const mapRow = (row: any) => {
+      const attention = row.attention_code
+        ? { required: true, severity: row.attention_severity, code: row.attention_code, message: row.attention_message }
+        : null;
+      return {
+        id: row.id,
+        paymentReference: row.payment_reference,
+        orderId: row.order_id,
+        orderNumber: row.order_number,
+        orderSource: row.order_source,
+        invoiceId: row.invoice_id,
+        invoiceNumber: row.invoice_number,
+        invoiceStatus: row.invoice_status,
+        appointmentId: row.appointment_id,
+        bookingReference: row.booking_reference,
+        branchId: row.branch_id,
+        branchName: row.branch_name,
+        branchCode: row.branch_code,
+        timezone: row.branch_timezone,
+        registerId: row.register_id,
+        registerCode: row.register_code,
+        registerName: row.register_name,
+        cashSessionId: row.cash_session_id,
+        cashSessionStatus: row.cash_session_status,
+        cashBusinessDate: row.cash_business_date,
+        cashierUserId: row.created_by_user_id,
+        cashierDisplayName: row.cashier_display_name,
+        customerId: row.customer_id,
+        customerDisplayName: row.customer_display_name,
+        customerPhone: canSeeCustomerPhone ? row.customer_phone || null : null,
+        tenderType: row.tender_type,
+        status: row.payment_status,
+        currency: row.currency,
+        requestedMinor: minorNumber(row.requested_minor),
+        capturedMinor: minorNumber(row.captured_minor),
+        cashReceivedMinor: row.cash_received_minor == null ? null : minorNumber(row.cash_received_minor),
+        changeDueMinor: row.change_due_minor == null ? null : minorNumber(row.change_due_minor),
+        provider: row.provider,
+        providerTransactionIdSafe: row.provider_transaction_id_suffix ? `****${row.provider_transaction_id_suffix}` : null,
+        cardBrand: row.card_brand,
+        cardLast4: row.card_last4,
+        capturedAt: row.captured_at,
+        createdAt: row.created_at,
+        refundAmountMinor: minorNumber(row.refund_amount_minor),
+        refundCount: Number(row.refund_count ?? 0),
+        hasRefund: Number(row.refund_relation_count ?? 0) > 0,
+        latestRefundId: row.latest_refund_id,
+        latestRefundReference: row.latest_refund_reference,
+        latestRefundStatus: row.latest_refund_status,
+        reconciliationState: row.reconciliation_state,
+        reconciliation: {
+          cashSessionId: row.cash_session_id,
+          movementId: row.matched_movement_id,
+          reflectedInExpectedCash: row.tender_type === "CASH" && row.payment_status === "CAPTURED" ? Boolean(row.matched_movement_id) : null,
+        },
+        attention,
+      };
+    };
+    const items = rows.rows.map(mapRow);
+    const paymentMix = mix.rows.map((row) => ({
+      tenderType: row.tender_type,
+      transactionCount: Number(row.transaction_count ?? 0),
+      capturedMinor: minorNumber(row.captured_minor),
+      percentage: capturedMinor > 0 ? Math.round((minorNumber(row.captured_minor) / capturedMinor) * 1000) / 10 : 0,
+    }));
+    return {
+      items,
+      pagination: { page: query.page, pageSize: query.pageSize, total, totalPages },
+      counts: {
+        total,
+        captured: capturedCount,
+        processing: Number(countRow.processing ?? 0),
+        failed: Number(countRow.failed ?? 0),
+        needsAttention: Number(countRow.needs_attention ?? 0),
+      },
+      periodSummary: {
+        capturedMinor,
+        averageCapturedMinor: capturedCount > 0 ? Math.round(capturedMinor / capturedCount) : 0,
+        paymentMix,
+      },
+    };
+  }
+
+  async paymentDirectoryExport(auth: AccessClaims, input: unknown) {
+    const parsed = paymentDirectoryQuerySchema.parse(input ?? {});
+    const first = await this.paymentDirectory(auth, { ...parsed, page: 1, pageSize: 100 });
+    const all = [...first.items];
+    for (let page = 2; page <= first.pagination.totalPages; page += 1) {
+      const next = await this.paymentDirectory(auth, { ...parsed, page, pageSize: 100 });
+      all.push(...next.items);
+    }
+    const escape = (value: unknown) => {
+      const text = value == null ? "" : String(value);
+      return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+    };
+    const headers = ["Mã giao dịch", "Thời gian", "Khách hàng", "Phương thức", "Mã đơn POS", "Số hóa đơn", "Yêu cầu", "Đã ghi nhận", "Trạng thái", "Quầy", "Thu ngân", "Hoàn tiền", "Đối soát"];
+    const rows = all.map((item) => [
+      item.paymentReference, item.capturedAt ?? item.createdAt, item.customerDisplayName,
+      item.tenderType, item.orderNumber, item.invoiceNumber ?? "", item.requestedMinor,
+      item.capturedMinor, item.status, item.registerCode ?? item.registerName ?? "",
+      item.cashierDisplayName ?? "", item.refundAmountMinor, item.reconciliationState,
+    ].map(escape).join(","));
+    return `\uFEFF${headers.map(escape).join(",")}\n${rows.join("\n")}\n`;
+  }
+
   async payment(auth: AccessClaims, id: string) {
     const row = (
       await this.db.query<any>(
@@ -1390,7 +1870,91 @@ export class PosService {
       });
     this.assertTenantAccess(auth);
     this.assertBranch(auth, row.branch_id);
-    return paymentView(row);
+    const relation = (
+      await this.db.query<any>(
+        `SELECT p.pos_order_id order_id,p.branch_id,p.cash_session_id,p.register_id,p.created_by_user_id,
+                o.order_number,o.source order_source,o.appointment_id,o.customer_id,o.customer_snapshot_json,
+                a.booking_reference,a.status appointment_status,
+                b.name branch_name,b.code branch_code,b.timezone branch_timezone,
+                r.code register_code,r.name register_name,
+                actor.display_name cashier_display_name,
+                i.id invoice_id,i.invoice_number,i.status invoice_status,
+                cs.status cash_session_status,cs.business_date cash_business_date,
+                (SELECT cm.id FROM cash_movements cm
+                  WHERE cm.tenant_id=p.tenant_id AND cm.related_payment_id=p.id
+                    AND cm.movement_type='CASH_SALE' AND cm.amount_minor=p.captured_minor
+                  ORDER BY cm.occurred_at DESC,cm.id DESC LIMIT 1) matched_movement_id,
+                (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                    'id',rf.id,'refundReference',rf.refund_reference,'status',rf.status,
+                    'plannedMinor',rpa.planned_minor,'completedMinor',rpa.completed_minor,
+                    'provider',rpa.provider,'createdAt',rpa.created_at
+                  ) ORDER BY rf.created_at DESC,rf.id DESC),'[]'::jsonb)
+                   FROM refund_payment_allocations rpa
+                   JOIN refunds rf ON rf.tenant_id=rpa.tenant_id AND rf.id=rpa.refund_id
+                  WHERE rpa.tenant_id=p.tenant_id AND rpa.original_payment_id=p.id) refund_relations,
+                (SELECT count(*) FILTER (WHERE pa.result='UNKNOWN')::int
+                   FROM payment_attempts pa WHERE pa.tenant_id=p.tenant_id AND pa.payment_id=p.id) unknown_attempt_count,
+                (SELECT count(*) FILTER (WHERE rpa.status='UNKNOWN')::int
+                   FROM refund_payment_allocations rpa WHERE rpa.tenant_id=p.tenant_id AND rpa.original_payment_id=p.id) unknown_refund_count,
+                (SELECT count(*)::int FROM cash_movements cm
+                  WHERE cm.tenant_id=p.tenant_id AND cm.related_payment_id=p.id AND cm.movement_type='CASH_SALE') cash_sale_count
+           FROM payments p
+           JOIN pos_orders o ON o.tenant_id=p.tenant_id AND o.id=p.pos_order_id
+           JOIN branches b ON b.tenant_id=p.tenant_id AND b.id=p.branch_id
+           LEFT JOIN appointments a ON a.tenant_id=o.tenant_id AND a.id=o.appointment_id
+           LEFT JOIN invoices i ON i.tenant_id=o.tenant_id AND i.pos_order_id=o.id
+           LEFT JOIN pos_registers r ON r.tenant_id=p.tenant_id AND r.id=p.register_id
+           LEFT JOIN users actor ON actor.origin_tenant_id=p.tenant_id AND actor.id=p.created_by_user_id
+           LEFT JOIN cash_sessions cs ON cs.tenant_id=p.tenant_id AND cs.id=p.cash_session_id
+          WHERE p.tenant_id=$1 AND p.id=$2`,
+        [auth.tenantId, id],
+      )
+    ).rows[0];
+    const canSeeCustomerPhone = !auth.supportAccess && !auth.roles.includes("PLATFORM_SUPER_ADMIN");
+    const attentionCode = row.status === "FAILED"
+      ? "PAYMENT_FAILED"
+      : row.tender_type === "CASH" && row.status === "CAPTURED" && !relation?.matched_movement_id
+        ? "CASH_MOVEMENT_MISSING"
+        : Number(relation?.unknown_attempt_count ?? 0) > 0
+          ? "PAYMENT_ATTEMPT_UNKNOWN"
+          : Number(relation?.unknown_refund_count ?? 0) > 0
+            ? "REFUND_STATUS_UNKNOWN"
+            : null;
+    const reconciliationState = row.tender_type === "CASH" && row.status === "CAPTURED"
+      ? relation?.matched_movement_id ? "MATCHED" : "NEEDS_ATTENTION"
+      : attentionCode ? "NEEDS_ATTENTION" : "NOT_APPLICABLE";
+    return {
+      ...paymentView(row),
+      orderNumber: relation?.order_number,
+      orderSource: relation?.order_source,
+      invoiceId: relation?.invoice_id,
+      invoiceNumber: relation?.invoice_number,
+      invoiceStatus: relation?.invoice_status,
+      appointmentId: relation?.appointment_id,
+      bookingReference: relation?.booking_reference,
+      appointmentStatus: relation?.appointment_status,
+      branch: { id: relation?.branch_id, name: relation?.branch_name, code: relation?.branch_code, timezone: relation?.branch_timezone },
+      register: relation?.register_id ? { id: relation.register_id, code: relation.register_code, name: relation.register_name } : null,
+      cashier: relation?.created_by_user_id ? { id: relation.created_by_user_id, displayName: relation.cashier_display_name } : null,
+      customer: {
+        id: relation?.customer_id,
+        displayName: relation?.customer_snapshot_json?.displayName ?? relation?.customer_snapshot_json?.display_name ?? "Khách vãng lai",
+        phone: canSeeCustomerPhone ? relation?.customer_snapshot_json?.phone ?? null : null,
+      },
+      cashSession: relation?.cash_session_id ? { id: relation.cash_session_id, status: relation.cash_session_status, businessDate: relation.cash_business_date } : null,
+      refunds: relation?.refund_relations ?? [],
+      reconciliation: {
+        state: reconciliationState,
+        cashSessionId: relation?.cash_session_id ?? null,
+        movementId: relation?.matched_movement_id ?? null,
+        reflectedInExpectedCash: row.tender_type === "CASH" && row.status === "CAPTURED" ? Boolean(relation?.matched_movement_id) : null,
+        message: row.tender_type === "CASH" ? (relation?.matched_movement_id ? "Đã ghi nhận vào phiên thu ngân" : "Không thể xác minh CASH_SALE") : "Không áp dụng cho tiền mặt",
+      },
+      attention: attentionCode
+        ? { required: true, severity: "WARNING", code: attentionCode, message: attentionCode === "CASH_MOVEMENT_MISSING" ? "Chưa xác minh được CASH_SALE trong phiên thu ngân" : attentionCode === "PAYMENT_FAILED" ? "Giao dịch capture thất bại cần kiểm tra" : attentionCode === "PAYMENT_ATTEMPT_UNKNOWN" ? "Payment attempt có kết quả chưa xác định" : "Có refund provider event chưa xác định" }
+        : null,
+      providerTransactionIdSafe: row.provider_transaction_id ? `••••${String(row.provider_transaction_id).slice(-8)}` : null,
+    };
   }
 
   async invoices(auth: AccessClaims, query: any) {
@@ -1413,6 +1977,229 @@ export class PosService {
         values,
       )
     ).rows.map(invoiceView);
+  }
+
+  async invoiceDirectory(auth: AccessClaims, input: unknown) {
+    const query = invoiceDirectoryQuerySchema.parse(input ?? {});
+    this.assertTenantAccess(auth);
+    if (query.branchId) this.assertBranch(auth, query.branchId);
+
+    const branches = auth.roles.includes("SALON_OWNER") ? null : auth.branchIds;
+    const values: unknown[] = [auth.tenantId, branches, query.branchId ?? null];
+    const where = [
+      "tenant_id=$1",
+      "($2::uuid[] IS NULL OR branch_id=ANY($2::uuid[]))",
+      "($3::uuid IS NULL OR branch_id=$3)",
+    ];
+    const canSeeCustomerPhone = !auth.supportAccess && !auth.roles.includes("PLATFORM_SUPER_ADMIN");
+    if (query.search) {
+      values.push(`%${query.search.toLowerCase()}%`);
+      const index = values.length;
+      const phoneClause = canSeeCustomerPhone
+        ? ` OR lower(COALESCE(customer_phone,'')) LIKE $${index}`
+        : "";
+      where.push(
+        `(lower(COALESCE(invoice_number,'')) LIKE $${index}
+          OR lower(COALESCE(order_number,'')) LIKE $${index}
+          OR lower(COALESCE(customer_display_name,'')) LIKE $${index}
+          ${phoneClause}
+          OR lower(COALESCE(booking_reference,'')) LIKE $${index})`,
+      );
+    }
+    if (query.invoiceStatus) {
+      values.push(query.invoiceStatus);
+      where.push(`invoice_status=$${values.length}`);
+    }
+    if (query.paymentState) {
+      values.push(query.paymentState);
+      where.push(`payment_state=$${values.length}`);
+    }
+    if (query.correction && query.correction !== "ANY") {
+      if (query.correction === "NONE") where.push("refund_count=0 AND credit_note_count=0");
+      if (query.correction === "REFUND") where.push("refund_count>0");
+      if (query.correction === "CREDIT_NOTE") where.push("credit_note_count>0");
+    } else if (query.correction === "ANY") {
+      where.push("(refund_count>0 OR credit_note_count>0)");
+    }
+    if (query.customerId) {
+      values.push(query.customerId);
+      where.push(`customer_id=$${values.length}`);
+    }
+    if (query.source === "APPOINTMENT_POS") where.push("appointment_id IS NOT NULL");
+    if (query.source === "OTHER_POS") where.push("appointment_id IS NULL");
+    if (query.issuedFrom) {
+      values.push(query.issuedFrom);
+      where.push(`(COALESCE(issued_at,created_at) AT TIME ZONE branch_timezone)::date >= $${values.length}::date`);
+    }
+    if (query.issuedTo) {
+      values.push(query.issuedTo);
+      where.push(`(COALESCE(issued_at,created_at) AT TIME ZONE branch_timezone)::date <= $${values.length}::date`);
+    }
+
+    const base = `
+      WITH base AS (
+        SELECT i.tenant_id,i.id,i.pos_order_id,i.branch_id,i.invoice_number,i.status invoice_status,i.currency,
+               i.subtotal_minor,i.discount_minor,i.taxable_minor,i.tax_minor,i.total_minor,i.tip_minor,
+               i.paid_minor invoice_paid_minor,i.issued_at,i.created_at,i.version,
+               o.order_number,o.appointment_id,o.customer_id,o.source,o.status order_status,
+               o.amount_paid_minor order_paid_minor,o.amount_due_minor order_due_minor,
+               a.booking_reference,b.name branch_name,b.code branch_code,b.timezone branch_timezone,
+               COALESCE(i.customer_snapshot_json->>'displayName',i.customer_snapshot_json->>'display_name',
+                        o.customer_snapshot_json->>'displayName',o.customer_snapshot_json->>'display_name','Khách vãng lai') customer_display_name,
+               COALESCE(i.customer_snapshot_json->>'phone',o.customer_snapshot_json->>'phone','') customer_phone,
+               GREATEST((i.total_minor+i.tip_minor)-COALESCE(o.amount_paid_minor,0),0)::bigint outstanding_minor,
+               COALESCE(o.amount_paid_minor,i.paid_minor,0)::bigint paid_minor,
+               CASE WHEN COALESCE(o.amount_due_minor, GREATEST((i.total_minor+i.tip_minor)-COALESCE(o.amount_paid_minor,0),0)) <= 0 THEN 'PAID'
+                    WHEN COALESCE(o.amount_paid_minor,0) > 0 THEN 'PARTIAL' ELSE 'OUTSTANDING' END payment_state,
+               payments.payment_methods,
+               payments.captured_paid_minor,
+               refunds.refund_count,refunds.refund_amount_minor,refunds.latest_refund_id,
+               refunds.latest_refund_reference,refunds.latest_refund_status,
+               notes.credit_note_count,notes.credit_note_amount_minor,notes.latest_credit_note_id,
+               notes.latest_credit_note_number,notes.latest_credit_note_status,
+               delivery.latest_delivery_status,delivery.latest_delivery_at
+          FROM invoices i
+          JOIN pos_orders o ON o.tenant_id=i.tenant_id AND o.id=i.pos_order_id
+          JOIN branches b ON b.tenant_id=i.tenant_id AND b.id=i.branch_id
+          LEFT JOIN appointments a ON a.tenant_id=o.tenant_id AND a.id=o.appointment_id
+          LEFT JOIN LATERAL (
+            SELECT COALESCE(sum(p.captured_minor) FILTER (WHERE p.status='CAPTURED'),0)::bigint captured_paid_minor,
+                   COALESCE(array_agg(DISTINCT p.tender_type ORDER BY p.tender_type) FILTER (WHERE p.status='CAPTURED'),'{}'::text[]) payment_methods
+              FROM payments p WHERE p.tenant_id=i.tenant_id AND p.pos_order_id=i.pos_order_id
+          ) payments ON true
+          LEFT JOIN LATERAL (
+            SELECT count(*)::int refund_count,
+                   COALESCE(sum(r.completed_minor) FILTER (WHERE r.status='COMPLETED'),0)::bigint refund_amount_minor,
+                   (array_agg(r.id ORDER BY r.created_at DESC,r.id DESC))[1] latest_refund_id,
+                   (array_agg(r.refund_reference ORDER BY r.created_at DESC,r.id DESC))[1] latest_refund_reference,
+                   (array_agg(r.status ORDER BY r.created_at DESC,r.id DESC))[1] latest_refund_status
+              FROM refunds r WHERE r.tenant_id=i.tenant_id AND (r.invoice_id=i.id OR r.pos_order_id=i.pos_order_id)
+          ) refunds ON true
+          LEFT JOIN LATERAL (
+            SELECT count(*)::int credit_note_count,
+                   COALESCE(sum(c.total_minor),0)::bigint credit_note_amount_minor,
+                   (array_agg(c.id ORDER BY c.created_at DESC,c.id DESC))[1] latest_credit_note_id,
+                   (array_agg(c.credit_note_number ORDER BY c.created_at DESC,c.id DESC))[1] latest_credit_note_number,
+                   (array_agg(c.status ORDER BY c.created_at DESC,c.id DESC))[1] latest_credit_note_status
+              FROM credit_notes c WHERE c.tenant_id=i.tenant_id AND c.original_invoice_id=i.id
+          ) notes ON true
+          LEFT JOIN LATERAL (
+            SELECT d.status latest_delivery_status,d.created_at latest_delivery_at
+              FROM invoice_deliveries d WHERE d.tenant_id=i.tenant_id AND d.invoice_id=i.id
+             ORDER BY d.created_at DESC,d.id DESC LIMIT 1
+          ) delivery ON true
+      ), filtered AS (
+        SELECT * FROM base WHERE ${where.join(" AND ")}
+      )`;
+    const countResult = await this.db.query<any>(
+      `${base}
+       SELECT count(*)::int total,
+              count(*) FILTER (WHERE invoice_status='ISSUED')::int issued,
+              count(*) FILTER (WHERE payment_state='PAID')::int paid,
+              count(*) FILTER (WHERE outstanding_minor>0)::int outstanding,
+              count(*) FILTER (WHERE refund_count>0)::int with_refund,
+              count(*) FILTER (WHERE credit_note_count>0)::int with_credit_note,
+              COALESCE(sum(total_minor+tip_minor),0)::bigint invoice_value_minor,
+              COALESCE(sum(paid_minor),0)::bigint paid_minor,
+              COALESCE(sum(outstanding_minor),0)::bigint outstanding_minor,
+              count(*) FILTER (WHERE credit_note_count>0)::int adjusted_invoice_count
+         FROM filtered`,
+      values,
+    );
+    const countRow = countResult.rows[0] ?? {};
+    const orderBy = {
+      NEWEST: "COALESCE(issued_at,created_at) DESC,id DESC",
+      OLDEST: "COALESCE(issued_at,created_at) ASC,id ASC",
+      TOTAL_DESC: "(total_minor+tip_minor) DESC,COALESCE(issued_at,created_at) DESC,id DESC",
+      TOTAL_ASC: "(total_minor+tip_minor) ASC,COALESCE(issued_at,created_at) ASC,id ASC",
+      OUTSTANDING_DESC: "outstanding_minor DESC,COALESCE(issued_at,created_at) DESC,id DESC",
+    }[query.sort];
+    const offset = (query.page - 1) * query.pageSize;
+    const pageIndex = values.length + 1;
+    const sizeIndex = values.length + 2;
+    const rows = await this.db.query<any>(
+      `${base}
+       SELECT * FROM filtered ORDER BY ${orderBy} LIMIT $${pageIndex} OFFSET $${sizeIndex}`,
+      [...values, query.pageSize, offset],
+    );
+    const total = Number(countRow.total ?? 0);
+    const mapRow = (row: any) => {
+      const grandTotalMinor = minorNumber(BigInt(row.total_minor ?? 0) + BigInt(row.tip_minor ?? 0));
+      const refundAmountMinor = minorNumber(row.refund_amount_minor);
+      const creditNoteAmountMinor = minorNumber(row.credit_note_amount_minor);
+      const paymentState = row.payment_state as "PAID" | "PARTIAL" | "OUTSTANDING";
+      const businessState = row.invoice_status === "VOIDED_BEFORE_PAYMENT"
+        ? "VOIDED"
+        : refundAmountMinor >= grandTotalMinor && grandTotalMinor > 0
+          ? "REFUNDED"
+          : refundAmountMinor > 0
+            ? "REFUND_PARTIAL"
+            : creditNoteAmountMinor > 0
+              ? "CREDIT_NOTE"
+              : paymentState;
+      return {
+        id: row.id, orderId: row.pos_order_id, orderNumber: row.order_number,
+        appointmentId: row.appointment_id, bookingReference: row.booking_reference,
+        branchId: row.branch_id, branchName: row.branch_name, branchCode: row.branch_code,
+        customerId: row.customer_id, customerDisplayName: row.customer_display_name,
+        customerPhone: canSeeCustomerPhone ? row.customer_phone || null : null,
+        invoiceNumber: row.invoice_status === "ISSUED" ? row.invoice_number : null,
+        draftReference: row.invoice_status === "ISSUED" ? null : row.order_number,
+        invoiceStatus: row.invoice_status, currency: row.currency,
+        subtotalMinor: minorNumber(row.subtotal_minor), discountMinor: minorNumber(row.discount_minor),
+        taxableMinor: minorNumber(row.taxable_minor), taxMinor: minorNumber(row.tax_minor),
+        totalMinor: minorNumber(row.total_minor), tipMinor: minorNumber(row.tip_minor), grandTotalMinor,
+        paidMinor: minorNumber(row.paid_minor), outstandingMinor: minorNumber(row.outstanding_minor),
+        paymentState, businessState, refundAmountMinor, refundCount: Number(row.refund_count ?? 0),
+        latestRefundId: row.latest_refund_id, latestRefundReference: row.latest_refund_reference,
+        latestRefundStatus: row.latest_refund_status, creditNoteAmountMinor,
+        creditNoteCount: Number(row.credit_note_count ?? 0), latestCreditNoteId: row.latest_credit_note_id,
+        latestCreditNoteNumber: row.latest_credit_note_number, latestCreditNoteStatus: row.latest_credit_note_status,
+        hasRefund: Number(row.refund_count ?? 0) > 0, hasCreditNote: Number(row.credit_note_count ?? 0) > 0,
+        issuedAt: row.issued_at, createdAt: row.created_at, paymentMethods: row.payment_methods ?? [],
+        latestDeliveryStatus: row.latest_delivery_status, latestDeliveryAt: row.latest_delivery_at,
+        orderStatus: row.order_status, timezone: row.branch_timezone, version: Number(row.version),
+      };
+    };
+    const items = rows.rows.map(mapRow);
+    const invoiceValueMinor = minorNumber(countRow.invoice_value_minor);
+    const paidMinor = minorNumber(countRow.paid_minor);
+    return {
+      items,
+      pagination: { page: query.page, pageSize: query.pageSize, total, totalPages: Math.max(1, Math.ceil(total / query.pageSize)) },
+      counts: {
+        total, issued: Number(countRow.issued ?? 0), paid: Number(countRow.paid ?? 0),
+        outstanding: Number(countRow.outstanding ?? 0), withRefund: Number(countRow.with_refund ?? 0),
+        withCreditNote: Number(countRow.with_credit_note ?? 0),
+      },
+      periodSummary: {
+        invoiceValueMinor, paidMinor, outstandingMinor: minorNumber(countRow.outstanding_minor),
+        adjustedInvoiceCount: Number(countRow.adjusted_invoice_count ?? 0),
+        paidPercentage: invoiceValueMinor > 0 ? Math.round((paidMinor / invoiceValueMinor) * 1000) / 10 : 0,
+      },
+    };
+  }
+
+  async invoiceDirectoryExport(auth: AccessClaims, input: unknown) {
+    const parsed = invoiceDirectoryQuerySchema.parse(input ?? {});
+    const first = await this.invoiceDirectory(auth, { ...parsed, page: 1, pageSize: 100 });
+    const all = [...first.items];
+    for (let page = 2; page <= first.pagination.totalPages; page += 1) {
+      const next = await this.invoiceDirectory(auth, { ...parsed, page, pageSize: 100 });
+      all.push(...next.items);
+    }
+    const escape = (value: unknown) => {
+      const text = value == null ? "" : String(value);
+      return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+    };
+    const headers = ["Số hóa đơn", "Mã đơn POS", "Khách hàng", "Chi nhánh", "Ngày phát hành", "Trạng thái hóa đơn", "Trạng thái thanh toán", "Tạm tính", "Thuế", "Tổng tiền", "Đã thanh toán", "Còn phải thu", "Hoàn tiền", "Credit note", "Giao chứng từ"];
+    const rows = all.map((item) => [
+      item.invoiceNumber ?? "Chưa phát hành", item.orderNumber, item.customerDisplayName, item.branchName,
+      item.issuedAt ?? item.createdAt, item.invoiceStatus, item.businessState, item.subtotalMinor,
+      item.taxMinor, item.grandTotalMinor, item.paidMinor, item.outstandingMinor, item.refundAmountMinor,
+      item.creditNoteAmountMinor, item.latestDeliveryStatus ?? "",
+    ].map(escape).join(","));
+    return `\uFEFF${headers.map(escape).join(",")}\n${rows.join("\n")}\n`;
   }
 
   async invoice(auth: AccessClaims, id: string) {
@@ -1667,6 +2454,10 @@ export class PosService {
     );
     return {
       ...orderSummary(order),
+      paymentCapabilities: {
+        partialPaymentsAllowed:
+          order.tax_policy_json?.allowPartialPayments !== false,
+      },
       customerSnapshot: order.customer_snapshot_json,
       appointmentSnapshot: order.appointment_snapshot_json,
       pricingSnapshot: order.pricing_snapshot_json,
@@ -1684,6 +2475,8 @@ export class PosService {
             id: tip.rows[0].id,
             amountMinor: minorNumber(tip.rows[0].amount_minor),
             source: tip.rows[0].source,
+            createdAt: tip.rows[0].created_at,
+            updatedAt: tip.rows[0].updated_at,
             allocations: tip.rows[0].allocations.map((row: any) => ({
               ...row,
               amountMinor: minorNumber(row.amountMinor),

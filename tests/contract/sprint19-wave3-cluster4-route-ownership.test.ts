@@ -19,14 +19,15 @@ describe("Sprint 19 Wave 3 Cluster 4 route ownership", () => {
     ]) expect(isWave3Cluster4Path(path)).toBe(true);
   });
 
-  it("does not steal customer engagement, POS, accounting, booking or workforce routes", () => {
+  it("does not steal POS, accounting, booking or workforce routes", () => {
     for (const path of [
-      "/admin/customers/70000000-0000-4000-8000-000000000001/engagement",
       "/admin/pos/orders/70000000-0000-4000-8000-000000000001",
       "/admin/accounting/periods",
       "/admin/booking/appointments",
       "/admin/workforce/shifts",
       "/admin/stored-value/liability",
     ]) expect(isWave3Path(path)).toBe(false);
+
+    expect(isWave3Path("/admin/customers/70000000-0000-4000-8000-000000000001/engagement")).toBe(true);
   });
 });

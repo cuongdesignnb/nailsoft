@@ -5,10 +5,15 @@ import { IdentityModule } from "../identity/identity.module.js";
 import { BenefitsCatalogService } from "./benefits-catalog.service.js";
 import { BenefitsEligibilityService } from "./benefits-eligibility.service.js";
 import { BenefitsReportingService } from "./benefits-reporting.service.js";
+import { MembershipHubReportingService } from "./membership-hub-reporting.service.js";
+import { PackageHubReportingService } from "./package-hub-reporting.service.js";
 import { BenefitsTransactionService } from "./benefits-transaction.service.js";
+import { LoyaltyLedgerReportingService } from "./loyalty-ledger-reporting.service.js";
+import { VoucherHubReportingService } from "./voucher-hub-reporting.service.js";
 import {
   AppointmentBenefitsController,
   BenefitsReportController,
+  CustomerBenefitsController,
   CustomerWalletController,
   LoyaltyController,
   MembershipController,
@@ -33,6 +38,7 @@ import {
     AppointmentBenefitsController,
     CustomerWalletController,
     BenefitsReportController,
+    CustomerBenefitsController,
     PublicPackageController,
   ],
   providers: [
@@ -40,12 +46,20 @@ import {
     BenefitsEligibilityService,
     BenefitsTransactionService,
     BenefitsReportingService,
+    MembershipHubReportingService,
+    PackageHubReportingService,
+    LoyaltyLedgerReportingService,
+    VoucherHubReportingService,
   ],
   exports: [
     BenefitsEligibilityService,
     BenefitsTransactionService,
     BenefitsCatalogService,
     BenefitsReportingService,
+    MembershipHubReportingService,
+    PackageHubReportingService,
+    LoyaltyLedgerReportingService,
+    VoucherHubReportingService,
   ],
 })
 export class BenefitsModule {}

@@ -16,7 +16,7 @@ export function isWave3Cluster2Path(pathname: string) {
     /^\/admin\/benefits\/customers\/[^/]+$/.test(pathname) ||
     pathname === "/admin/loyalty/programs" || pathname === "/admin/loyalty/adjustments" ||
     /^\/admin\/loyalty\/customers\/[^/]+$/.test(pathname) ||
-    pathname === "/admin/membership/tiers" || /^\/admin\/membership\/customers\/[^/]+$/.test(pathname) ||
+    pathname === "/admin/membership" || pathname === "/admin/membership/" || pathname === "/admin/membership/tiers" || /^\/admin\/membership\/customers\/[^/]+$/.test(pathname) ||
     pathname === "/admin/packages/catalog" || /^\/admin\/packages\/catalog\/[^/]+$/.test(pathname) ||
     pathname === "/admin/packages/entitlements" || /^\/admin\/packages\/entitlements\/[^/]+$/.test(pathname);
 }
@@ -34,10 +34,13 @@ export function isWave3Cluster3Path(pathname: string) {
 }
 
 export function isWave3Cluster4Path(pathname: string) {
-  return pathname === "/admin/communications/templates" ||
+  return pathname === "/admin/customer-care" ||
+    pathname === "/admin/communications" ||
+    pathname === "/admin/communications/templates" ||
     pathname === "/admin/communications/rules" ||
     pathname === "/admin/communications/messages" ||
     pathname === "/admin/communications/suppressions" ||
+    pathname === "/admin/marketing" ||
     pathname === "/admin/marketing/segments" ||
     pathname === "/admin/marketing/campaigns" ||
     /^\/admin\/marketing\/campaigns\/[^/]+$/.test(pathname) ||
@@ -49,5 +52,5 @@ export function isWave3Cluster4Path(pathname: string) {
 }
 
 export function isWave3Path(pathname: string) {
-  return isWave3CustomerPath(pathname) || isWave3Cluster2Path(pathname) || isWave3Cluster3Path(pathname) || isWave3Cluster4Path(pathname);
+  return isWave3CustomerPath(pathname) || isWave3CustomerEngagementPath(pathname) || isWave3Cluster2Path(pathname) || isWave3Cluster3Path(pathname) || isWave3Cluster4Path(pathname);
 }

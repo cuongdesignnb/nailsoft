@@ -73,7 +73,7 @@ export interface AuthContext {
     branchIds: string[];
     ownStaffId?: string;
   };
-  branches: Array<{ id: string; name: string; status: string }>;
+  branches: Array<{ id: string; name: string; status: string; timezone?: string }>;
   /** Additive product capability projection; authorization remains permission-based. */
   capabilities?: {
     ownerMobileEnabled: boolean;

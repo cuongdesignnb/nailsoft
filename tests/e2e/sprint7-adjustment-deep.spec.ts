@@ -8,7 +8,7 @@ test("approved manual adjustment creates one attributable commission entry", asy
     const created = await accountant.api.post("/v1/commission-adjustments", {
       headers: headers(accountant),
       data: {
-        staffId: "47000000-0000-4000-8000-000000000008",
+        staffId: "47000000-0000-4000-8000-000000000003",
         targetPeriodId: "b2000000-0000-4000-8000-000000000001",
         amountMinor: 3210,
         currency: "VND",

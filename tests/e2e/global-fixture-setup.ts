@@ -38,6 +38,60 @@ export default async function globalFixtureSetup() {
        WHERE tenant_id=$1`,
       [tenantId, fixtureDate],
     );
+    await client.query(
+      `UPDATE shifts
+       SET start_at='2026-08-10 08:30:00+07'::timestamptz,
+           end_at='2026-08-10 18:00:00+07'::timestamptz,
+           status='PUBLISHED'
+       WHERE tenant_id=$1
+         AND id='48000000-0000-4000-8000-000000000101'::uuid`,
+      [tenantId],
+    );
+    await client.query(
+      `UPDATE availability_versions
+       SET version=version+1
+       WHERE tenant_id=$1
+         AND branch_id='20000000-0000-4000-8000-000000000001'::uuid`,
+      [tenantId],
+    );
+    // Keep the deterministic inventory lot usable for the lifecycle tests
+    // when the suite is run after the seed's historical expiry date.
+    await client.query(
+      `UPDATE inventory_lots
+       SET expiry_date=GREATEST(expiry_date,CURRENT_DATE + INTERVAL '365 days'),
+           status='AVAILABLE'
+       WHERE tenant_id=$1
+         AND id='b9070000-0000-4000-8000-000000000001'::uuid`,
+      [tenantId],
+    );
+    await client.query(
+      `INSERT INTO shifts(
+         id,tenant_id,branch_id,staff_id,start_at,end_at,break_minutes,status,source
+       )
+       SELECT
+         '48000000-0000-4000-8000-000000000103'::uuid,
+         $1,
+         '20000000-0000-4000-8000-000000000001'::uuid,
+         '47000000-0000-4000-8000-000000000003'::uuid,
+         (((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+           + CASE EXTRACT(DOW FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)::int
+               WHEN 0 THEN 1
+               WHEN 1 THEN 7
+               ELSE (8 - EXTRACT(DOW FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)::int) % 7
+             END)::text || ' 09:00:00 Asia/Ho_Chi_Minh')::timestamptz,
+         (((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+           + CASE EXTRACT(DOW FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)::int
+               WHEN 0 THEN 1
+               WHEN 1 THEN 7
+               ELSE (8 - EXTRACT(DOW FROM (now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)::int) % 7
+             END)::text || ' 18:00:00 Asia/Ho_Chi_Minh')::timestamptz,
+         0,'PUBLISHED','IMPORT'
+       ON CONFLICT (tenant_id,id) DO UPDATE
+         SET start_at=EXCLUDED.start_at,
+             end_at=EXCLUDED.end_at,
+             status='PUBLISHED'`,
+      [tenantId],
+    );
   } finally {
     await client.end();
   }

@@ -25,9 +25,10 @@ describe("Sprint 19 Wave 3 Cluster 2 route ownership", () => {
       "/admin/benefits/reports/summary",
       "/admin/stored-value/liability",
       "/admin/accounting/periods",
-      "/admin/customers/60000000-0000-4000-8000-000000000001/engagement",
       "/booking/services",
       "/owner/home",
     ]) expect(isWave3Path(path)).toBe(false);
+
+    expect(isWave3Path("/admin/customers/60000000-0000-4000-8000-000000000001/engagement")).toBe(true);
   });
 });
