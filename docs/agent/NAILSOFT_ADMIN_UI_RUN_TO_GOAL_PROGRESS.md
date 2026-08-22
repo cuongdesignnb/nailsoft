@@ -177,9 +177,9 @@ WAVE_L_ACCEPTED=YES
 
 ### E2E qualification note
 
-- The canonical shared-database `201`-test run produced `127 passed`; the remaining failures and `11` not-run tests were state/fixture collisions after earlier stateful suites mutated the shared database. This is not a green canonical E2E run.
-- A deterministic per-spec E2E sweep reset and seeded the database before each of all `112/112` spec files; the realtime files ran with the worker enabled and all five initially affected files passed after the final fixture/worker fixes. This is strong isolated evidence, but it does not replace the failed one-shot harness result.
-- The final QA status therefore remains `INCOMPLETE` until the canonical E2E harness is made isolation-safe and reruns green; no product failure was inferred from cross-spec contamination.
+- The canonical `pnpm test:e2e` command now uses the isolation-safe runner and completed `E2E_ISOLATED_PASS=112/112`; the raw shared-database Playwright harness remains available as `pnpm test:e2e:raw` for diagnostics.
+- The isolated runner resets and seeds the database per spec, keeps the realtime specs on the durable Worker, and completed all 112 specs successfully.
+- The prior shared-database collision result is retained as historical diagnostic evidence only; it is not the final QA result.
 
 ### QA teardown and worktree
 
@@ -187,7 +187,7 @@ WAVE_L_ACCEPTED=YES
 - Task-owned API, booking-web, and worker QA processes were stopped; the pre-existing Admin Next process was preserved.
 - No production deployment was performed.
 - The worktree was already dirty at start (`123` status entries). Existing user changes and generated QA evidence were preserved; the final worktree remains documented rather than force-cleaned. The isolated Next build directory `.next-final-qa` is a generated QA artifact and was not deleted destructively.
-- No remote CI run was triggered; CI workflow review completed locally.
+- Final source CI was triggered for `ee2a08d19868313142f3a8c8262a9e605b3093a6` as run `32577606725`; both required jobs completed successfully.
 
 ### Final closure checkpoint
 
@@ -202,3 +202,34 @@ WAVE_L_ACCEPTED=YES
 - `git diff --check`: PASS; only expected CRLF normalization warnings were emitted by Git.
 - Final task Docker teardown: PASS — `docker compose down` removed the project network and containers; `TASK_DOCKER_CONTAINERS=0`; no unrelated containers were present or stopped.
 - No production deployment was performed or authorized.
+
+### Finalization record
+
+FINAL_SOURCE_SHA=ee2a08d19868313142f3a8c8262a9e605b3093a6
+FINAL_DOCS_SHA=TO_BE_FILLED_AFTER_DOCS_COMMIT
+FINAL_CI_RUN_ID=32577606725
+FINAL_CI_CONCLUSION=SUCCESS
+FINAL_WORKTREE_STATUS=DIRTY_ONLY_INTENTIONALLY_PRESERVED_PREEXISTING_GENERATED_ARTIFACTS
+INTENTIONALLY_UNCOMMITTED_PREEXISTING_COUNT=19
+INTENTIONALLY_UNCOMMITTED_PREEXISTING=
+- M tests/e2e/sprint19-wave0-shell.spec.ts-snapshots/sprint19-wave0-gallery-ready-win32.png
+- ?? apps/admin-web/.next-cash-session-detail-qa/
+- ?? apps/admin-web/.next-credit-note-build/
+- ?? apps/admin-web/.next-final-qa/
+- ?? apps/admin-web/.next-open-session-qa/
+- ?? apps/admin-web/.next-pos-detail-qa/
+- ?? apps/admin-web/.next-pos-qa/
+- ?? apps/admin-web/.next-qa/
+- ?? apps/admin-web/.next-register-qa/
+- ?? packages/icons/src/index.d.ts
+- ?? packages/icons/src/index.js
+- ?? packages/icons/src/index.js.map
+- ?? packages/ui-native/src/index.d.ts
+- ?? packages/ui-native/src/index.js
+- ?? packages/ui-native/src/index.js.map
+- ?? packages/ui-web/src/index.d.ts
+- ?? packages/ui-web/src/index.jsx
+- ?? packages/ui-web/src/index.jsx.map
+- ?? qa-screenshots/
+TASK_DOCKER_CONTAINERS=0
+PRODUCTION_DEPLOYED=NO
