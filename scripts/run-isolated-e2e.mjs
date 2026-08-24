@@ -15,6 +15,9 @@ const allSpecs = readdirSync(resolve(root, "tests/e2e"))
 const specs = process.env.E2E_SPEC
   ? allSpecs.filter((spec) => spec.endsWith(process.env.E2E_SPEC))
   : allSpecs;
+const debug = (...args) => {
+  if (process.env.E2E_DEBUG === "1") console.error("[isolated-e2e]", ...args);
+};
 
 if (!specs.length) {
   throw new Error(`No E2E spec matched E2E_SPEC=${process.env.E2E_SPEC ?? ""}`);
@@ -91,17 +94,22 @@ async function waitFor(url, label, child) {
 }
 
 function command(args, label) {
+  debug("command:start", label, args.join(" "));
   try {
     execFileSync(pnpm, args, {
       cwd: root,
       env,
       stdio: ["ignore", "pipe", "pipe"],
       shell: process.platform === "win32",
+      maxBuffer: 16 * 1024 * 1024,
     });
+    debug("command:pass", label);
   } catch (error) {
     const stdout = error?.stdout?.toString?.() ?? "";
     const stderr = error?.stderr?.toString?.() ?? "";
-    throw new Error(`${label} failed:\n${stdout}\n${stderr}`);
+    throw new Error(
+      `${label} failed (${error instanceof Error ? error.message : String(error)}):\n${stdout}\n${stderr}`,
+    );
   }
 }
 
@@ -115,6 +123,9 @@ async function clearQaCaches() {
     url: env.REDIS_URL ?? "redis://localhost:6379",
     socket: { connectTimeout: 2_000, reconnectStrategy: false },
   });
+  client.on("error", (error) => {
+    debug("redis:error", error instanceof Error ? error.message : String(error));
+  });
   try {
     await client.connect();
     const keys = [];
@@ -125,6 +136,23 @@ async function clearQaCaches() {
       keys.push(...batch);
     }
     for (const key of keys) await client.del(key);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const code = error && typeof error === "object" ? error.code : undefined;
+    const nestedCodes =
+      error && typeof error === "object" && "errors" in error && Array.isArray(error.errors)
+        ? error.errors.map((item) => item?.code).filter(Boolean)
+        : [];
+    if (
+      /ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH/i.test(message) ||
+      [code, ...nestedCodes].some((value) =>
+        /ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH/i.test(String(value)),
+      )
+    ) {
+      console.warn(`QA cache clear skipped: Redis unavailable (${message})`);
+      return;
+    }
+    throw error;
   } finally {
     if (client.isOpen) await client.quit();
   }
@@ -158,6 +186,7 @@ function runPlaywright(spec, config) {
 }
 
 async function main() {
+  debug("main:start", specs.map((spec) => spec.replace(`${root}\\`, "")));
   if (!existsSync(resolve(root, "apps/owner-mobile/dist"))) {
     throw new Error("Owner mobile build is missing; run pnpm build first");
   }
@@ -173,6 +202,7 @@ async function main() {
   ]) {
     command(["--filter", packageName, "build"], `${packageName} build`);
   }
+  debug("builds:pass");
 
   const admin = start(
     node,
@@ -185,7 +215,9 @@ async function main() {
     "booking web",
   );
   await waitFor("http://127.0.0.1:3000", "Admin Web", admin);
+  debug("admin:ready");
   await waitFor("http://127.0.0.1:3002", "Booking Web", booking);
+  debug("booking:ready");
 
   const python = process.platform === "win32" ? "python" : "python3";
   const ownerMobile = start(
@@ -199,7 +231,9 @@ async function main() {
     "staff mobile",
   );
   await waitFor("http://127.0.0.1:3003", "Owner Mobile", ownerMobile);
+  debug("owner-mobile:ready");
   await waitFor("http://127.0.0.1:3004", "Staff Mobile", staffMobile);
+  debug("staff-mobile:ready");
 
   const membershipSpec = resolve(
     root,
@@ -209,20 +243,26 @@ async function main() {
   let api;
   for (const spec of specs) {
     const isMembership = spec === membershipSpec;
+    debug("spec:start", spec);
     await stop(api);
     await stop(worker);
+    debug("spec:services-stopped", spec);
     resetDatabase();
+    debug("spec:database-reset", spec);
     await clearQaCaches();
+    debug("spec:caches-cleared", spec);
     if (!isMembership) {
       worker = start(node, [resolve(root, "apps/worker/dist/main.js")], "worker");
       await new Promise((resolveDelay) => setTimeout(resolveDelay, 1_500));
     }
     api = start(node, [resolve(root, "apps/api/dist/main.js")], "api");
     await waitFor("http://127.0.0.1:3001/v1/health", "API", api);
+    debug("spec:api-ready", spec);
     await runPlaywright(
       spec,
       isMembership ? "playwright.api.config.ts" : "playwright.config.ts",
     );
+    debug("spec:pass", spec);
   }
   console.log(`E2E_ISOLATED_PASS=${specs.length}/${specs.length}`);
 }
