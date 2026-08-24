@@ -191,6 +191,7 @@ export const appointmentCustomerSchema = z
 export const createAppointmentSchema = z.object({
   holdId: uuidSchema,
   holdToken: z.string().optional(),
+  attributionReference: z.string().trim().min(32).max(256).optional(),
   customer: appointmentCustomerSchema,
   contactVerificationToken: z.string().optional(),
   customerNote: z.string().max(2000).optional(),
@@ -224,6 +225,7 @@ export const publicCreateAppointmentSchema = z
   .object({
     holdId: uuidSchema,
     holdToken: z.string().min(1),
+    attributionReference: z.string().trim().min(32).max(256).optional(),
     customer: publicAppointmentCustomerSchema,
     contactVerificationToken: z.string().min(1),
     customerNote: publicCustomerNoteSchema.optional(),

@@ -20,6 +20,7 @@ import { DatabaseService } from "../../infrastructure/database.service.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
 import { BenefitsTransactionService } from "../benefits/benefits-transaction.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
+import { MarketingAttributionService } from "../marketing-attribution/marketing-attribution.service.js";
 import { FinancialEvidenceService } from "../pos/financial-evidence.service.js";
 import { RegisterDeviceAuthorizationService } from "../pos/register-device-authorization.service.js";
 import { StoredValueService } from "../stored-value/stored-value.service.js";
@@ -45,6 +46,8 @@ export class RefundService {
     private readonly registerDevice: RegisterDeviceAuthorizationService,
     @Inject(StoredValueService)
     private readonly storedValue: StoredValueService,
+    @Inject(MarketingAttributionService)
+    private readonly attribution: MarketingAttributionService,
   ) {}
 
   async plan(auth: AccessClaims, invoiceId: string, input: unknown) {
@@ -1347,6 +1350,12 @@ export class RefundService {
     );
     if (status === "COMPLETED") {
       await this.issueCreditNote(client, auth, updated, requestId);
+      await this.attribution.projectRefundAdjustment(
+        client,
+        auth.tenantId,
+        updated.id,
+        requestId,
+      );
       await this.generateTipReversals(client, auth, updated);
       await this.generateCommissionReversals(client, auth, updated);
       await this.benefits.reverseRefundBenefits(

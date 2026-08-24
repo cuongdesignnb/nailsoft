@@ -3,6 +3,7 @@ import { DatabaseModule } from "../../infrastructure/database.module.js";
 import { BenefitsModule } from "../benefits/benefits.module.js";
 import { BookingModule } from "../booking/booking.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
+import { MarketingAttributionModule } from "../marketing-attribution/marketing-attribution.module.js";
 import { StoredValueModule } from "../stored-value/stored-value.module.js";
 import { CommunicationService } from "./communication.service.js";
 import { MarketingService } from "./marketing.service.js";
@@ -24,6 +25,7 @@ import {
     BookingModule,
     BenefitsModule,
     StoredValueModule,
+    MarketingAttributionModule,
   ],
   controllers: [
     CommunicationController,

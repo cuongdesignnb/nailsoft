@@ -3,6 +3,7 @@ import { DatabaseModule } from "../../infrastructure/database.module.js";
 import { BookingModule } from "../booking/booking.module.js";
 import { PosModule } from "../pos/pos.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
+import { MarketingAttributionModule } from "../marketing-attribution/marketing-attribution.module.js";
 import { BenefitsModule } from "../benefits/benefits.module.js";
 import { StoredValueModule } from "../stored-value/stored-value.module.js";
 import { CommissionService } from "./commission.service.js";
@@ -25,6 +26,7 @@ import { PaymentReconciliationService } from "./payment-reconciliation.service.j
     PosModule,
     BenefitsModule,
     StoredValueModule,
+    MarketingAttributionModule,
   ],
   controllers: [
     RefundController,

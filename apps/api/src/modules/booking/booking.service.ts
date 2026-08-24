@@ -27,6 +27,7 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import { DatabaseService } from "../../infrastructure/database.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
+import { MarketingAttributionService } from "../marketing-attribution/marketing-attribution.service.js";
 import { BookingIdempotencyService } from "./booking-idempotency.service.js";
 import { BookingPlannerService } from "./booking-planner.service.js";
 import {
@@ -60,6 +61,8 @@ export class BookingService {
     @Inject(BookingTokenService) private readonly tokens: BookingTokenService,
     @Inject(ReservationService)
     private readonly reservations: ReservationService,
+    @Inject(MarketingAttributionService)
+    private readonly attribution: MarketingAttributionService,
   ) {}
 
   plan(auth: AccessClaims, input: unknown) {
@@ -756,8 +759,12 @@ export class BookingService {
           contactVerificationTokenDigest: body.contactVerificationToken
             ? this.idempotency.subject(body.contactVerificationToken)
             : undefined,
+          attributionReferenceDigest: body.attributionReference
+            ? this.idempotency.subject(body.attributionReference)
+            : undefined,
           holdToken: undefined,
           contactVerificationToken: undefined,
+          attributionReference: undefined,
         },
         work: async () => {
           await options.transactionHook?.before(client);
@@ -1053,8 +1060,18 @@ export class BookingService {
               "appointment.confirmed",
               eventActor,
             );
-          await options.transactionHook?.after(client, this.summary(root));
-          return this.summary(root);
+          const attribution = await this.attribution.attach(client, {
+            tenantId: auth.tenantId,
+            attributionReference: body.attributionReference,
+            customerId: customer.id,
+            appointmentId,
+            branchId: hold.branch_id,
+            actorUserId: options.public ? null : auth.userId,
+            requestId,
+          });
+          const response = { ...this.summary(root), attribution };
+          await options.transactionHook?.after(client, response);
+          return response;
         },
       }),
     );

@@ -4,6 +4,7 @@ import { BookingModule } from "../booking/booking.module.js";
 import { BenefitsModule } from "../benefits/benefits.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
 import { InventoryModule } from "../inventory/inventory.module.js";
+import { MarketingAttributionModule } from "../marketing-attribution/marketing-attribution.module.js";
 import { StoredValueModule } from "../stored-value/stored-value.module.js";
 import { CashSessionService } from "./cash-session.service.js";
 import { FinancialEvidenceService } from "./financial-evidence.service.js";
@@ -31,6 +32,7 @@ import {
     BenefitsModule,
     InventoryModule,
     StoredValueModule,
+    MarketingAttributionModule,
   ],
   controllers: [
     AppointmentPosController,

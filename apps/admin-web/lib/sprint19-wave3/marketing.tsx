@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { EngagementShell, EngagementStates, Notice, SafeTable, VersionActions, formatDate, localized, rows, statusLabel, useBenefitMutation, useBenefitResource } from "./engagement-shared";
+import { EngagementShell, EngagementStates, Notice, SafeTable, VersionActions, localized, rows, statusLabel, useBenefitMutation, useBenefitResource } from "./engagement-shared";
 import MarketingHub from "./marketing-hub";
 
 function Field({ label, value, onChange, type = "text", required = false, placeholder }: { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean; placeholder?: string }) {
@@ -33,22 +33,6 @@ export function MarketingCampaigns() {
   return <MarketingHub />;
 }
 
-function campaignActions(status: string) {
-  if (status === "DRAFT") return ["submit", "cancel"];
-  if (status === "PENDING_APPROVAL") return ["approve", "cancel"];
-  if (status === "APPROVED") return ["schedule", "cancel"];
-  if (status === "SCHEDULED") return ["cancel"];
-  if (status === "RUNNING") return ["pause"];
-  if (status === "PAUSED") return ["resume", "cancel"];
-  return [];
-}
-
 export function MarketingCampaignDetail({ campaignId }: { campaignId: string }) {
-  const resource = useBenefitResource(`/v1/marketing-campaigns/${encodeURIComponent(campaignId)}`);
-  const audience = useBenefitResource(`/v1/marketing-campaigns/${encodeURIComponent(campaignId)}/audience`);
-  const mutation = useBenefitMutation(); const [scheduledAt, setScheduledAt] = useState("");
-  const campaign = resource.data?.campaign ?? resource.data ?? {};
-  const status = String(campaign.status ?? "UNKNOWN");
-  async function action(actionName: string) { const body: Record<string, unknown> = { version: campaign.version }; if (actionName === "schedule") { if (!scheduledAt) return; body.scheduledAt = new Date(scheduledAt).toISOString(); } const result = await mutation.submit(`/v1/marketing-campaigns/${encodeURIComponent(campaignId)}/${actionName}`, body); if (result) await resource.load(); }
-  return <EngagementShell title={campaign.name ?? "Campaign detail"}><EngagementStates resource={resource} label="campaign detail" />{resource.state === "ready" && <><section className="s19-card"><div className="s19-section-heading"><div><p className="s19-eyebrow">CAMPAIGN CONTROL</p><h2>{statusLabel(status)}</h2></div><span className="s19-status s19-status-info">Version {campaign.version ?? "-"}</span></div><dl className="s19-definition-grid"><div><dt>Type</dt><dd>{statusLabel(campaign.campaignType ?? campaign.campaign_type)}</dd></div><div><dt>Segment</dt><dd>{campaign.segmentId ?? "-"}</dd></div><div><dt>Branch</dt><dd>{campaign.branchName ?? campaign.branchId ?? "Tenant-wide"}</dd></div><div><dt>Scheduled</dt><dd>{formatDate(campaign.scheduledAt ?? campaign.scheduled_at)}</dd></div></dl><p className="s19-helper">Audience and delivery state are server-reported. Consent and suppression are rechecked at send time.</p>{campaignActions(status).includes("schedule") && <Field label="Schedule at (local time)" value={scheduledAt} onChange={setScheduledAt} type="datetime-local" />}<VersionActions mutation={mutation} version={campaign.version} actions={campaignActions(status)} onAction={(name) => void action(name)} /></section><section className="s19-card"><div className="s19-section-heading"><div><p className="s19-eyebrow">NO RAW PII</p><h2>Audience preview</h2></div></div>{audience.state === "loading" ? <p className="s19-helper">Loading audience preview…</p> : audience.state === "forbidden" ? <p className="s19-helper">Audience preview is not available for this permission.</p> : <dl className="s19-definition-grid"><div><dt>Estimated recipients</dt><dd>{audience.data?.estimatedCount ?? audience.data?.count ?? rows(audience.data).length}</dd></div><div><dt>Consent policy</dt><dd>Marketing consent required</dd></div></dl>}</section></>}<Notice mutation={mutation} /></EngagementShell>;
+  return <MarketingHub initialCampaignId={campaignId} />;
 }

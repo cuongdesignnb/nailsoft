@@ -27,6 +27,7 @@ import { DatabaseService } from "../../infrastructure/database.service.js";
 import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
 import { BenefitsTransactionService } from "../benefits/benefits-transaction.service.js";
 import { InventoryOperationsService } from "../inventory/inventory-operations.service.js";
+import { MarketingAttributionService } from "../marketing-attribution/marketing-attribution.service.js";
 import { StoredValueService } from "../stored-value/stored-value.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
 import { FinancialEvidenceService } from "./financial-evidence.service.js";
@@ -55,6 +56,8 @@ export class PosService {
     private readonly inventory: InventoryOperationsService,
     @Inject(StoredValueService)
     private readonly storedValue: StoredValueService,
+    @Inject(MarketingAttributionService)
+    private readonly attribution: MarketingAttributionService,
   ) {}
 
   async createFromAppointment(
@@ -1128,6 +1131,14 @@ export class PosService {
             invoice?.id ?? null,
             requestId,
           );
+          await this.attribution.projectPaidOrder(
+            client,
+            auth.tenantId,
+            id,
+            invoice?.id ?? null,
+            null,
+            requestId,
+          );
         }
         await this.recordOrder(
           client,
@@ -1436,6 +1447,14 @@ export class PosService {
             updated,
             requestId,
             true,
+          );
+          await this.attribution.projectPaidOrder(
+            client,
+            auth.tenantId,
+            id,
+            invoice?.id ?? null,
+            paymentId,
+            requestId,
           );
         }
         await this.evidence.record(client, {

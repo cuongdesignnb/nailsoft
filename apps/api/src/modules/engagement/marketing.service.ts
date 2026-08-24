@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { ForbiddenException, Inject, Injectable } from "@nestjs/common";
+import { ForbiddenException, Inject, Injectable, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import {
   customerSegmentSchema,
@@ -10,6 +10,7 @@ import {
   marketingRiskLevels,
 } from "@nailsoft/validation";
 import type { AccessClaims } from "../identity/auth.types.js";
+import { MarketingAttributionService } from "../marketing-attribution/marketing-attribution.service.js";
 import { CommunicationService } from "./communication.service.js";
 import { assertTransition, campaignTransitions } from "./engagement-domain.js";
 
@@ -17,6 +18,9 @@ import { assertTransition, campaignTransitions } from "./engagement-domain.js";
 export class MarketingService {
   constructor(
     @Inject(CommunicationService) readonly core: CommunicationService,
+    @Optional()
+    @Inject(MarketingAttributionService)
+    private readonly attribution?: MarketingAttributionService,
   ) {}
   segments(auth: AccessClaims) {
     this.core.access(auth);
@@ -403,6 +407,13 @@ export class MarketingService {
     const failed = Number(delivery.failed ?? 0);
     const deadLetter = Number(delivery.deadLetter ?? 0);
     const denominator = sent + failed + deadLetter;
+    const attributionService = this.attribution;
+    const attributionReadable = attributionService
+      ? await this.canReadAttribution(auth)
+      : false;
+    const attribution = attributionReadable && attributionService
+      ? await attributionService.overview(auth, from, to, query.branchId)
+      : null;
     return {
       period: { from, to },
       campaigns: {
@@ -415,7 +426,13 @@ export class MarketingService {
         sent, failed, deadLetter, suppressed: Number(delivery.suppressed ?? 0), cancelled: Number(delivery.cancelled ?? 0), pending: Number(delivery.pending ?? 0), successRate: denominator ? Math.round((sent / denominator) * 1000) / 10 : null,
       },
       channel: "EMAIL",
-      capabilities: { openTracking: false, clickTracking: false, bookingAttribution: false, revenueAttribution: false },
+      attribution,
+      capabilities: {
+        openTracking: false,
+        clickTracking: false,
+        bookingAttribution: attributionReadable,
+        revenueAttribution: attributionReadable,
+      },
       generatedAt: new Date().toISOString(),
     };
   }
@@ -654,7 +671,7 @@ export class MarketingService {
     return Promise.resolve(this.campaign(auth, id)).then(() =>
       this.core.db
         .query<any>(
-          `SELECT customer_id "customerId",locale,timezone,status,skipped_reason "skippedReason",snapshotted_at "snapshottedAt" FROM marketing_campaign_audience WHERE tenant_id=$1 AND campaign_id=$2 ORDER BY snapshotted_at,id`,
+        `SELECT id,customer_id "customerId",generation,locale,timezone,status,skipped_reason "skippedReason",snapshotted_at "snapshottedAt" FROM marketing_campaign_audience WHERE tenant_id=$1 AND campaign_id=$2 ORDER BY snapshotted_at,id`,
           [auth.tenantId, id],
         )
         .then((r) => r.rows),
@@ -712,6 +729,13 @@ export class MarketingService {
     const messageCounts = Object.fromEntries(messageRows.map((row) => [row.status, Number(row.count)]));
     const skipReasons = Object.fromEntries(skipRows.map((row) => [row.reason, Number(row.count)]));
     const skipBy = (needle: string) => skipRows.filter((row) => String(row.reason ?? "").toUpperCase().includes(needle)).reduce((sum, row) => sum + Number(row.count), 0);
+    const attributionService = this.attribution;
+    const attributionReadable = attributionService
+      ? await this.canReadAttribution(auth)
+      : false;
+    const attribution = attributionReadable && attributionService
+      ? await attributionService.campaignSummary(auth, id)
+      : null;
     return {
       campaign: { ...detail, id: detail.id ?? id },
       segment: detail.segmentId ? { id: detail.segmentId, name: detail.segmentName, version: detail.segmentVersion } : null,
@@ -743,9 +767,29 @@ export class MarketingService {
         suppressedForSuppression: skipBy("SUPPRESS"),
         suppressedForOther: skipRows.reduce((sum, row) => sum + Number(row.count), 0) - skipBy("CONSENT") - skipBy("EMAIL") - skipBy("FREQUENCY") - skipBy("SUPPRESS"),
       },
-      capabilities: { openTracking: false, clickTracking: false, bookingAttribution: false, revenueAttribution: false },
+      attribution,
+      capabilities: {
+        openTracking: false,
+        clickTracking: false,
+        bookingAttribution: attributionReadable,
+        revenueAttribution: attributionReadable,
+      },
       generatedAt: new Date().toISOString(),
     };
+  }
+
+  private async canReadAttribution(auth: AccessClaims) {
+    if (auth.supportAccess)
+      return auth.supportAccess.permissions.includes("marketing.attribution.read");
+    const result = await this.core.db.query(
+      `SELECT 1
+         FROM membership_roles mr
+         JOIN role_permissions rp ON rp.role=mr.role
+        WHERE mr.membership_id=$1 AND rp.permission_code='marketing.attribution.read'
+        LIMIT 1`,
+      [auth.membershipId],
+    );
+    return result.rowCount === 1;
   }
 
   private directoryItem(row: any) {

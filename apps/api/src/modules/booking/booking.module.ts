@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { DatabaseModule } from "../../infrastructure/database.module.js";
 import { AvailabilityModule } from "../availability/availability.module.js";
 import { IdentityModule } from "../identity/identity.module.js";
+import { MarketingAttributionModule } from "../marketing-attribution/marketing-attribution.module.js";
 import {
   AppointmentController,
   BookingCustomerController,
@@ -20,7 +21,7 @@ import { PublicBookingService } from "./public-booking.service.js";
 import { ReservationService } from "./reservation.service.js";
 
 @Module({
-  imports: [DatabaseModule, IdentityModule, AvailabilityModule],
+  imports: [DatabaseModule, IdentityModule, AvailabilityModule, MarketingAttributionModule],
   controllers: [
     BookingPlanController,
     SlotHoldController,

@@ -53,7 +53,7 @@ function localName(value: any, locale: Locale) {
   return localizedValue(value, locale, "Service");
 }
 
-export default function BookingFlow({ salonSlug }: { salonSlug: string }) {
+export default function BookingFlow({ salonSlug, attributionReference }: { salonSlug: string; attributionReference?: string }) {
   const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
   const [state, setState] = useState<AsyncState>("loading");
   const [error, setError] = useState("");
@@ -406,6 +406,7 @@ export default function BookingFlow({ salonSlug }: { salonSlug: string }) {
           body: JSON.stringify({
             holdId: hold.holdId,
             holdToken: hold.holdToken,
+            ...(attributionReference ? { attributionReference } : {}),
             contactVerificationToken: verificationToken,
             customer: {
               displayName: contact.displayName,
