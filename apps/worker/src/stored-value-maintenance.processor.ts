@@ -114,7 +114,7 @@ export class StoredValueMaintenanceProcessor implements OnModuleDestroy {
       `UPDATE gift_card_delivery_requests
           SET status=CASE WHEN channel='PRINT' THEN 'SENT' WHEN attempts>=4 THEN 'DEAD_LETTER' ELSE 'FAILED' END,
               attempts=attempts+1,lease_until=NULL,
-              safe_error_json=CASE WHEN channel='PRINT' THEN '{}' ELSE '{"code":"DELIVERY_PROVIDER_DISABLED"}' END,
+              safe_error_json=CASE WHEN channel='PRINT' THEN '{}'::jsonb ELSE '{"code":"DELIVERY_PROVIDER_DISABLED"}'::jsonb END,
               updated_at=now()
         WHERE id IN (
           SELECT id FROM gift_card_delivery_requests

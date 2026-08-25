@@ -111,4 +111,37 @@ describe.sequential("Sprint 10 stored-value Worker", () => {
       ledger_entries: 2,
     });
   });
+
+  it("writes delivery provider errors as jsonb", async () => {
+    const generationKey = "test-worker-delivery-jsonb";
+    await pool.query(
+      `INSERT INTO gift_card_delivery_requests(
+         tenant_id,gift_card_id,channel,status,generation_key
+       ) VALUES($1,'da200000-0000-4000-8000-000000000001','EMAIL','PENDING',$2)
+       ON CONFLICT(tenant_id,generation_key) DO UPDATE
+         SET status='PENDING',attempts=0,lease_until=NULL,safe_error_json='{}'::jsonb`,
+      [tenant, generationKey],
+    );
+    try {
+      expect(await processor.deliveryRequests()).toBeGreaterThanOrEqual(1);
+      const row = (
+        await pool.query(
+          `SELECT status,safe_error_json,jsonb_typeof(safe_error_json) AS safe_error_type
+             FROM gift_card_delivery_requests
+            WHERE tenant_id=$1 AND generation_key=$2`,
+          [tenant, generationKey],
+        )
+      ).rows[0];
+      expect(row).toEqual({
+        status: "FAILED",
+        safe_error_json: { code: "DELIVERY_PROVIDER_DISABLED" },
+        safe_error_type: "object",
+      });
+    } finally {
+      await pool.query(
+        "DELETE FROM gift_card_delivery_requests WHERE tenant_id=$1 AND generation_key=$2",
+        [tenant, generationKey],
+      );
+    }
+  });
 });

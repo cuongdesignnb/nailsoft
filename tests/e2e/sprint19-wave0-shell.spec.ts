@@ -40,6 +40,7 @@ async function prepareVisualPage(page: Page) {
 }
 
 async function signIn(page: Page) {
+  await page.clock.install({ time: new Date("2026-08-22T12:00:00Z") });
   await page.goto("/login");
   await page.getByLabel("Email").fill("owner@example.test");
   await page.getByLabel("Password").fill("DemoPass123!");
