@@ -79,7 +79,7 @@ test.describe("QA journey resilience — refresh, navigation, tabs and retry", (
     await context.setOffline(true);
     try {
       await page.getByRole("dialog").getByRole("button", { name: "Lưu hoạt động" }).click();
-      await expect(page.getByRole("dialog").getByRole("alert")).toContainText("Internet connection required");
+      await expect(page.getByRole("dialog").getByRole("alert")).toContainText(/Internet connection required|Cần kết nối mạng/);
       await expect(page.getByRole("dialog")).toBeVisible();
     } finally {
       await context.setOffline(false);

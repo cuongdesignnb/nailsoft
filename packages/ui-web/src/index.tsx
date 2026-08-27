@@ -37,7 +37,7 @@ export function StatePanel({ state, title, detail, onRetry }: { state: "loading"
   const icon: Record<typeof state, IconName> = { loading: "activity", empty: "file", error: "alert", forbidden: "lock", offline: "alert", partial: "alert" };
   return <section className={`ns-state ns-state--${state}`} aria-busy={state === "loading"} role={state === "error" || state === "forbidden" || state === "offline" ? "alert" : "status"}>
     <Icon name={icon[state]} decorative />
-    <div><h2>{title}</h2>{detail ? <p>{detail}</p> : null}{onRetry ? <Button variant="secondary" onClick={onRetry}><Icon name="refresh" />Retry</Button> : null}</div>
+    <div><h2>{title}</h2>{detail ? <p>{detail}</p> : null}{onRetry ? <Button variant="secondary" onClick={onRetry}><Icon name="refresh" />Thử lại</Button> : null}</div>
   </section>;
 }
 

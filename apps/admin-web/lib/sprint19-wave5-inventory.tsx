@@ -35,14 +35,64 @@ export function isWave5InventoryPath(pathname: string) {
 async function read(path: string, init?: RequestInit) {
   const response = await authorizedFetch(path, init);
   const body = await response.json().catch(() => ({}));
-  if (response.status === 401 || response.status === 403) throw Object.assign(new Error("Permission denied for this inventory scope."), { forbidden: true });
-  if (!response.ok) throw new Error(`${body.error?.code ?? "REQUEST_FAILED"}: ${body.error?.message ?? "Retry safely"}`);
+  if (response.status === 401 || response.status === 403) throw Object.assign(new Error("Bạn không có quyền xem phạm vi kho này."), { forbidden: true });
+  if (!response.ok) throw new Error(`${body.error?.code ?? "REQUEST_FAILED"}: ${body.error?.message ?? "Hãy thử lại an toàn."}`);
   return body.data;
 }
 
 function rowsOf(value: any): any[] { return Array.isArray(value) ? value : value == null ? [] : [value]; }
-function text(value: any) { if (value == null || value === "") return "—"; if (typeof value === "boolean") return value ? "Yes" : "No"; return String(value); }
-function titleFor(key: string) { return key.replace(/([A-Z])/g, " $1").replace(/^./, (v) => v.toUpperCase()); }
+const INVENTORY_VALUE_LABELS: Record<string, string> = {
+  ACTIVE: "Đang hoạt động", INACTIVE: "Không hoạt động", ARCHIVED: "Đã lưu trữ", OPEN: "Đang mở", ACKNOWLEDGED: "Đã xác nhận",
+  DRAFT: "Bản nháp", SUBMITTED: "Đã gửi duyệt", APPROVED: "Đã phê duyệt", POSTED: "Đã ghi nhận", REQUESTED: "Đã yêu cầu",
+  IN_TRANSIT: "Đang vận chuyển", RECEIVED: "Đã nhận", COUNTING: "Đang kiểm kê", REVIEW: "Đang rà soát", COMPLETED: "Đã hoàn tất",
+  CONSUMABLE: "Vật tư tiêu hao", RETAIL: "Hàng bán lẻ", BOTH: "Vật tư và hàng bán", STOCKROOM: "Kho hàng", SHELF: "Kệ hàng",
+  REFRIGERATED: "Kho mát", LOW_STOCK: "Sắp hết hàng", OUT_OF_STOCK: "Hết hàng", EXPIRING: "Sắp hết hạn", PHYSICAL_CORRECTION: "Điều chỉnh thực tế",
+  RECEIPT: "Nhập hàng", ISSUE: "Xuất hàng", TRANSFER: "Điều chuyển", ADJUSTMENT: "Điều chỉnh",
+};
+function text(value: any, key = "") {
+  if (value == null || value === "") return "—";
+  const normalizedKey = key.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " ").toLowerCase();
+  if (key === "id" || key.endsWith("Id") || key.endsWith("ID") || normalizedKey.endsWith(" id") || normalizedKey.endsWith(" uuid")) return "Mã hệ thống";
+  if (typeof value === "boolean") return value ? "Có" : "Không";
+  if (typeof value === "object") { const candidate = value.displayName ?? value.name ?? value.code ?? value.sku; if (typeof candidate === "object") return candidate?.["vi-VN"] ?? candidate?.["en-US"] ?? Object.values(candidate ?? {})[0] ?? "Có dữ liệu"; return candidate ?? "Có dữ liệu"; }
+  if (typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value)) return "Mã hệ thống";
+  const mapped = INVENTORY_VALUE_LABELS[String(value).toUpperCase()];
+  if (mapped) return mapped;
+  if (/(at|date|start|end|from|to|due)$/.test(normalizedKey) && !Number.isNaN(Date.parse(String(value)))) return new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(String(value)));
+  if (typeof value === "number") return new Intl.NumberFormat("vi-VN").format(value);
+  return String(value);
+}
+function titleFor(key: string) { const labels: Record<string, string> = { id: "Mã bản ghi", sku: "Mã SKU", name: "Tên", onHand: "Tồn kho", reserved: "Đang giữ", available: "Khả dụng", expiryDate: "Ngày hết hạn", lotId: "Lô hàng", lotStatus: "Trạng thái lô", locationId: "Vị trí kho", sourceLocationId: "Vị trí nguồn", destinationLocationId: "Vị trí đích", locationType: "Loại vị trí", status: "Trạng thái", severity: "Mức độ", alertType: "Loại cảnh báo", createdAt: "Ngày tạo", code: "Mã", itemType: "Loại hàng", quantityPrecision: "Độ chính xác", poNumber: "Số đơn mua", currency: "Tiền tệ", totalMinor: "Tổng tiền", receiptNumber: "Số phiếu nhận", receivedAt: "Ngày nhận", transferNumber: "Số phiếu chuyển", sourceBranchId: "Chi nhánh nguồn", destinationBranchId: "Chi nhánh đích", reasonCode: "Lý do", quantityDelta: "Chênh lệch số lượng", blind: "Kiểm đếm mù", serviceId: "Dịch vụ", branchId: "Chi nhánh", entryType: "Loại biến động", occurredAt: "Thời gian", totalCostMinor: "Tổng giá vốn", generatedAt: "Thời điểm tạo" }; return labels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (v) => v.toUpperCase()); }
+function inventoryTitle(value: string) {
+  const labels: Record<string, string> = {
+    "Inventory control center": "Trung tâm kiểm soát kho", "Inventory items": "Danh mục hàng hóa",
+    "Stock locations": "Vị trí kho", "Stock availability": "Tình trạng tồn kho", "Lot and expiry": "Lô và hạn dùng",
+    "Inventory alerts": "Cảnh báo tồn kho", "Inventory suppliers": "Nhà cung cấp kho", "Inventory purchase orders": "Đơn mua hàng tồn kho",
+    "Goods receipts": "Phiếu nhập hàng", "Stock transfers": "Điều chuyển kho", "Stock adjustments": "Điều chỉnh tồn kho",
+    "Blind stock counts": "Kiểm kê mù", "Service material recipes": "Định mức vật tư dịch vụ", "Inventory ledger": "Sổ biến động kho",
+    "Inventory valuation": "Định giá tồn kho",
+  };
+  return labels[value] ?? value;
+}
+function inventoryDescription(value: string) {
+  const labels: Record<string, string> = {
+    "Server-authoritative on-hand, reserved and available quantities.": "Số lượng tồn, đang giữ và khả dụng do máy chủ xác nhận.",
+    "Manage active consumables and retail items without editing stock balances directly.": "Quản lý vật tư và hàng bán mà không sửa trực tiếp số dư tồn kho.",
+    "Branch-scoped stock rooms and operational locations.": "Quản lý khu vực kho theo chi nhánh.",
+    "Traceable lot status and expiry visibility.": "Theo dõi lô hàng và hạn dùng có thể truy vết.",
+    "Review and acknowledge operational stock alerts.": "Theo dõi và xác nhận cảnh báo vận hành.",
+    "Supplier directory used by inventory purchasing workflows.": "Danh sách nhà cung cấp dùng trong quy trình mua hàng tồn kho.",
+    "Inventory purchase orders remain separate from Procurement purchase orders.": "Đơn mua hàng tồn kho được quản lý riêng với đơn mua hàng của Mua hàng.",
+    "Receive and post goods through the inventory receipt lifecycle.": "Tiếp nhận và ghi nhận hàng theo vòng đời phiếu nhập kho.",
+    "Request, approve, ship and receive stock across authorized branches.": "Yêu cầu, phê duyệt, xuất và nhận hàng giữa các chi nhánh được cấp quyền.",
+    "Review reasoned adjustments with version checks and approval.": "Rà soát điều chỉnh có lý do, kiểm tra phiên bản và phê duyệt.",
+    "Count first, review variance later; expected stock stays hidden before review.": "Kiểm kê trước, rà soát chênh lệch sau; số tồn kỳ vọng được giữ kín trước khi duyệt.",
+    "Define branch-scoped service material consumption.": "Thiết lập định mức vật tư dịch vụ theo chi nhánh.",
+    "Append-only inventory movement history.": "Lịch sử biến động kho chỉ ghi thêm.",
+    "Cost and valuation data is permission-gated by the API.": "Dữ liệu giá vốn và định giá được API kiểm soát theo quyền.",
+  };
+  return labels[value] ?? value;
+}
 
 const columns: Record<string, string[]> = {
   items: ["sku", "name", "status", "itemType", "quantityPrecision"],
@@ -61,24 +111,41 @@ const columns: Record<string, string[]> = {
   valuation: ["branchId", "onHand", "totalCostMinor", "generatedAt"],
 };
 
+const surfaceCopy: Record<string, { eyebrow: string; title: string; description: string }> = {
+  items: { eyebrow: "DANH MỤC HÀNG HÓA", title: "Danh mục hàng hóa", description: "Thông tin mặt hàng và đơn vị cơ bản do máy chủ quản lý; số dư tồn chỉ thay đổi qua nghiệp vụ kho." },
+  locations: { eyebrow: "CẤU TRÚC KHO", title: "Vị trí kho", description: "Khu vực lưu trữ theo chi nhánh, dùng làm nguồn cho nhập hàng, điều chuyển và kiểm kê." },
+  stock: { eyebrow: "SỐ DƯ TỒN KHO", title: "Tồn kho khả dụng", description: "Đối chiếu tồn thực tế, lượng đang giữ và số lượng có thể cấp phát từ projection của máy chủ." },
+  lots: { eyebrow: "TRUY VẾT LÔ HÀNG", title: "Lô và hạn dùng", description: "Theo dõi lô, hạn dùng và trạng thái lô để operator xử lý theo dữ liệu đã ghi nhận." },
+  alerts: { eyebrow: "CẢNH BÁO VẬN HÀNH", title: "Cảnh báo tồn kho", description: "Các cảnh báo thiếu hàng, hết hàng hoặc sắp hết hạn được xác nhận từ nguồn kho." },
+  suppliers: { eyebrow: "ĐỐI TÁC CUNG ỨNG", title: "Nhà cung cấp", description: "Danh mục nhà cung cấp được dùng trong quy trình mua hàng và tiếp nhận hàng hóa." },
+  purchaseOrders: { eyebrow: "ĐƠN MUA HÀNG", title: "Đơn mua hàng tồn kho", description: "Theo dõi vòng đời đơn mua hàng tồn kho và chỉ thực hiện chuyển trạng thái qua lệnh máy chủ." },
+  receipts: { eyebrow: "TIẾP NHẬN HÀNG", title: "Phiếu nhập hàng", description: "Phiếu nhập và bằng chứng ghi nhận hàng nhận vào kho theo chi nhánh được cấp quyền." },
+  transfers: { eyebrow: "ĐIỀU CHUYỂN NỘI BỘ", title: "Điều chuyển kho", description: "Theo dõi yêu cầu, phê duyệt, xuất và nhận hàng giữa các chi nhánh được phép." },
+  adjustments: { eyebrow: "ĐIỀU CHỈNH CÓ KIỂM SOÁT", title: "Điều chỉnh tồn kho", description: "Mọi điều chỉnh cần lý do, phiên bản và quy trình phê duyệt; không sửa số dư trực tiếp." },
+  counts: { eyebrow: "KIỂM KÊ MÙ", title: "Kiểm kê mù", description: "Operator nhập số đếm trước, sau đó hệ thống mới mở phần rà soát chênh lệch kỳ vọng." },
+  recipes: { eyebrow: "ĐỊNH MỨC DỊCH VỤ", title: "Vật tư theo dịch vụ", description: "Định mức tiêu hao theo dịch vụ và chi nhánh, làm nguồn cho xuất kho vận hành." },
+  ledger: { eyebrow: "SỔ BIẾN ĐỘNG KHO", title: "Lịch sử biến động", description: "Dòng nhập, xuất, điều chuyển và điều chỉnh bất biến do máy chủ ghi nhận." },
+  valuation: { eyebrow: "GIÁ VỐN & ĐỊNH GIÁ", title: "Định giá tồn kho", description: "Số liệu giá vốn và định giá chỉ hiển thị khi API cho phép theo quyền tài chính." },
+};
+
 function actionFor(kind: string, row: any): Array<{ label: string; path: string; body?: Record<string, unknown> | undefined }> {
   const version = row.version == null ? undefined : { version: row.version };
-  if (kind === "items" && row.status === "ACTIVE") return [{ label: "Archive", path: `/v1/inventory/items/${row.id}/archive`, body: version }];
-  if (kind === "items" && row.status === "ARCHIVED") return [{ label: "Activate", path: `/v1/inventory/items/${row.id}/activate`, body: version }];
-  if (kind === "alerts" && row.status === "OPEN") return [{ label: "Acknowledge", path: `/v1/inventory/alerts/${row.id}/acknowledge` }];
-  if (kind === "purchaseOrders" && row.status === "DRAFT") return [{ label: "Submit", path: `/v1/inventory/purchase-orders/${row.id}/submit`, body: version }];
-  if (kind === "purchaseOrders" && row.status === "SUBMITTED") return [{ label: "Approve", path: `/v1/inventory/purchase-orders/${row.id}/approve`, body: version }];
-  if (kind === "receipts" && row.status === "DRAFT") return [{ label: "Post", path: `/v1/inventory/receipts/${row.id}/post`, body: version }];
-  if (kind === "transfers" && row.status === "DRAFT") return [{ label: "Request", path: `/v1/inventory/transfers/${row.id}/request`, body: version }];
-  if (kind === "transfers" && row.status === "REQUESTED") return [{ label: "Approve", path: `/v1/inventory/transfers/${row.id}/approve`, body: version }];
-  if (kind === "transfers" && row.status === "APPROVED") return [{ label: "Ship", path: `/v1/inventory/transfers/${row.id}/ship`, body: version }];
-  if (kind === "transfers" && row.status === "IN_TRANSIT") return [{ label: "Receive", path: `/v1/inventory/transfers/${row.id}/receive`, body: version }];
-  if (kind === "adjustments" && row.status === "PENDING") return [{ label: "Approve", path: `/v1/inventory/adjustments/${row.id}/approve`, body: { ...version, reason: "Reviewed in inventory workspace" } }];
-  if (kind === "adjustments" && row.status === "APPROVED") return [{ label: "Post", path: `/v1/inventory/adjustments/${row.id}/post`, body: version }];
-  if (kind === "counts" && row.status === "DRAFT") return [{ label: "Start count", path: `/v1/inventory/counts/${row.id}/start`, body: version }];
-  if (kind === "counts" && row.status === "COUNTING") return [{ label: "Start review", path: `/v1/inventory/counts/${row.id}/start-review`, body: version }];
-  if (kind === "counts" && ["REVIEW", "SUBMITTED"].includes(row.status)) return [{ label: "Approve", path: `/v1/inventory/counts/${row.id}/approve`, body: version }];
-  if (kind === "counts" && row.status === "APPROVED") return [{ label: "Post", path: `/v1/inventory/counts/${row.id}/post`, body: version }];
+  if (kind === "items" && row.status === "ACTIVE") return [{ label: "Lưu trữ", path: `/v1/inventory/items/${row.id}/archive`, body: version }];
+  if (kind === "items" && row.status === "ARCHIVED") return [{ label: "Kích hoạt", path: `/v1/inventory/items/${row.id}/activate`, body: version }];
+  if (kind === "alerts" && row.status === "OPEN") return [{ label: "Xác nhận", path: `/v1/inventory/alerts/${row.id}/acknowledge` }];
+  if (kind === "purchaseOrders" && row.status === "DRAFT") return [{ label: "Gửi duyệt", path: `/v1/inventory/purchase-orders/${row.id}/submit`, body: version }];
+  if (kind === "purchaseOrders" && row.status === "SUBMITTED") return [{ label: "Phê duyệt", path: `/v1/inventory/purchase-orders/${row.id}/approve`, body: version }];
+  if (kind === "receipts" && row.status === "DRAFT") return [{ label: "Ghi nhận", path: `/v1/inventory/receipts/${row.id}/post`, body: version }];
+  if (kind === "transfers" && row.status === "DRAFT") return [{ label: "Tạo yêu cầu", path: `/v1/inventory/transfers/${row.id}/request`, body: version }];
+  if (kind === "transfers" && row.status === "REQUESTED") return [{ label: "Phê duyệt", path: `/v1/inventory/transfers/${row.id}/approve`, body: version }];
+  if (kind === "transfers" && row.status === "APPROVED") return [{ label: "Xuất kho", path: `/v1/inventory/transfers/${row.id}/ship`, body: version }];
+  if (kind === "transfers" && row.status === "IN_TRANSIT") return [{ label: "Nhận hàng", path: `/v1/inventory/transfers/${row.id}/receive`, body: version }];
+  if (kind === "adjustments" && row.status === "PENDING") return [{ label: "Phê duyệt", path: `/v1/inventory/adjustments/${row.id}/approve`, body: { ...version, reason: "Đã kiểm tra trong màn hình kho" } }];
+  if (kind === "adjustments" && row.status === "APPROVED") return [{ label: "Ghi nhận", path: `/v1/inventory/adjustments/${row.id}/post`, body: version }];
+  if (kind === "counts" && row.status === "DRAFT") return [{ label: "Bắt đầu kiểm kê", path: `/v1/inventory/counts/${row.id}/start`, body: version }];
+  if (kind === "counts" && row.status === "COUNTING") return [{ label: "Bắt đầu kiểm tra", path: `/v1/inventory/counts/${row.id}/start-review`, body: version }];
+  if (kind === "counts" && ["REVIEW", "SUBMITTED"].includes(row.status)) return [{ label: "Phê duyệt", path: `/v1/inventory/counts/${row.id}/approve`, body: version }];
+  if (kind === "counts" && row.status === "APPROVED") return [{ label: "Ghi nhận", path: `/v1/inventory/counts/${row.id}/post`, body: version }];
   return [];
 }
 
@@ -137,13 +204,13 @@ export default function Sprint19Wave5Inventory({ pathname }: { pathname: string 
   }, [branchId]);
 
   async function run(path: string, body: Record<string, unknown> = {}) {
-    if (!navigator.onLine) { setNotice("Internet connection required. Inventory writes are not queued offline."); return; }
+    if (!navigator.onLine) { setNotice("Cần có kết nối mạng. Thao tác kho không được xếp hàng khi ngoại tuyến."); return; }
     setBusy(true); setNotice("");
     const key = intentKeys.current[path] ?? (intentKeys.current[path] = crypto.randomUUID());
     try {
       await read(path, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(body) });
       delete intentKeys.current[path];
-      setNotice("Saved. The server-authoritative inventory view was refreshed.");
+      setNotice("Đã lưu sau khi máy chủ xác nhận; dữ liệu tồn kho đã được làm mới.");
       await load();
     } catch (e: any) { setNotice(e.message); } finally { setBusy(false); }
   }
@@ -152,26 +219,34 @@ export default function Sprint19Wave5Inventory({ pathname }: { pathname: string 
   const needsBranch = Boolean(screen.branchScoped);
   return <main className="shell ops-shell">
     <section className="card">
-      <p className="eyebrow">SPRINT 19 · WAVE 5 · INVENTORY</p>
-      <div className="title-row"><div><h1>{screen.title}</h1><p className="hint">{screen.description}</p></div><button onClick={() => void load()} disabled={state === "loading"}>Refresh</button></div>
-      {branchState === "loading" && <p role="status" aria-busy="true">Loading authorized branches…</p>}
-      {branchState === "forbidden" && <p role="alert">Permission denied. Branch context is unavailable.</p>}
-      {branches.length > 1 && <label>Active branch<select aria-label="Active branch" value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Select an authorized branch</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
-      {needsBranch && !branchId && branchState === "ready" && <p role="alert">Select an authorized branch to view this screen. The server remains the authorization source.</p>}
+      <p className="eyebrow">NAILSOFT · KHO HÀNG</p>
+      <div className="title-row"><div><h1>{inventoryTitle(screen.title)}</h1><p className="hint">{inventoryDescription(screen.description)}</p></div><button onClick={() => void load()} disabled={state === "loading"}>Làm mới</button></div>
+      {branchState === "loading" && <p role="status" aria-busy="true">Đang tải các chi nhánh được cấp quyền…</p>}
+      {branchState === "forbidden" && <p role="alert">Không có quyền truy cập ngữ cảnh chi nhánh.</p>}
+      {branches.length > 1 && <label>Chi nhánh đang chọn<select aria-label="Chi nhánh đang chọn" value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Chọn chi nhánh được cấp quyền</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
+      {needsBranch && !branchId && branchState === "ready" && <p role="alert">Chọn chi nhánh được cấp quyền để xem màn hình này. Máy chủ vẫn là nguồn xác thực cuối cùng.</p>}
       {notice && <p role="status" className="notice">{notice}</p>}
-      {state === "loading" && <div role="status" aria-busy="true" className="skeleton">Loading authoritative inventory data…</div>}
-      {state === "forbidden" && <div role="alert" className="state"><h2>Permission denied</h2><p>Your role or branch scope does not allow this inventory view.</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "error" && <div role="alert" className="state"><h2>Unable to load inventory</h2><p>{error}</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "empty" && <div className="state"><h2>No records yet</h2><p>There is no data for the selected authorized scope.</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "ready" && <InventoryTable rows={rows} kind={screen.kind} columns={visibleColumns} busy={busy} run={run} />}
+      {state === "loading" && <div role="status" aria-busy="true" className="skeleton">Đang tải dữ liệu kho đã được xác nhận…</div>}
+      {state === "forbidden" && <div role="alert" className="state"><h2>Không có quyền truy cập</h2><p>Vai trò hoặc phạm vi chi nhánh hiện tại không bao gồm màn hình kho này.</p><button onClick={() => void load()}>Thử lại</button></div>}
+      {state === "error" && <div role="alert" className="state"><h2>Không thể tải dữ liệu kho</h2><p>{error}</p><button onClick={() => void load()}>Thử lại</button></div>}
+      {state === "empty" && <div className="state"><h2>Chưa có dữ liệu</h2><p>Chưa có bản ghi trong phạm vi được cấp quyền.</p><button onClick={() => void load()}>Thử lại</button></div>}
+      {state === "ready" && <InventorySurface kind={screen.kind} rows={rows} columns={visibleColumns} busy={busy} run={run} />}
     </section>
     {(["items", "locations", "suppliers", "adjustments", "transfers", "counts"].includes(screen.kind)) && <InventoryCreate kind={screen.kind} branchId={branchId} branches={branches} items={itemOptions} uoms={uomOptions} locations={locationOptions} run={run} />}
   </main>;
 }
 
+function InventorySurface({ kind, rows, columns, busy, run }: { kind: string; rows: any[]; columns: string[]; busy: boolean; run: (path: string, body?: Record<string, unknown>) => Promise<void> }) {
+  const copy = surfaceCopy[kind] ?? surfaceCopy.stock!;
+  return <section className="ns-inventory-surface" aria-labelledby={`inventory-surface-${kind}`}>
+    <div className="ns-inventory-surface-head"><div><p className="eyebrow">{copy.eyebrow}</p><h2 id={`inventory-surface-${kind}`}>{copy.title}</h2><p>{copy.description}</p></div><span className="ns-data-badge">Dữ liệu server</span></div>
+    <InventoryTable rows={rows} kind={kind} columns={columns} busy={busy} run={run} />
+  </section>;
+}
+
 function InventoryTable({ rows, kind, columns, busy, run }: { rows: any[]; kind: string; columns: string[]; busy: boolean; run: (path: string, body?: Record<string, unknown>) => Promise<void> }) {
   if (!rows.length) return null;
-  return <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column}>{titleFor(column)}</th>)}<th>Actions</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? `${kind}-${index}`}>{columns.map((column) => <td key={column} data-label={titleFor(column)}>{text(row[column])}</td>)}<td>{actionFor(kind, row).map((action) => <button key={action.path} disabled={busy} onClick={() => void run(action.path, action.body)}>{action.label}</button>)}</td></tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column} scope="col">{titleFor(column)}</th>)}<th scope="col">Thao tác</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? `${kind}-${index}`}>{columns.map((column) => <td key={column} data-label={titleFor(column)}>{text(row[column], column)}</td>)}<td>{actionFor(kind, row).map((action) => <button key={action.path} disabled={busy} onClick={() => void run(action.path, action.body)}>{action.label}</button>)}</td></tr>)}</tbody></table></div>;
 }
 
 function InventoryCreate({ kind, branchId, branches, items, uoms, locations, run }: { kind: string; branchId?: string | undefined; branches: Branch[]; items: any[]; uoms: any[]; locations: any[]; run: (path: string, body?: Record<string, unknown> | undefined) => Promise<void> }) {
@@ -196,6 +271,6 @@ function InventoryCreate({ kind, branchId, branches, items, uoms, locations, run
     const endpoint = { items: "/v1/inventory/items", locations: "/v1/inventory/locations", suppliers: "/v1/inventory/suppliers", adjustments: "/v1/inventory/adjustments", transfers: "/v1/inventory/transfers", counts: "/v1/inventory/counts" }[kind]!;
     await run(endpoint, body); setForm({}); setOpen(false);
   }
-  const option = (name: string, label: string, values: any[]) => <label>{label}<select name={name} value={value(name)} onChange={(event) => set(name, event.target.value)} required><option value="">Select {label.toLowerCase()}</option>{values.map((entry) => <option key={entry.id} value={entry.id}>{entry.name ?? entry.code ?? entry.sku ?? entry.id}</option>)}</select></label>;
-  return <section className="card"><div className="title-row"><h2>Operational command</h2><button onClick={() => setOpen((current) => !current)}>{open ? "Close" : "New"}</button></div>{open && <form className="form-grid" onSubmit={(event) => void submit(event)}>{kind === "items" && <><label>SKU<input required value={value("sku")} onChange={(event) => set("sku", event.target.value)} /></label><label>Name<input required value={value("name")} onChange={(event) => set("name", event.target.value)} /></label>{option("uomId", "Base unit", uoms)}</>}{kind === "locations" && <><label>Code<input required value={value("code")} onChange={(event) => set("code", event.target.value)} /></label><label>Name<input required value={value("name")} onChange={(event) => set("name", event.target.value)} /></label></>}{kind === "suppliers" && <><label>Code<input required value={value("code")} onChange={(event) => set("code", event.target.value)} /></label><label>Name<input required value={value("name")} onChange={(event) => set("name", event.target.value)} /></label><label>Email<input type="email" value={value("email")} onChange={(event) => set("email", event.target.value)} /></label></>}{kind === "adjustments" && <>{option("itemId", "Item", items)}{option("locationId", "Location", locations)}<label>Quantity delta<input required value={value("quantityDelta")} onChange={(event) => set("quantityDelta", event.target.value)} /></label><label>Reason<input required value={value("note")} onChange={(event) => set("note", event.target.value)} /></label></>}{kind === "transfers" && <>{option("destinationBranchId", "Destination branch", branches.filter((branch) => branch.id !== branchId))}{option("itemId", "Item", items)}{option("sourceLocationId", "Source location", locations)}{option("destinationLocationId", "Destination location", locations)}<label>Quantity<input required value={value("quantity")} onChange={(event) => set("quantity", event.target.value)} /></label></>}{kind === "counts" && <>{option("itemId", "Item", items)}{option("locationId", "Location", locations)}</>}<button type="submit">Submit command</button></form>}</section>;
+  const option = (name: string, label: string, values: any[]) => <label>{label}<select name={name} value={value(name)} onChange={(event) => set(name, event.target.value)} required><option value="">Chọn {label.toLowerCase()}</option>{values.map((entry) => <option key={entry.id} value={entry.id}>{typeof entry.name === "object" ? entry.name?.["vi-VN"] ?? entry.name?.["en-US"] ?? entry.code ?? entry.sku ?? "Mã hệ thống" : entry.name ?? entry.code ?? entry.sku ?? "Mã hệ thống"}</option>)}</select></label>;
+  return <section className="card"><div className="title-row"><h2>Thao tác vận hành</h2><button onClick={() => setOpen((current) => !current)}>{open ? "Đóng" : "Tạo mới"}</button></div>{open && <form className="form-grid" onSubmit={(event) => void submit(event)}>{kind === "items" && <><label>SKU<input required value={value("sku")} onChange={(event) => set("sku", event.target.value)} /></label><label>Tên hàng<input required value={value("name")} onChange={(event) => set("name", event.target.value)} /></label>{option("uomId", "Đơn vị cơ bản", uoms)}</>}{kind === "locations" && <><label>Mã vị trí<input required value={value("code")} onChange={(event) => set("code", event.target.value)} /></label><label>Tên vị trí<input required value={value("name")} onChange={(event) => set("name", event.target.value)} /></label></>}{kind === "suppliers" && <><label>Mã nhà cung cấp<input required value={value("code")} onChange={(event) => set("code", event.target.value)} /></label><label>Tên nhà cung cấp<input required value={value("name")} onChange={(event) => set("name", event.target.value)} /></label><label>Email<input type="email" value={value("email")} onChange={(event) => set("email", event.target.value)} /></label></>}{kind === "adjustments" && <>{option("itemId", "Mặt hàng", items)}{option("locationId", "Vị trí kho", locations)}<label>Chênh lệch số lượng<input required value={value("quantityDelta")} onChange={(event) => set("quantityDelta", event.target.value)} /></label><label>Lý do<input required value={value("note")} onChange={(event) => set("note", event.target.value)} /></label></>}{kind === "transfers" && <>{option("destinationBranchId", "Chi nhánh đích", branches.filter((branch) => branch.id !== branchId))}{option("itemId", "Mặt hàng", items)}{option("sourceLocationId", "Vị trí nguồn", locations)}{option("destinationLocationId", "Vị trí đích", locations)}<label>Số lượng<input required value={value("quantity")} onChange={(event) => set("quantity", event.target.value)} /></label></>}{kind === "counts" && <>{option("itemId", "Mặt hàng", items)}{option("locationId", "Vị trí kho", locations)}</>}<button type="submit">Gửi thao tác</button></form>}</section>;
 }

@@ -34,7 +34,7 @@ export const wave6Routes: Wave6Route[] = [
   { screenId: "19.6.15", title: "Invoices & history", area: "tenant-billing", href: "/admin/billing/invoices", description: "Platform subscription invoices, not salon POS invoices." },
   { screenId: "19.6.16", title: "Invoice detail", area: "tenant-billing", href: "/admin/billing/invoices/detail", description: "Immutable invoice evidence and collection status." },
   { screenId: "19.6.17", title: "Payment methods", area: "tenant-billing", href: "/admin/billing/payment-methods", description: "Masked provider payment methods." },
-  { screenId: "19.6.18", title: "Tenant support access", area: "tenant-billing", href: "/admin/support-access", description: "Scoped support grants with expiry and dual control." },
+  { screenId: "19.6.18", title: "Tenant support access", area: "support-access", href: "/admin/support-access", description: "Scoped support grants with expiry and dual control." },
   { screenId: "19.6.19", title: "Plan, price & discount catalog", area: "platform-catalog", href: "/platform/plans", description: "Immutable plan and price lifecycle; discounts are read-only." },
   { screenId: "19.6.20", title: "Tenant directory", area: "platform-tenants", href: "/platform/tenants", description: "Global platform tenant directory or scoped support target." },
   { screenId: "19.6.21", title: "Tenant detail & lifecycle", area: "platform-tenants", href: "/platform/tenants/detail", description: "Tenant billing lifecycle without salon operations." },
@@ -82,12 +82,13 @@ export function routeForWave6(pathname: string) {
   };
   if (pathname in aliases) {
     const base = wave6Routes[aliases[pathname]!]!;
-    return { ...base, href: pathname, title: pathname === "/admin/billing/history" ? "Billing history" : pathname === "/admin/billing/plans" ? "Plans" : pathname === "/platform/prices" ? "Price catalog" : pathname === "/platform/discounts" ? "Discount catalog" : pathname === "/platform/payments" ? "Payment operations" : pathname === "/platform/payment-intents" ? "Payment intents" : pathname === "/platform/reconciliation" ? "Payment reconciliation" : pathname === "/platform/support-access-grants" ? "Support grants" : "Platform reports" };
+    return { ...base, href: pathname, title: pathname === "/admin/billing/history" ? "Lịch sử thanh toán" : pathname === "/admin/billing/plans" ? "Gói dịch vụ" : pathname === "/platform/prices" ? "Danh mục giá" : pathname === "/platform/discounts" ? "Danh mục giảm giá" : pathname === "/platform/payments" ? "Vận hành thanh toán" : pathname === "/platform/payment-intents" ? "Ý định thanh toán" : pathname === "/platform/reconciliation" ? "Đối soát thanh toán" : pathname === "/platform/support-access-grants" ? "Quyền hỗ trợ" : "Báo cáo nền tảng" };
   }
   if (/^\/admin\/billing\/invoices\/[^/]+$/.test(pathname)) return { ...wave6Routes[15]!, href: pathname, title: "Invoice detail" };
   if (/^\/platform\/tenants\/[^/]+/.test(pathname)) {
     const suffix = pathname.split("/").slice(4).join("/");
-    const title = suffix ? `Tenant ${suffix.replaceAll("-", " ")}` : "Tenant detail & lifecycle";
+    const suffixLabels: Record<string, string> = { entitlements: "Quyền sử dụng & sản lượng Tenant", usage: "Quyền sử dụng & sản lượng Tenant", invoices: "Hóa đơn Tenant", payments: "Thanh toán Tenant", subscription: "Gói đăng ký Tenant" };
+    const title = suffix ? suffixLabels[suffix] ?? `Tenant · ${suffix.replaceAll("-", " ")}` : "Chi tiết & vòng đời Tenant";
     return { ...wave6Routes[20]!, href: pathname, title };
   }
   if (pathname === "/platform") return wave6Routes[18]!;

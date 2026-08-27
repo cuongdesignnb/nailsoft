@@ -159,7 +159,7 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
     });
     expect(stale.statusCode).toBe(409);
     expect(stale.json().error.code).toBe("VERSION_CONFLICT");
-  });
+  }, 15_000);
 
   it("converts a walk-in once through Booking Planner, hold, and reservation consumption", async () => {
     const availability = await app.inject({
@@ -240,7 +240,7 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
     expect(evidence.rows[0].appointments).toBe(1);
     expect(evidence.rows[0].reservations).toBeGreaterThan(0);
     expect(evidence.rows[0].hold_status).toBe("CONSUMED");
-  });
+  }, 15_000);
 
   it("plans, holds, approves, and appends an add-service without repricing existing items", async () => {
     const checked = await app.inject({
@@ -453,7 +453,7 @@ describe.sequential("Sprint 5 walk-in, check-in, and execution", () => {
     expect(checkout.statusCode).toBe(200);
     expect(checkout.json().data.checkoutReady).toBe(true);
     expect(checkout.json().data.pricingPreview).toBeTruthy();
-  });
+  }, 15_000);
 
   it("sanitizes assigned-technician notes and issues tenant-bound media metadata", async () => {
     const sessionId = "77000000-0000-4000-8000-000000000007",

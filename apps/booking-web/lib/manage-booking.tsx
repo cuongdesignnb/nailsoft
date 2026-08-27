@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   formatSalonDateTime,
   formatSalonTime,
+  bookingStatusLabel,
   getInitialLocale,
   getMessage,
   localizedValue,
@@ -24,14 +25,14 @@ function localizedError(cause: any, locale: Locale) {
   if (code === "BOOKING_ACCESS_DENIED") return getMessage(locale, "sessionExpired");
   if (code === "BOOKING_VERSION_CONFLICT") return getMessage(locale, "bookingChanged");
   if (code === "SLOT_HOLD_EXPIRED") return getMessage(locale, "holdExpired");
-  return cause?.message ?? getMessage(locale, "retry");
+  return getMessage(locale, "retry");
 }
 
 async function call(path: string, init?: RequestInit) {
   const response = await fetch(`${api}${path}`, init);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw Object.assign(new Error(body.error?.message ?? "Unable to complete the request."), {
+    throw Object.assign(new Error(body.error?.message ?? "Không thể hoàn tất yêu cầu."), {
       code: body.error?.code,
       details: body.error?.details,
     });
@@ -40,7 +41,9 @@ async function call(path: string, init?: RequestInit) {
 }
 
 export default function ManageBooking() {
-  const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
+  // Keep the server and first client render stable; browser preferences are
+  // loaded after hydration to avoid locale-driven hydration mismatches.
+  const [locale, setLocale] = useState<Locale>("vi-VN");
   const [step, setStep] = useState<ManageStep>("LOOKUP");
   const [state, setState] = useState<ManageState>("ready");
   const [salonSlug, setSalonSlug] = useState("");
@@ -48,6 +51,9 @@ export default function ManageBooking() {
   const [reference, setReference] = useState("");
   const [contact, setContact] = useState("");
   const [challenge, setChallenge] = useState<any>();
+  const [challengeExpiresAt, setChallengeExpiresAt] = useState<number | null>(null);
+  const [challengeRemaining, setChallengeRemaining] = useState(0);
+  const [challengeExpired, setChallengeExpired] = useState(false);
   const [code, setCode] = useState("");
   const [token, setToken] = useState("");
   const [booking, setBooking] = useState<any>();
@@ -68,8 +74,24 @@ export default function ManageBooking() {
     const params = new URLSearchParams(window.location.search);
     const value = params.get("salon");
     if (value) setSalonSlug(value);
+    setLocale(getInitialLocale());
+  }, []);
+
+  useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
+
+  useEffect(() => {
+    if (!challenge?.challengeId || !challengeExpiresAt) return;
+    const update = () => {
+      const seconds = Math.max(0, Math.ceil((challengeExpiresAt - Date.now()) / 1000));
+      setChallengeRemaining(seconds);
+      if (!seconds) setChallengeExpired(true);
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [challenge?.challengeId, challengeExpiresAt]);
 
   function path(suffix: string) {
     return `/v1/public/salons/${encodeURIComponent(salonSlug)}/bookings${suffix}`;
@@ -96,6 +118,10 @@ export default function ManageBooking() {
         }),
       });
       setChallenge(data);
+      const expiresIn = Number(data.expiresIn);
+      setChallengeExpiresAt(Number.isFinite(expiresIn) && expiresIn > 0 ? Date.now() + expiresIn * 1000 : null);
+      setChallengeRemaining(Number.isFinite(expiresIn) && expiresIn > 0 ? Math.ceil(expiresIn) : 0);
+      setChallengeExpired(false);
       if (process.env.NODE_ENV !== "production") setCode(data.testCode ?? "");
       setStep("OTP");
       setState("ready");
@@ -133,6 +159,9 @@ export default function ManageBooking() {
         body: JSON.stringify({ challengeId: challenge.challengeId, code }),
       });
       setToken(data.managementToken);
+      setChallengeExpiresAt(null);
+      setChallengeRemaining(0);
+      setChallengeExpired(false);
       setReference(data.bookingReference);
       const detail = await loadContext(data.managementToken, data.bookingReference);
       try {
@@ -269,7 +298,7 @@ export default function ManageBooking() {
   const bookingCancelled = String(booking?.status ?? "").startsWith("CANCELLED");
 
   return (
-    <main className="booking-shell" data-testid="manage-booking">
+    <main className="booking-shell manage-booking-shell" data-testid="manage-booking">
       <header className="brand">
         <a href="/" aria-label="Nailsoft">NAILSOFT</a>
         <div className="brand-tools">
@@ -277,23 +306,83 @@ export default function ManageBooking() {
           <label className="language-switcher"><span className="sr-only">{t("selectLanguage")}</span><select aria-label={t("selectLanguage")} value={locale} onChange={(event) => { const next = event.target.value as Locale; setLocale(next); persistLocale(next); }}><option value="vi-VN">vi-VN</option><option value="en-US">en-US</option></select></label>
         </div>
       </header>
-      <section className="hero" aria-labelledby="manage-title"><p>{t("bookingManagement")}</p><h1 id="manage-title">{t("manageBooking")}</h1><p className="muted">{t("manageBookingDescription")}</p></section>
-      <section className="card booking-card">
+      <section className="hero manage-hero" aria-labelledby="manage-title">
+        <div>
+          <p className="eyebrow">{t("bookingManagement")}</p>
+          <h1 id="manage-title">{t("manageBooking")}</h1>
+          <p className="muted">{t("manageBookingDescription")}</p>
+        </div>
+        <aside className="manage-context-card" aria-label={t("workspace")}>
+          <span className="manage-context-icon" aria-hidden="true">⌁</span>
+          <div><small>{t("workspace")}</small><strong>{salon?.name || salonSlug || "Nailsoft"}</strong></div>
+          <span className="manage-context-dot" aria-hidden="true">●</span>
+        </aside>
+      </section>
+      <section className="card booking-card manage-card">
         {notice && <div className="success" role="status">{notice}</div>}
         {state === "loading" && <div className="state" role="status">{t("loading")}</div>}
         {state === "offline" && <div className="error error-summary" role="alert"><strong>{t("offline")}</strong><p>{t("internetRequired")}</p><button className="secondary" type="button" onClick={() => setState("ready")}>{t("retry")}</button></div>}
         {state === "expired" && <div className="error error-summary" role="alert"><strong>{t("sessionExpired")}</strong><p>{t("manageBookingDescription")}</p><button className="secondary" type="button" onClick={() => { setToken(""); setStep("LOOKUP"); setState("ready"); }}>{t("verify")}</button></div>}
         {state === "error" && <div className="error error-summary" role="alert"><strong>{t("retry")}</strong><p>{error}</p><div className="actions"><button className="secondary" type="button" onClick={() => setState("ready")}>{t("retry")}</button><button className="link-button" type="button" onClick={() => { setError(""); setStep("LOOKUP"); setState("ready"); }}>{t("changeDetails")}</button></div></div>}
 
-        {state === "ready" && step === "LOOKUP" && <form className="grid" onSubmit={request} aria-labelledby="lookup-heading"><h2 id="lookup-heading">{t("manageBooking")}</h2><label className="field" htmlFor="manage-salon">{t("salonCode")}<input id="manage-salon" required value={salonSlug} onChange={(event) => setSalonSlug(event.target.value.trim())} placeholder={t("salonCodePlaceholder")} /></label><label className="field" htmlFor="manage-reference">{t("bookingReference")}<input id="manage-reference" required value={reference} onChange={(event) => setReference(event.target.value.toUpperCase())} /></label><label className="field" htmlFor="manage-contact">{t("phone")} / {t("email")}<input id="manage-contact" required value={contact} onChange={(event) => setContact(event.target.value)} /></label><button className="primary" type="submit">{t("sendCode")}</button><p className="muted">{t("neutralResponse")}</p></form>}
+        {state === "ready" && step === "LOOKUP" && (
+          <div className="manage-layout">
+            <form className="manage-main-panel" onSubmit={request} aria-labelledby="lookup-heading">
+              <div className="manage-panel-heading">
+                <span className="manage-panel-icon" aria-hidden="true">⌕</span>
+                <div><p className="eyebrow">01 / {t("secureLookup")}</p><h2 id="lookup-heading">{t("manageBooking")}</h2><p>{t("lookupIntro")}</p></div>
+              </div>
+              <div className="manage-form-grid">
+                <label className="field" htmlFor="manage-salon"><span>{t("salonCode")}</span><input id="manage-salon" required value={salonSlug} onChange={(event) => setSalonSlug(event.target.value.trim())} placeholder={t("salonCodePlaceholder")} /></label>
+                <label className="field" htmlFor="manage-reference"><span>{t("bookingReference")}</span><input id="manage-reference" required value={reference} onChange={(event) => setReference(event.target.value.toUpperCase())} /></label>
+                <label className="field manage-form-wide" htmlFor="manage-contact"><span>{t("phone")} / {t("email")}</span><input id="manage-contact" required value={contact} onChange={(event) => setContact(event.target.value)} /></label>
+              </div>
+              <div className="manage-form-actions"><button className="primary" type="submit">{t("sendCode")} <span aria-hidden="true">→</span></button></div>
+              <p className="manage-neutral-note"><span aria-hidden="true">✓</span>{t("neutralResponse")}</p>
+            </form>
+            <aside className="manage-side-panel">
+              <section className="manage-side-card manage-security-card">
+                <span className="manage-side-icon" aria-hidden="true">✦</span>
+                <h3>{t("secureLookup")}</h3>
+                <p>{t("secureLookupHint")}</p>
+                <ul><li>{t("verificationCode")}</li><li>{t("privacyTitle")}</li><li>{t("noPayment")}</li></ul>
+              </section>
+            </aside>
+          </div>
+        )}
 
-        {state === "ready" && step === "OTP" && <div className="grid" aria-labelledby="manage-otp-heading"><h2 id="manage-otp-heading">{t("verificationCode")}</h2><label className="field" htmlFor="manage-code">{t("verificationCode")}<input id="manage-code" autoFocus inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} /></label><p className="muted">{t("verificationHint")}</p><button className="primary" type="button" disabled={!/^\d{6}$/.test(code)} onClick={() => void verify()}>{t("verify")}</button></div>}
+        {state === "ready" && step === "OTP" && (
+          <div className="manage-layout">
+            <div className="manage-main-panel" aria-labelledby="manage-otp-heading">
+              <div className="manage-panel-heading"><span className="manage-panel-icon" aria-hidden="true">◎</span><div><p className="eyebrow">02 / {t("verificationCode")}</p><h2 id="manage-otp-heading">{t("verificationTitle")}</h2><p>{t("verificationSentTo")} <strong>{contact.includes("@") ? `${contact.slice(0, 2)}•••${contact.slice(contact.indexOf("@"))}` : `•••• ${contact.replace(/\D/g, "").slice(-4)}`}</strong></p></div></div>
+              {challengeExpired ? <div className="error error-summary manage-alert" role="alert"><strong>{t("verificationExpired")}</strong><p>{t("verificationExpiredHint")}</p><button className="secondary" type="button" onClick={() => { setStep("LOOKUP"); setChallenge(undefined); setChallengeExpiresAt(null); setChallengeRemaining(0); setChallengeExpired(false); setCode(""); }}>{t("requestNewCode")}</button></div> : <div className="manage-otp-card"><label className="field" htmlFor="manage-code"><span>{t("verificationCode")}</span><input id="manage-code" autoFocus inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} /></label><p className="muted">{t("verificationHint")}</p>{challengeRemaining > 0 && <p className="countdown" role="status">{t("verificationExpires")}: {Math.floor(challengeRemaining / 60)}:{String(challengeRemaining % 60).padStart(2, "0")}</p>}<div className="manage-form-actions"><button className="secondary" type="button" onClick={() => { setStep("LOOKUP"); setChallenge(undefined); setChallengeExpiresAt(null); setChallengeRemaining(0); setChallengeExpired(false); setCode(""); }}>{t("changeDetails")}</button><button className="primary" type="button" disabled={!/^\d{6}$/.test(code)} onClick={() => void verify()}>{t("verify")} <span aria-hidden="true">→</span></button></div></div>}
+              <p className="manage-neutral-note"><span aria-hidden="true">✓</span>{t("verificationPrivacyHint")}</p>
+            </div>
+            <aside className="manage-side-panel"><section className="manage-side-card manage-security-card"><span className="manage-side-icon" aria-hidden="true">⌁</span><h3>{t("bookingPolicy")}</h3><p>{t("secureLookupHint")}</p><ul><li>{t("verificationExpires")}</li><li>{t("noPayment")}</li></ul></section></aside>
+          </div>
+        )}
 
-        {state === "ready" && step === "DETAIL" && booking && <div className="grid" aria-labelledby="detail-heading"><div className="section-heading"><div><p className="eyebrow">{salon?.name ?? salonSlug}</p><h2 id="detail-heading">{booking.bookingReference}</h2></div><span className="badge">{booking.status}</span></div><div className="summary"><span>{t("branch")}: {branch?.name ?? salon?.name}</span><span>{booking.startAt && formatSalonDateTime(booking.startAt, locale, branch?.timezone ?? salon?.timezone)}</span><span>{t("timezoneLabel")}: {branch?.timezone ?? salon?.timezone}</span><span>{booking.contact?.displayName}</span>{booking.items?.map((item: any) => <span key={item.id}>{item.sequenceNo}. {localizedValue(item.service?.name, locale, item.service?.code)}</span>)}</div><PackagePanel locale={locale} packages={packages} booking={booking} packageReservation={packageReservation} loading={false} onReserve={reservePackage} /><div className="actions">{!bookingCancelled && <><label className="field" htmlFor="manage-date">{t("chooseTime")}<input id="manage-date" type="date" min={branch?.bookingWindow?.earliestDate} max={branch?.bookingWindow?.latestDate} value={date} onChange={(event) => setDate(event.target.value)} /></label><button className="secondary" type="button" disabled={!date} onClick={() => void findReplacementSlots()}>{t("chooseAnotherTime")}</button><button className="danger" type="button" onClick={() => void cancel()}>{t("cancelBooking")}</button></>}</div></div>}
+        {state === "ready" && step === "DETAIL" && booking && (
+          <div className="manage-detail-layout">
+            <div className="manage-main-panel">
+              <div className="manage-panel-heading manage-detail-heading"><div><p className="eyebrow">{salon?.name ?? salonSlug}</p><h2 id="detail-heading">{t("bookingDetails")}</h2><p>{booking.bookingReference}</p></div><span className="badge">{bookingStatusLabel(booking.status, locale)}</span></div>
+              <div className="manage-booking-identity"><span className="manage-avatar" aria-hidden="true">{String(booking?.contact?.displayName ?? "?").slice(0, 1).toUpperCase()}</span><div><strong>{booking?.contact?.displayName ?? "—"}</strong><span>{booking?.contact?.phone ?? booking?.contact?.email ?? "—"}</span></div></div>
+              <div className="manage-detail-grid"><section className="manage-detail-card"><span className="manage-detail-icon" aria-hidden="true">⌖</span><div><small>{t("branch")}</small><strong>{branch?.name ?? salon?.name ?? "—"}</strong><span>{branch?.timezone ?? salon?.timezone ?? "—"}</span></div></section><section className="manage-detail-card"><span className="manage-detail-icon" aria-hidden="true">◷</span><div><small>{t("chooseTime")}</small><strong>{booking.startAt && formatSalonDateTime(booking.startAt, locale, branch?.timezone ?? salon?.timezone)}</strong><span>{t("timezoneLabel")}: {branch?.timezone ?? salon?.timezone ?? "—"}</span></div></section><section className="manage-detail-card"><span className="manage-detail-icon" aria-hidden="true">✓</span><div><small>{t("status")}</small><strong>{bookingStatusLabel(booking.status, locale)}</strong><span>{booking.bookingReference}</span></div></section></div>
+              <section className="manage-services-panel"><div className="manage-section-heading"><span className="manage-panel-icon" aria-hidden="true">✦</span><div><h3>{t("services")}</h3><small>{booking.items?.length ?? 0} {t("service").toLowerCase()}</small></div></div>{booking.items?.map((item: any) => <div className="manage-service-row" key={item.id}><span>{String(item.sequenceNo ?? 1).padStart(2, "0")}</span><div><strong>{localizedValue(item.service?.name, locale, item.service?.code)}</strong><small>{item.service?.durationMin ?? "—"} {t("minutes")}</small></div><b>{item.price?.amount ? `${item.price.amount} ${item.price.currency ?? ""}` : "—"}</b></div>)}</section>
+              <PackagePanel locale={locale} packages={packages} booking={booking} packageReservation={packageReservation} loading={false} onReserve={reservePackage} />
+              <section className="manage-actions-panel"><div className="manage-section-heading"><span className="manage-panel-icon" aria-hidden="true">↗</span><div><h3>{t("bookingActions")}</h3><small>{bookingCancelled ? t("bookingCancelledNotice") : t("cancelIntro")}</small></div></div>{!bookingCancelled ? <div className="manage-actions-row"><label className="field" htmlFor="manage-date"><span>{t("chooseTime")}</span><input id="manage-date" type="date" min={branch?.bookingWindow?.earliestDate} max={branch?.bookingWindow?.latestDate} value={date} onChange={(event) => setDate(event.target.value)} /></label><button className="secondary" type="button" disabled={!date} onClick={() => void findReplacementSlots()}>{t("chooseAnotherTime")} <span aria-hidden="true">→</span></button><button className="danger" type="button" onClick={() => void cancel()}>{t("cancelBooking")}</button></div> : <div className="manage-cancelled-state" role="status"><strong>{bookingStatusLabel(booking.status, locale)}</strong><span>{t("bookingCancelledNotice")}</span></div>}</section>
+            </div>
+            <aside className="manage-side-panel"><section className="manage-side-card"><div className="manage-section-heading"><span className="manage-panel-icon" aria-hidden="true">▦</span><div><h3>{t("bookingDetails")}</h3><small>{t("bookingReference")}</small></div></div><dl className="manage-facts"><div><dt>{t("bookingReference")}</dt><dd>{booking.bookingReference}</dd></div><div><dt>{t("bookingContact")}</dt><dd>{booking?.contact?.phone ?? booking?.contact?.email ?? "—"}</dd></div><div><dt>{t("branch")}</dt><dd>{branch?.name ?? salon?.name ?? "—"}</dd></div></dl></section><section className="manage-side-card manage-policy-card"><span className="manage-side-icon" aria-hidden="true">♡</span><h3>{t("bookingPolicy")}</h3><p>{branch?.policy?.summary ?? "—"}</p><small>{t("noPayment")}</small></section></aside>
+          </div>
+        )}
 
-        {state === "ready" && step === "REPLACEMENT_AVAILABILITY" && <div className="grid" aria-labelledby="replacement-heading"><h2 id="replacement-heading">{t("chooseAnotherTime")}</h2><p className="muted">{t("salonTime")}: {branch?.timezone ?? salon?.timezone}</p>{slots.length ? <div className="slots">{slots.map((item: any) => <button className="choice slot" type="button" key={item.fingerprint} onClick={() => void holdReplacement(item)}><strong>{formatSalonTime(item.startAt, locale, branch?.timezone ?? salon?.timezone)}</strong><small>{t("anyStaff")}</small></button>)}</div> : <div className="state">{t("noAvailability")}</div>}<button className="secondary" type="button" onClick={() => setStep("DETAIL")}>{t("back")}</button></div>}
+        {state === "ready" && step === "REPLACEMENT_AVAILABILITY" && (
+          <div className="manage-layout"><div className="manage-main-panel"><div className="manage-panel-heading"><span className="manage-panel-icon" aria-hidden="true">◷</span><div><p className="eyebrow">03 / {t("chooseAnotherTime")}</p><h2 id="replacement-heading">{t("chooseAnotherTime")}</h2><p>{t("rescheduleIntro")}</p></div></div><label className="field manage-date-field" htmlFor="replacement-date"><span>{t("chooseTime")} · {branch?.timezone ?? salon?.timezone}</span><input id="replacement-date" type="date" min={branch?.bookingWindow?.earliestDate} max={branch?.bookingWindow?.latestDate} value={date} onChange={(event) => { setDate(event.target.value); void findReplacementSlots(); }} /></label>{slots.length ? <div className="manage-slot-grid">{slots.map((item: any) => <button className="choice slot" type="button" key={item.fingerprint} onClick={() => void holdReplacement(item)}><strong>{formatSalonTime(item.startAt, locale, branch?.timezone ?? salon?.timezone)}</strong><small>{t("anyStaff")}</small></button>)}</div> : <div className="state" role="status">{t("noAvailability")}</div>}<button className="secondary" type="button" onClick={() => setStep("DETAIL")}>{t("back")}</button></div><aside className="manage-side-panel"><section className="manage-side-card"><span className="manage-side-icon" aria-hidden="true">⌁</span><h3>{t("bookingDetails")}</h3><p>{booking?.bookingReference}</p><small>{booking?.startAt && formatSalonDateTime(booking.startAt, locale, branch?.timezone ?? salon?.timezone)}</small></section></aside></div>
+        )}
 
-        {state === "ready" && step === "RESCHEDULE_REVIEW" && replacementHold && <div className="grid" aria-labelledby="reschedule-heading"><h2 id="reschedule-heading">{t("review")}</h2><div className="summary"><span>{t("chooseTime")}: {formatSalonDateTime(selectedSlot.startAt, locale, branch?.timezone ?? salon?.timezone)}</span><span>{t("holdExpires")}: {formatSalonTime(replacementHold.expiresAt, locale, branch?.timezone ?? salon?.timezone)}</span><span>{t("noPayment")}</span></div><div className="actions"><button className="secondary" type="button" onClick={() => setStep("REPLACEMENT_AVAILABILITY")}>{t("back")}</button><button className="primary" type="button" onClick={() => void confirmReschedule()}>{t("confirmBooking")}</button></div></div>}
+        {state === "ready" && step === "RESCHEDULE_REVIEW" && replacementHold && (
+          <div className="manage-layout"><div className="manage-main-panel"><div className="manage-panel-heading"><span className="manage-panel-icon" aria-hidden="true">✓</span><div><p className="eyebrow">04 / {t("review")}</p><h2 id="reschedule-heading">{t("review")}</h2><p>{t("rescheduleIntro")}</p></div></div><section className="manage-review-card"><div><small>{t("chooseTime")}</small><strong>{formatSalonDateTime(selectedSlot.startAt, locale, branch?.timezone ?? salon?.timezone)}</strong><span>{branch?.name ?? salon?.name ?? "—"}</span></div><div><small>{t("holdExpires")}</small><strong>{formatSalonTime(replacementHold.expiresAt, locale, branch?.timezone ?? salon?.timezone)}</strong><span>{t("noPayment")}</span></div></section><div className="manage-form-actions"><button className="secondary" type="button" onClick={() => setStep("REPLACEMENT_AVAILABILITY")}>{t("back")}</button><button className="primary" type="button" onClick={() => void confirmReschedule()}>{t("confirmBooking")} <span aria-hidden="true">→</span></button></div></div><aside className="manage-side-panel"><section className="manage-side-card manage-security-card"><span className="manage-side-icon" aria-hidden="true">◷</span><h3>{t("holdActive")}</h3><p>{t("holdHint")}</p></section></aside></div>
+        )}
       </section>
     </main>
   );
@@ -301,5 +390,5 @@ export default function ManageBooking() {
 
 function PackagePanel({ locale, packages, booking, packageReservation, loading, onReserve }: { locale: Locale; packages: any[]; booking: any; packageReservation: any; loading: boolean; onReserve: (entitlementId: string, itemId: string) => void }) {
   const t = (key: BookingMessageKey) => getMessage(locale, key);
-  return <div className="summary"><h3>{t("servicePackages")}</h3>{packages.length === 0 ? <span>{t("noActivePackage")}</span> : packages.map((item: any) => <span key={item.id}>{localizedValue(item.name, locale, item.code)}: {item.availableUnits} {t("packageUnit")} {booking.items?.[0]?.id && !packageReservation && <button className="secondary" type="button" disabled={loading || item.availableUnits < 1} onClick={() => onReserve(item.id, booking.items[0].id)}>{t("reserveUnit")}</button>}</span>)}{packageReservation && <strong>{t("reservedUnit")} · {packageReservation.units}</strong>}</div>;
+  return <section className="manage-package-panel"><div className="manage-section-heading"><span className="manage-panel-icon" aria-hidden="true">✦</span><div><h3>{t("servicePackages")}</h3><small>{t("packageHint")}</small></div></div>{packages.length === 0 ? <p className="manage-empty-inline">{t("noActivePackage")}</p> : <div className="manage-package-list">{packages.map((item: any) => <div className="manage-package-row" key={item.id}><div><strong>{localizedValue(item.name, locale, item.code)}</strong><small>{item.availableUnits} {t("packageUnit")}</small></div>{booking.items?.[0]?.id && !packageReservation && <button className="secondary" type="button" disabled={loading || item.availableUnits < 1} onClick={() => onReserve(item.id, booking.items[0].id)}>{t("reserveUnit")}</button>}</div>)}</div>}{packageReservation && <p className="manage-package-success" role="status">{t("reservedUnit")} · {packageReservation.units} {t("packageUnit")}</p>}</section>;
 }

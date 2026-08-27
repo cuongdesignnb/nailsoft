@@ -42,17 +42,21 @@ export function isWave5AssetsPath(pathname: string) {
 
 function display(value: any) {
   if (value == null || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "object") return value.displayName ?? value.name ?? value.code ?? "—";
+  if (typeof value === "boolean") return value ? "Có" : "Không";
+  if (typeof value === "object") { const candidate = value.displayName ?? value.name ?? value.code; if (typeof candidate === "object") return candidate?.["vi-VN"] ?? candidate?.["en-US"] ?? Object.values(candidate ?? {})[0] ?? "—"; return candidate ?? "—"; }
   return String(value);
 }
 function listOf(value: any): any[] { return Array.isArray(value) ? value : value == null ? [] : [value]; }
+function assetTitle(value: string) { const labels: Record<string, string> = { "Fixed asset register": "Sổ tài sản cố định", "Asset candidates": "Tài sản chờ phân loại", "Capitalization approvals": "Phê duyệt ghi nhận tài sản", "Depreciation runs": "Kỳ khấu hao", "Maintenance work orders": "Lệnh bảo trì", "Asset transfers": "Điều chuyển tài sản", "Asset counts": "Kiểm kê tài sản", Inspections: "Kiểm tra tài sản", Impairments: "Suy giảm giá trị", Disposals: "Thanh lý tài sản", "Asset reports": "Báo cáo tài sản" }; return labels[value] ?? value; }
+function assetDescription(value: string) { const labels: Record<string, string> = { "Tenant and branch scoped asset register with immutable economics.": "Sổ tài sản theo tenant và chi nhánh; số liệu kinh tế đã ghi nhận không thể sửa.", "Classify candidates before capitalization or expense treatment.": "Phân loại tài sản chờ ghi nhận trước khi vốn hóa hoặc đưa vào chi phí.", "Independent approval protects capitalization evidence.": "Phê duyệt độc lập bảo vệ bằng chứng ghi nhận tài sản.", "Versioned depreciation runs with explicit calculate, approve and post steps.": "Kỳ khấu hao có phiên bản, với các bước tính toán, phê duyệt và ghi sổ rõ ràng.", "Schedule, assign, execute and verify maintenance without editing asset economics.": "Lập lịch, phân công, thực hiện và xác nhận bảo trì mà không sửa số liệu tài sản.", "Transfer assets between authorized branches with dual control.": "Điều chuyển tài sản giữa các chi nhánh được cấp quyền với kiểm soát kép.", "Blind count snapshots keep expected values hidden until review.": "Kiểm kê mù giữ kín giá trị kỳ vọng cho đến khi hoàn tất rà soát.", "Record inspection evidence and follow-up status.": "Ghi nhận bằng chứng kiểm tra và trạng thái theo dõi.", "Review recoverability evidence before posting impairment.": "Rà soát khả năng thu hồi trước khi ghi nhận suy giảm.", "Dispose assets only through the approved lifecycle.": "Thanh lý tài sản theo đúng vòng đời đã được phê duyệt.", "Read-only register and valuation evidence from the accounting source.": "Sổ đăng ký và bằng chứng định giá chỉ đọc từ nguồn kế toán." }; return labels[value] ?? value; }
+function assetColumnTitle(value: string) { const labels: Record<string, string> = { assetCode: "Mã tài sản", name: "Tên", branchId: "Chi nhánh", status: "Trạng thái", currency: "Tiền tệ", grossCarryingAmountMinor: "Nguyên giá", id: "Mã bản ghi", sourceType: "Nguồn", description: "Mô tả", amountMinor: "Số tiền", assetId: "Tài sản", createdAt: "Ngày tạo", periodStart: "Bắt đầu kỳ", periodEnd: "Kết thúc kỳ", title: "Tiêu đề", scheduledStartAt: "Lịch bảo trì", sourceBranchId: "Chi nhánh nguồn", destinationBranchId: "Chi nhánh đích", blind: "Kiểm kê mù", inspectionType: "Loại kiểm tra", inspectedAt: "Kiểm tra lúc", proceedsMinor: "Tiền thu", gainLossMinor: "Lãi/lỗ", nbvMinor: "Giá trị còn lại", version: "Phiên bản" }; return labels[value] ?? value.replace(/[A-Z]/g, (letter) => ` ${letter}`).replace(/^./, (letter) => letter.toUpperCase()); }
+function assetActionLabel(value: string) { const labels: Record<string, string> = { "submit-review": "Gửi rà soát", "approve-capitalization": "Phê duyệt vốn hóa", "classify-expense": "Phân loại chi phí", approve: "Phê duyệt", process: "Xử lý", reject: "Từ chối", calculate: "Tính toán", submit: "Gửi duyệt", post: "Ghi sổ", schedule: "Lập lịch", assign: "Phân công", start: "Bắt đầu", complete: "Hoàn tất", verify: "Xác nhận", dispatch: "Điều phối", receive: "Tiếp nhận" }; return labels[value] ?? value; }
 
 async function read(path: string) {
   const response = await authorizedFetch(path);
   const body = await response.json().catch(() => ({}));
-  if (response.status === 401 || response.status === 403) throw Object.assign(new Error("Permission denied for this asset scope."), { forbidden: true });
-  if (!response.ok) throw new Error(body.error?.message ?? "Unable to load asset data.");
+  if (response.status === 401 || response.status === 403) throw Object.assign(new Error("Bạn không có quyền xem phạm vi tài sản này."), { forbidden: true });
+  if (!response.ok) throw new Error(body.error?.message ?? "Không thể tải dữ liệu tài sản.");
   return body.data;
 }
 
@@ -98,32 +102,32 @@ export default function Sprint19Wave5Assets({ pathname }: { pathname: string }) 
   useEffect(() => { void load(); }, [load]);
 
   async function run(row: any, command: string, body: Record<string, unknown>) {
-    if (!navigator.onLine) { setNotice("Internet connection required. Asset commands are not queued offline."); return; }
+    if (!navigator.onLine) { setNotice("Cần có kết nối mạng. Thao tác tài sản không được xếp hàng khi ngoại tuyến."); return; }
     setBusy(true); setNotice(""); setError("");
     const intent = `${row.id}:${command}`;
     const key = intentKeys.current[intent] ?? (intentKeys.current[intent] = crypto.randomUUID());
     try {
       const response = await authorizedFetch(`${view.endpoint}/${row.id}/${command}`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify(body) });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error?.code === "VERSION_CONFLICT" ? "Version conflict. Refresh before retrying." : (result.error?.message ?? "Command failed safely."));
+      if (!response.ok) throw new Error(result.error?.code === "VERSION_CONFLICT" ? "Bản ghi vừa thay đổi. Hãy tải lại trước khi thử lại." : (result.error?.message ?? "Không thể hoàn tất thao tác an toàn."));
       delete intentKeys.current[intent];
-      setNotice(`${command} completed after server confirmation.`); await load();
+      setNotice(`Đã xác nhận thao tác “${assetActionLabel(command)}” và làm mới dữ liệu.`); await load();
     } catch (e: any) { setError(e.message); } finally { setBusy(false); }
   }
 
   const visibleColumns = columns[view.kind] ?? [];
   return <main className="shell ops-shell">
     <section className="card">
-      <p className="eyebrow">SPRINT 19 · WAVE 5 · FIXED ASSETS</p>
-      <div className="title-row"><div><h1>{view.title}</h1><p className="hint">{view.description}</p></div><button onClick={() => void load()} disabled={state === "loading"}>Refresh</button></div>
-      {branches.length > 1 && <label>Active branch<select aria-label="Active branch" value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Select an authorized branch</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
+      <p className="eyebrow">NailSoft · TÀI SẢN</p>
+      <div className="title-row"><div><h1>{assetTitle(view.title)}</h1><p className="hint">{assetDescription(view.description)}</p></div><button onClick={() => void load()} disabled={state === "loading"}>Làm mới</button></div>
+      {branches.length > 1 && <label>Chi nhánh đang làm việc<select aria-label="Chi nhánh đang làm việc" value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Chọn chi nhánh được cấp quyền</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
       {notice && <p role="status" className="notice">{notice}</p>}
-      {state === "loading" && <p role="status" aria-busy="true">Loading authoritative asset data…</p>}
-      {state === "forbidden" && <div role="alert" className="state"><h2>Permission denied</h2><p>Your role or branch scope does not allow this view.</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "error" && <div role="alert" className="state"><h2>Unable to load asset data</h2><p>{error}</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "empty" && <div className="state"><h2>No records yet</h2><p>There is no data in the authorized scope.</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "ready" && <div className="table-wrap"><table><thead><tr>{visibleColumns.map((column) => <th key={column}>{column.replace(/[A-Z]/g, (letter) => ` ${letter}`).replace(/^./, (letter) => letter.toUpperCase())}</th>)}<th>Actions</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{visibleColumns.map((column) => <td key={column} data-label={column}>{display(row[column])}</td>)}<td>{actions(view.kind, row).map((action) => <button key={action.command} disabled={busy} onClick={() => void run(row, action.command, action.body)}>{action.command}</button>)}</td></tr>)}</tbody></table></div>}
+      {state === "loading" && <p role="status" aria-busy="true">Đang tải dữ liệu tài sản…</p>}
+      {state === "forbidden" && <div role="alert" className="state"><h2>Không có quyền truy cập</h2><p>Vai trò hoặc phạm vi chi nhánh hiện tại không cho phép xem khu vực này.</p><button onClick={() => void load()}>Thử lại</button></div>}
+      {state === "error" && <div role="alert" className="state"><h2>Không thể tải dữ liệu tài sản</h2><p>{error}</p><button onClick={() => void load()}>Thử lại</button></div>}
+      {state === "empty" && <div className="state"><h2>Chưa có bản ghi</h2><p>Chưa có dữ liệu trong phạm vi được cấp quyền.</p><button onClick={() => void load()}>Thử lại</button></div>}
+      {state === "ready" && <div className="table-wrap"><table><thead><tr>{visibleColumns.map((column) => <th key={column}>{assetColumnTitle(column)}</th>)}<th>Thao tác</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{visibleColumns.map((column) => <td key={column} data-label={assetColumnTitle(column)}>{display(row[column])}</td>)}<td>{actions(view.kind, row).map((action) => <button key={action.command} disabled={busy} onClick={() => void run(row, action.command, action.body)}>{assetActionLabel(action.command)}</button>)}</td></tr>)}</tbody></table></div>}
     </section>
-    <aside className="card"><h2>Controls</h2><p>Commands use explicit transitions, idempotency keys, optimistic refresh and audit evidence. Posted economics cannot be edited.</p></aside>
+    <aside className="card"><h2>Kiểm soát quy trình</h2><p>Thao tác dùng chuyển trạng thái rõ ràng, khóa idempotency, làm mới sau xác nhận và bằng chứng audit. Số liệu kinh tế đã ghi sổ không thể sửa.</p></aside>
   </main>;
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { authorizedFetch, getAuthorizedBranchContext, setActiveBranchId } from "./auth";
+import { legacyActionLabel, legacyColumnLabel, legacyText, legacyValue } from "./legacy-workspace-ui";
 
 type State = "loading" | "ready" | "empty" | "error" | "forbidden";
 type View = { title: string; endpoint: string; hint: string; create?: "vendor" | "request" };
@@ -30,7 +31,7 @@ async function read(path: string) {
   return body.data;
 }
 function listOf(value: any): any[] { return Array.isArray(value) ? value : value ? [value] : []; }
-function display(value: any) { if (value == null) return "—"; if (typeof value === "object") return JSON.stringify(value); return String(value); }
+function display(value: any, key?: string) { return legacyValue(value, key); }
 
 export default function Sprint15Screen() {
   const pathname = usePathname();
@@ -84,20 +85,20 @@ export default function Sprint15Screen() {
   }
 
   return <main className="shell ops-shell">
-    <nav className="topbar">{nav.map(([href, item]) => <a key={href} href={href}>{item.title}</a>)}</nav>
+    <nav className="topbar">{nav.map(([href, item]) => <a key={href} href={href}>{legacyText(item.title)}</a>)}</nav>
     <section className="card">
-      <p className="eyebrow">SPRINT 15 · PROCUREMENT & AP</p>
-      <div className="title-row"><div><h1>{view.title}</h1><p>{view.hint}</p></div><button onClick={() => void load()}>Refresh</button></div>
-      {branchLoading && <p role="status" aria-busy="true">Loading authorized branches…</p>}
-      {!branchLoading && branches.length > 1 && <label>Active branch<select value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Select a branch</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
+      <p className="eyebrow">NAILSOFT · MUA HÀNG & CÔNG NỢ PHẢI TRẢ</p>
+      <div className="title-row"><div><h1>{legacyText(view.title)}</h1><p>{legacyText(view.hint)}</p></div><button onClick={() => void load()}>Làm mới</button></div>
+      {branchLoading && <p role="status" aria-busy="true">Đang tải chi nhánh được cấp quyền…</p>}
+      {!branchLoading && branches.length > 1 && <label>Chi nhánh hoạt động<select value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Chọn chi nhánh</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
       {notice && <p role="status">{notice}</p>}
-      {state === "loading" && <p aria-busy="true">Loading authoritative procurement data…</p>}
-      {state === "forbidden" && <p role="alert">Permission denied. Your role or branch scope does not allow this view.</p>}
-      {state === "error" && <div role="alert"><p>{error}</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "empty" && <div><p>No records yet.</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "ready" && <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}<th>Actions</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => <td key={column}>{display(row[column])}</td>)}<td>{row.status === "SUBMITTED" && view.title === "Purchase requests" && <button onClick={() => void action(row, "approve")}>Approve</button>}{row.status === "PENDING_APPROVAL" && view.title === "Vendor payments" && <button onClick={() => void action(row, "approve")}>Approve</button>}{row.status === "APPROVED" && view.title === "Vendor payments" && <button onClick={() => void action(row, "process")}>Queue processing</button>}</td></tr>)}</tbody></table></div>}
+      {state === "loading" && <p aria-busy="true">Đang tải dữ liệu mua hàng từ máy chủ…</p>}
+      {state === "forbidden" && <p role="alert">Không có quyền truy cập. Vai trò hoặc phạm vi chi nhánh hiện tại không cho phép xem màn hình này.</p>}
+      {state === "error" && <div role="alert"><p>{error}</p><button onClick={() => void load()}>Thử lại</button></div>}
+      {state === "empty" && <div><p>Chưa có bản ghi trong phạm vi được cấp quyền.</p><button onClick={() => void load()}>Làm mới</button></div>}
+      {state === "ready" && <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column} scope="col">{legacyColumnLabel(column)}</th>)}<th scope="col">Thao tác</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => <td key={column} data-label={legacyColumnLabel(column)}>{display(row[column], column)}</td>)}<td data-label="Thao tác">{row.status === "SUBMITTED" && view.title === "Purchase requests" && <button onClick={() => void action(row, "approve")}>{legacyActionLabel("approve")}</button>}{row.status === "PENDING_APPROVAL" && view.title === "Vendor payments" && <button onClick={() => void action(row, "approve")}>{legacyActionLabel("approve")}</button>}{row.status === "APPROVED" && view.title === "Vendor payments" && <button onClick={() => void action(row, "process")}>{legacyActionLabel("process")}</button>}</td></tr>)}</tbody></table></div>}
     </section>
-    {view.create && <section className="card"><h2>{view.create === "vendor" ? "Add vendor" : "New purchase request"}</h2><div className="form-grid">{fields.map(([name, label]) => <label key={name}>{label}<input value={form[name] ?? ""} onChange={(event) => setForm({ ...form, [name]: event.target.value })} required={name === "code" || name === "displayName" || name === "description"} /></label>)}</div><button onClick={() => void create()}>Save</button></section>}
-    <aside className="card"><h2>Safeguards</h2><p>Every command is tenant/branch scoped, idempotent, version checked, audited and emitted through the durable outbox. Provider calls remain outside database transactions.</p></aside>
+    {view.create && <section className="card"><h2>{view.create === "vendor" ? "Thêm nhà cung cấp" : "Tạo yêu cầu mua hàng"}</h2><div className="form-grid">{fields.map(([name, label]) => <label key={name}>{legacyColumnLabel(label)}<input value={form[name] ?? ""} onChange={(event) => setForm({ ...form, [name]: event.target.value })} required={name === "code" || name === "displayName" || name === "description"} /></label>)}</div><button onClick={() => void create()}>Lưu</button></section>}
+    <aside className="card"><h2>Kiểm soát an toàn</h2><p>Mọi lệnh đều giới hạn theo tenant/chi nhánh, có idempotency, kiểm tra phiên bản, audit và outbox bền vững. Gọi nhà cung cấp nằm ngoài transaction cơ sở dữ liệu.</p></aside>
   </main>;
 }

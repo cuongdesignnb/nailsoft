@@ -6,6 +6,7 @@ describe("Sprint 19 Wave 3 Cluster 3 route ownership", () => {
     for (const path of [
       "/admin/vouchers/campaigns",
       "/admin/vouchers/campaigns/70000000-0000-4000-8000-000000000001",
+      "/admin/vouchers",
       "/admin/vouchers/codes",
       "/admin/gift-cards",
       "/admin/gift-cards/products",

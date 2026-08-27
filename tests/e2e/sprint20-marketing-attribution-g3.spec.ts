@@ -39,8 +39,9 @@ async function createAttributedBooking(page: import("@playwright/test").Page, at
   await page.goto(
     `http://127.0.0.1:3002/book/nailsoft-demo?attribution=${encodeURIComponent(attributionReference)}`,
   );
-  await expect(page.getByRole("heading", { name: /Select services|Chọn dịch vụ/ }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Select a branch|Chọn chi nhánh/ }).first()).toBeVisible();
   await page.getByRole("button", { name: /Q1|Quận 1/ }).click();
+  await expect(page.getByRole("heading", { name: /Select services|Chọn dịch vụ/ }).first()).toBeVisible();
   await page.locator("button.choice").first().click();
 
   const dateInput = page.locator("#booking-date");
@@ -66,7 +67,7 @@ async function createAttributedBooking(page: import("@playwright/test").Page, at
   }
   expect(foundSlot).toBe(true);
   await page.locator(".slot").first().click();
-  await expect(page.getByRole("heading", { name: /Contact details|Thông tin liên hệ/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Contact details|Thông tin liên hệ/ }).first()).toBeVisible();
   await page.locator("#contact-name").fill("Khách 1");
   await page.locator("#contact-phone").fill("+84900000001");
   await page.locator("#contact-email").fill("customer1@example.test");
@@ -78,8 +79,8 @@ async function createAttributedBooking(page: import("@playwright/test").Page, at
   await consentInputs.nth(0).check();
   await consentInputs.nth(1).check();
   await page.getByRole("button", { name: /Confirm booking|Xác nhận đặt lịch/ }).click();
-  await expect(page.getByRole("heading", { name: /Booking confirmed|Đặt lịch thành công/ })).toBeVisible();
-  return page.locator(".success strong").first().innerText();
+  await expect(page.getByRole("heading", { name: /Booking confirmed|Đặt lịch thành công/ }).first()).toBeVisible();
+  return page.locator(".booking-result strong").first().innerText();
 }
 
 async function payAppointment(owner: Awaited<ReturnType<typeof login>>, appointmentId: string) {

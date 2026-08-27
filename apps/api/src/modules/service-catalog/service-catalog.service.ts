@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, no-useless-escape */
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import type { PoolClient } from "pg";
 import { z } from "zod";
 import { DatabaseService } from "../../infrastructure/database.service.js";
+import { BookingIdempotencyService } from "../booking/booking-idempotency.service.js";
 import type { AccessClaims } from "../identity/auth.types.js";
 
 const jsonMap = z.record(z.string(), z.string()).refine((v) => Object.keys(v).length > 0, "At least one locale is required");
@@ -19,7 +21,10 @@ type Conn = { query: (sql: string, values?: unknown[]) => Promise<{ rows: any[];
 
 @Injectable()
 export class ServiceCatalogService {
-  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
+  constructor(
+    @Inject(DatabaseService) private readonly db: DatabaseService,
+    @Inject(BookingIdempotencyService) private readonly idem: BookingIdempotencyService,
+  ) {}
 
   private owner(auth: AccessClaims) { return auth.roles.includes("SALON_OWNER"); }
   private platformDenied(auth: AccessClaims) { if (auth.roles.includes("PLATFORM_SUPER_ADMIN")) throw new ForbiddenException({ code: "TENANT_ACCESS_DENIED", message: "Platform support grant is required" }); }
@@ -74,10 +79,10 @@ export class ServiceCatalogService {
   async staff(auth:AccessClaims,query:any){this.platformDenied(auth);const branch=query.branchId;if(branch)this.requireBranch(auth,branch);const values:any[]=[auth.tenantId],filters=["sp.tenant_id=$1"];if(query.status){values.push(query.status);filters.push(`sp.status=$${values.length}`);}if(query.q){values.push(`%${query.q}%`);filters.push(`(sp.display_name ILIKE $${values.length} OR sp.employee_code ILIKE $${values.length})`);}if(branch){values.push(branch);filters.push(`EXISTS(SELECT 1 FROM staff_branch_assignments ba WHERE ba.tenant_id=sp.tenant_id AND ba.staff_id=sp.id AND ba.branch_id=$${values.length} AND ba.status='ACTIVE')`);}if(!this.owner(auth)){values.push(auth.branchIds);filters.push(`EXISTS(SELECT 1 FROM staff_branch_assignments ba WHERE ba.tenant_id=sp.tenant_id AND ba.staff_id=sp.id AND ba.branch_id=ANY($${values.length}::uuid[]) AND ba.status='ACTIVE')`);}const r=await this.db.query(`SELECT sp.id,sp.membership_id \"membershipId\",sp.employee_code \"employeeCode\",sp.display_name \"displayName\",sp.legal_name \"legalName\",sp.preferred_name \"preferredName\",sp.level_code \"levelCode\",sp.employment_type \"employmentType\",sp.status,sp.hire_date \"hireDate\",sp.termination_date \"terminationDate\",sp.preferred_locale \"preferredLocale\",sp.notes,sp.version,sp.created_at \"createdAt\",sp.updated_at \"updatedAt\" FROM staff_profiles sp WHERE ${filters.join(" AND ")} ORDER BY sp.display_name`,values);return r.rows;}
   async staffMe(auth:AccessClaims){this.platformDenied(auth);const r=await this.db.query(`SELECT sp.id,sp.membership_id \"membershipId\",sp.employee_code \"employeeCode\",sp.display_name \"displayName\",sp.legal_name \"legalName\",sp.preferred_name \"preferredName\",sp.level_code \"levelCode\",sp.employment_type \"employmentType\",sp.status,sp.hire_date \"hireDate\",sp.termination_date \"terminationDate\",sp.preferred_locale \"preferredLocale\",sp.notes,sp.version,sp.created_at \"createdAt\",sp.updated_at \"updatedAt\" FROM staff_profiles sp WHERE sp.tenant_id=$1 AND sp.membership_id=$2 LIMIT 1`,[auth.tenantId,auth.membershipId]);return this.rowOr404(r.rows,"STAFF_NOT_FOUND");}
   async staffOne(auth:AccessClaims,id:string){const rows=await this.staff(auth,{q:undefined});const row=rows.find((x)=>x.id===id);if(!row)throw new NotFoundException({code:"STAFF_NOT_FOUND",message:"Staff not found"});return row;}
-  async createStaff(auth:AccessClaims,input:unknown,requestId:string){
+  async createStaff(auth:AccessClaims,input:unknown,key:string|undefined,requestId:string){
     if(!this.owner(auth)&&!auth.roles.includes("BRANCH_MANAGER"))throw new ForbiddenException({code:"PERMISSION_DENIED",message:"Staff creation is not allowed"});
     const b=staffInput.parse(input);
-    return this.db.transaction(async(c)=>{
+    const work = async (c: PoolClient) => {
       const tenant=(await c.query<{access_mode:string}>("SELECT access_mode FROM tenants WHERE id=$1 FOR UPDATE",[auth.tenantId])).rows[0];
       if(["READ_ONLY","BILLING_ONLY","SUSPENDED","TERMINATED"].includes(tenant?.access_mode??"TERMINATED"))throw new ForbiddenException({code:tenant?.access_mode==="SUSPENDED"?"TENANT_SUSPENDED":tenant?.access_mode==="TERMINATED"?"TENANT_TERMINATED":"TENANT_READ_ONLY",message:"Tenant access mode blocks staff activation"});
       const quota=(await c.query<{quota_limit:string|null;unlimited:boolean}>("SELECT quota_limit,unlimited FROM platform_entitlement_projections WHERE tenant_id=$1 AND entitlement_code='active_staff.max' FOR UPDATE",[auth.tenantId])).rows[0];
@@ -86,6 +91,18 @@ export class ServiceCatalogService {
       const id=randomUUID();
       const r=await c.query("INSERT INTO staff_profiles(id,tenant_id,membership_id,employee_code,display_name,legal_name,preferred_name,level_code,employment_type,preferred_locale,hire_date,notes,created_by_user_id,updated_by_user_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13) RETURNING *",[id,auth.tenantId,b.membershipId,b.employeeCode,b.displayName,b.legalName,b.preferredName,b.levelCode,b.employmentType,b.preferredLocale,b.hireDate,b.notes,auth.userId]);
       await this.audit(c,auth,"staff.created","staff",id,null,r.rows[0],requestId);await this.event(c,auth,"staff.created","staff",id,r.rows[0]);return r.rows[0];
+    };
+    return this.db.transaction(async (c) => {
+      if (!key) return work(c);
+      const result = await this.idem.execute(c, {
+        tenantId: auth.tenantId,
+        actorScope: `user:${auth.userId}`,
+        command: "staff.create",
+        key,
+        request: b,
+        work: () => work(c),
+      });
+      return { ...result.data, idempotencyReplayed: result.replayed };
     });
   }
   async updateStaff(auth:AccessClaims,id:string,input:unknown,requestId:string){const b=staffInput.partial().extend({version:z.number().int().positive().optional()}).parse(input);const before=await this.staffOne(auth,id);const assigned=await this.staffBranchIds(before.id);if(!this.owner(auth)&&!auth.branchIds.some((x)=>assigned.includes(x)))throw new ForbiddenException({code:"BRANCH_ACCESS_DENIED",message:"Staff is outside branch scope"});return this.db.transaction(async(c)=>{const old=await this.updateWithVersion(c,"staff_profiles",id,auth.tenantId,this.version(b));const r=await c.query("UPDATE staff_profiles SET employee_code=COALESCE($3,employee_code),display_name=COALESCE($4,display_name),legal_name=COALESCE($5,legal_name),preferred_name=COALESCE($6,preferred_name),level_code=COALESCE($7,level_code),employment_type=COALESCE($8,employment_type),preferred_locale=COALESCE($9,preferred_locale),hire_date=COALESCE($10,hire_date),notes=COALESCE($11,notes),version=version+1,updated_by_user_id=$12,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *",[auth.tenantId,id,b.employeeCode??null,b.displayName??null,b.legalName??null,b.preferredName??null,b.levelCode??null,b.employmentType??null,b.preferredLocale??null,b.hireDate??null,b.notes??null,auth.userId]);await this.audit(c,auth,"staff.updated","staff",id,old,r.rows[0],requestId);await this.event(c,auth,"staff.updated","staff",id,r.rows[0]);return r.rows[0];});}

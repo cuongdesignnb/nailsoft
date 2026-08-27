@@ -42,13 +42,14 @@ function start(command, args, label) {
   });
   child.__label = label;
   child.__output = () => output;
+  debug("process:start", label, child.pid);
   children.add(child);
   child.once("exit", () => children.delete(child));
   return child;
 }
 
 function stop(child) {
-  if (!child || child.exitCode !== null || child.killed)
+  if (!child || child.exitCode !== null)
     return Promise.resolve();
   return new Promise((resolveStop) => {
     let settled = false;
@@ -56,14 +57,37 @@ function stop(child) {
       if (settled) return;
       settled = true;
       children.delete(child);
+      debug("process:stopped", child.__label, child.pid);
       resolveStop();
     };
     child.once("close", done);
     if (process.platform === "win32" && child.pid) {
-      spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
+      const pid = child.pid;
+      void (async () => {
+        try {
+          execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+            stdio: "ignore",
+            windowsHide: true,
+          });
+        } catch {
+          try {
+            child.kill();
+          } catch {
+            // The process may already have exited between the checks above.
+          }
+        }
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline) {
+          try {
+            process.kill(pid, 0);
+          } catch {
+            done();
+            return;
+          }
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+        }
+        done();
+      })();
     } else {
       child.kill("SIGTERM");
     }
@@ -219,15 +243,26 @@ async function main() {
   await waitFor("http://127.0.0.1:3002", "Booking Web", booking);
   debug("booking:ready");
 
-  const python = process.platform === "win32" ? "python" : "python3";
   const ownerMobile = start(
-    python,
-    ["-m", "http.server", "3003", "--directory", resolve(root, "apps/owner-mobile/dist")],
+    node,
+    [
+      resolve(root, "scripts/static-dist-server.mjs"),
+      "--port",
+      "3003",
+      "--directory",
+      resolve(root, "apps/owner-mobile/dist"),
+    ],
     "owner mobile",
   );
   const staffMobile = start(
-    python,
-    ["-m", "http.server", "3004", "--directory", resolve(root, "apps/staff-mobile/dist")],
+    node,
+    [
+      resolve(root, "scripts/static-dist-server.mjs"),
+      "--port",
+      "3004",
+      "--directory",
+      resolve(root, "apps/staff-mobile/dist"),
+    ],
     "staff mobile",
   );
   await waitFor("http://127.0.0.1:3003", "Owner Mobile", ownerMobile);
@@ -282,5 +317,10 @@ try {
   console.error(error instanceof Error ? error.message : error);
   process.exitCode = 1;
 } finally {
-  await stopAll();
+  const exitCode = process.exitCode ?? 0;
+  await Promise.race([
+    stopAll(),
+    new Promise((resolveStop) => setTimeout(resolveStop, 5_000)),
+  ]);
+  process.exit(exitCode);
 }

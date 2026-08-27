@@ -2,14 +2,14 @@ import type { ReactNode } from "react";
 import "./styles.css";
 
 export const metadata = {
-  title: "Nailsoft | Online booking",
-  description: "Book a salon appointment with Nailsoft.",
+  title: "NailSoft | Đặt lịch",
+  description: "Đặt lịch dịch vụ tại NailSoft.",
 };
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html lang="vi-VN">
-      <body>{children}</body>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

@@ -3,6 +3,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { authorizedFetch } from "./auth";
+import { LegacyDataTable } from "./legacy-workspace-ui";
 
 type ViewState =
   "loading" | "ready" | "empty" | "error" | "forbidden" | "offline";
@@ -134,7 +135,7 @@ function Shell({
         <a href="/admin/calendar/day">Calendar</a>
       </nav>
       <section className="wave1-legacy-card">
-        <p className="eyebrow">SPRINT 4 · BOOKING OPERATIONS</p>
+        <p className="eyebrow">NAILSOFT · LỊCH HẸN</p>
         <div className="title-row">
           <div>
             <h1>{title}</h1>
@@ -191,8 +192,8 @@ function States({
   if (state === "empty")
     return (
       <div className="state">
-        <h2>No appointments</h2>
-        <p>No records match the current filters.</p>
+        <h2>Chưa có lịch hẹn</h2>
+        <p>Không có lịch hẹn phù hợp với bộ lọc hiện tại.</p>
         <button onClick={retry}>Refresh</button>
       </div>
     );
@@ -297,7 +298,7 @@ function AppointmentList() {
                   <td>{row.status}</td>
                   <td>{row.depositStatus}</td>
                   <td>
-                    <a href={`/admin/appointments/${row.id}/overview`}>Open</a>
+                    <a href={`/admin/appointments/${row.id}/overview`}>Xem chi tiết</a>
                   </td>
                 </tr>
               ))}
@@ -445,7 +446,7 @@ function QuickCreate() {
         <li>Services</li>
         <li>Date/time</li>
         <li>Review</li>
-        <li>Create</li>
+        <li>Tạo lịch</li>
       </ol>
       <States
         state={lookups.state}
@@ -731,7 +732,7 @@ function AppointmentDetail({
             <a href={`/admin/appointments/${appointmentId}/reschedule`}>
               Reschedule
             </a>
-            <a href={`/admin/appointments/${appointmentId}/cancel`}>Cancel</a>
+            <a href={`/admin/appointments/${appointmentId}/cancel`}>Hủy lịch</a>
           </div>
         </div>
       )}
@@ -754,11 +755,11 @@ function AppointmentDetail({
         <div className="state">
           <h2>{row.contact?.displayName}</h2>
           <p>{row.contact?.phone ?? row.contact?.email}</p>
-          <p>{row.customerNote || "No customer note"}</p>
+          <p>{row.customerNote || "Chưa có ghi chú khách hàng"}</p>
         </div>
       )}
       {tab === "policy" && (
-        <pre className="data-panel">{JSON.stringify(row.policy, null, 2)}</pre>
+        <LegacyDataTable rows={row.policy ? [row.policy] : []} empty="Chưa có thông tin chính sách cho lịch hẹn này." />
       )}
       {tab === "history" && <History appointmentId={appointmentId} />}
       {tab === "cancel" && <CancelForm row={row} run={run} />}
@@ -844,7 +845,7 @@ function RescheduleForm({
           `/v1/availability?branchId=${row.branchId}&serviceId=${row.items[0].service.serviceId}&staffId=${row.items[0].staff.id}&dateFrom=${form.get("date")}&dateTo=${form.get("date")}&slotIntervalMin=15`,
         ),
         slot = availability.days.flatMap((d: any) => d.slots)[0];
-      if (!slot) throw new Error("No replacement slot is available");
+      if (!slot) throw new Error("Không có khung giờ thay thế phù hợp.");
       const hold = await command("/v1/slot-holds", {
         branchId: row.branchId,
         desiredStartAt: slot.startAt,

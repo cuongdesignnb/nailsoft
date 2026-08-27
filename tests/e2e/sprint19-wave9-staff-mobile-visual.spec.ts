@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
 
 test.describe("Sprint 19 Wave 9 Staff Mobile visual and accessibility smoke", () => {
   test("captures deterministic sign-in shell states", async ({ page }) => {

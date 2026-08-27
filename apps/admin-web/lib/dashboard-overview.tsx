@@ -353,7 +353,7 @@ export default function DashboardOverview() {
 
   return <main className="ns-dashboard-page">
     <div className="ns-dashboard-header">
-      <div><p className="ns-dashboard-eyebrow">TỔNG QUAN</p><h1>Dashboard tổng quan</h1><p>Chào mừng bạn quay trở lại, chúc bạn một ngày làm việc hiệu quả!</p></div>
+      <div><p className="ns-dashboard-eyebrow">TỔNG QUAN</p><h1>Tổng quan vận hành</h1><p>Chào mừng bạn quay trở lại, chúc bạn một ngày làm việc hiệu quả!</p></div>
       <button className="ns-dashboard-export" onClick={() => void requestExport()}><Icon name="download" />Xuất báo cáo</button>
     </div>
     <div className="ns-dashboard-toolbar"><div className="ns-dashboard-scope"><Icon name="store" /><span><strong>{branchName}</strong><small>{timeZone}</small></span></div><label><span>Khoảng thời gian</span><select value={`${from}:${to}`} onChange={(event) => { const [nextFrom, nextTo] = event.target.value.split(":"); setFrom(nextFrom ?? from); setTo(nextTo ?? to); }}><option value={`${shiftDate(to, -6)}:${to}`}>7 ngày gần nhất</option><option value={`${shiftDate(to, -29)}:${to}`}>30 ngày gần nhất</option></select></label><button className="ns-dashboard-refresh" onClick={() => void load()} disabled={loading}><Icon name="refresh" />{loading ? "Đang tải…" : "Làm mới"}</button></div>

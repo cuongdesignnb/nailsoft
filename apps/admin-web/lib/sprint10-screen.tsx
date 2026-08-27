@@ -4,13 +4,14 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { activeSession, authorizedFetch } from "./auth";
+import { legacyColumnLabel, legacyText, legacyValue } from "./legacy-workspace-ui";
 
 type LoadState = "loading" | "ready" | "empty" | "error" | "forbidden";
 type Config = { title: string; endpoint: string; kind: string };
 
 const configs: Record<string, Config> = {
   "/admin/stored-value": {
-    title: "Stored-value dashboard",
+    title: "Trung tâm Stored Value",
     endpoint: "/v1/stored-value/reports/liability",
     kind: "report",
   },
@@ -130,6 +131,8 @@ function useResource(endpoint: string) {
 }
 
 export default function Sprint10Screen({ pathname }: { pathname: string }) {
+  if (pathname === "/admin/stored-value" || pathname === "/admin/stored-value/")
+    return <StoredValueOverview />;
   const orderMatch = pathname.match(
     /^\/admin\/pos\/orders\/([^/]+)\/(?:stored-value|gift-card)$/,
   );
@@ -144,6 +147,136 @@ export default function Sprint10Screen({ pathname }: { pathname: string }) {
         (route) => pathname === route || pathname.startsWith(`${route}/`),
       ) ?? "/admin/stored-value";
   return <StoredValuePage config={configs[key]!} />;
+}
+
+type StoredValueReport = {
+  kind?: string;
+  rows: any[];
+  mismatches?: any[];
+  generatedAt?: string;
+};
+
+function useStoredValueReport(kind: string) {
+  const [state, setState] = useState<LoadState>("loading");
+  const [data, setData] = useState<StoredValueReport>({ rows: [] });
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setState("loading");
+    setError("");
+    try {
+      const value = await api(`/v1/stored-value/reports/${kind}`);
+      const rows = Array.isArray(value) ? value : value?.rows ?? [];
+      setData({
+        ...(value && typeof value === "object" && !Array.isArray(value) ? value : {}),
+        rows,
+      });
+      setState(rows.length ? "ready" : "empty");
+    } catch (cause: any) {
+      setError(cause?.message ?? "Không thể tải báo cáo Stored Value.");
+      setState(cause?.forbidden ? "forbidden" : "error");
+    }
+  }, [kind]);
+  useEffect(() => void load(), [load]);
+  useEffect(() => {
+    const session = activeSession();
+    if (!session.accessToken) return;
+    const socket = io(`${session.api}/scheduling`, {
+      auth: { token: session.accessToken },
+      transports: ["websocket"],
+    });
+    [
+      "gift_card.updated",
+      "customer_credit.updated",
+      "stored_value.wallet_invalidated",
+      "stored_value.liability_invalidated",
+      "stored_value.reconciliation_invalidated",
+    ].forEach((event) => socket.on(event, () => void load()));
+    return () => {
+      socket.disconnect();
+    };
+  }, [load]);
+  return { state, data, error, load };
+}
+
+function storedValueMoney(value: any, currency = "VND") {
+  const numeric = Number(value ?? 0);
+  return new Intl.NumberFormat("vi-VN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: currency === "VND" ? 0 : 2,
+  }).format(numeric / (currency === "VND" ? 1 : 100));
+}
+
+function storedValueByCurrency(rows: any[], field: string) {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const currency = String(row.currency ?? "VND");
+    totals.set(currency, (totals.get(currency) ?? 0) + Number(row[field] ?? 0));
+  }
+  return [...totals.entries()]
+    .map(([currency, amount]) => storedValueMoney(amount, currency))
+    .join(" · ") || "—";
+}
+
+function storedValueAccountType(value: any) {
+  return ({
+    CUSTOMER_CREDIT: "Store Credit",
+    GIFT_CARD: "Gift Card",
+    PREPAID: "Giá trị trả trước",
+  } as Record<string, string>)[String(value ?? "").toUpperCase()] ?? legacyText(String(value ?? "Tài khoản Stored Value"));
+}
+
+function storedValueReportState(resource: ReturnType<typeof useStoredValueReport>, label: string) {
+  if (resource.state === "loading") return <div className="sv-state" role="status">Đang tải {label}…</div>;
+  if (resource.state === "forbidden") return <div className="sv-state sv-state-danger" role="alert">Bạn không có quyền xem {label}.</div>;
+  if (resource.state === "error") return <div className="sv-state sv-state-danger" role="alert"><strong>Không thể tải {label}.</strong><span>{resource.error}</span><button className="sv-button sv-button-secondary" onClick={() => void resource.load()}>Thử lại</button></div>;
+  if (resource.state === "empty") return <div className="sv-state" role="status">Chưa có dữ liệu {label} trong phạm vi hiện tại.</div>;
+  return null;
+}
+
+function StoredValueOverview() {
+  const liability = useStoredValueReport("liability");
+  const customerCredit = useStoredValueReport("customer-credit");
+  const reconciliation = useStoredValueReport("reconciliation");
+  const rows = liability.data.rows;
+  const customerCreditRows = customerCredit.data.rows;
+  const generatedAt = liability.data.generatedAt ?? reconciliation.data.generatedAt;
+  return (
+    <main className="sv-overview">
+      <header className="sv-header">
+        <div>
+          <p className="sv-eyebrow">NAILSOFT · STORED VALUE</p>
+          <h1>Trung tâm Stored Value</h1>
+          <p>Theo dõi nghĩa vụ Gift Card và Store Credit theo tiền tệ, số dư và đối soát từ dữ liệu máy chủ.</p>
+        </div>
+        <div className="sv-header-actions">
+          <a className="sv-button sv-button-secondary" href="/admin/stored-value/reconciliation">Mở đối soát</a>
+          <a className="sv-button sv-button-primary" href="/admin/stored-value/liability">Xem nghĩa vụ</a>
+        </div>
+      </header>
+      {generatedAt ? <p className="sv-freshness">Dữ liệu cập nhật lúc {new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(generatedAt))}</p> : null}
+      <section className="sv-kpis" aria-label="Tóm tắt Stored Value">
+        <article><span>Nhóm tài khoản</span><strong>{liability.state === "ready" ? rows.length : "—"}</strong><small>Theo tiền tệ và loại tài khoản</small></article>
+        <article className="is-emphasis"><span>Số dư khả dụng</span><strong>{liability.state === "ready" ? storedValueByCurrency(rows, "availableMinor") : "—"}</strong><small>Giá trị có thể sử dụng tiếp</small></article>
+        <article><span>Đang giữ tại POS</span><strong>{liability.state === "ready" ? storedValueByCurrency(rows, "reservedMinor") : "—"}</strong><small>Không đồng nghĩa đã sử dụng</small></article>
+        <article><span>Tổng nghĩa vụ</span><strong>{liability.state === "ready" ? storedValueByCurrency(rows, "liabilityMinor") : "—"}</strong><small>Khả dụng cộng đang giữ</small></article>
+        <article><span>Store Credit</span><strong>{customerCredit.state === "ready" ? storedValueByCurrency(customerCreditRows, "liabilityMinor") : "—"}</strong><small>Nhóm Customer Credit</small></article>
+        <article><span>Điểm cần đối soát</span><strong>{reconciliation.state === "ready" ? reconciliation.data.mismatches?.length ?? 0 : "—"}</strong><small>So sánh Account và Ledger</small></article>
+      </section>
+      <section className="sv-overview-grid">
+        <section className="sv-panel">
+          <div className="sv-panel-heading"><div><p className="sv-eyebrow">ACCOUNT PROJECTION</p><h2>Nghĩa vụ theo domain</h2></div><span className="sv-source-badge">API báo cáo</span></div>
+          {storedValueReportState(liability, "nghĩa vụ Stored Value")}
+          {liability.state === "ready" ? <div className="sv-table-wrap"><table><caption className="sr-only">Nghĩa vụ Stored Value theo loại tài khoản và tiền tệ</caption><thead><tr><th scope="col">Domain</th><th scope="col">Tiền tệ</th><th scope="col">Khả dụng</th><th scope="col">Đang giữ</th><th scope="col">Tổng nghĩa vụ</th><th scope="col">Mở</th></tr></thead><tbody>{rows.map((row: any) => <tr key={`${row.accountType}-${row.currency}`}><td><strong>{storedValueAccountType(row.accountType)}</strong><small>{row.accountType ?? "—"}</small></td><td>{row.currency ?? "—"}</td><td>{storedValueMoney(row.availableMinor, row.currency)}</td><td>{storedValueMoney(row.reservedMinor, row.currency)}</td><td><strong>{storedValueMoney(row.liabilityMinor, row.currency)}</strong></td><td>{row.accountType === "CUSTOMER_CREDIT" ? <a href="/admin/customer-credit">Store Credit</a> : row.accountType === "GIFT_CARD" ? <a href="/admin/gift-cards">Gift Card</a> : <a href="/admin/stored-value/liability">Chi tiết</a>}</td></tr>)}</tbody></table></div> : null}
+        </section>
+        <aside className="sv-side-stack">
+          <section className="sv-panel sv-panel-soft"><p className="sv-eyebrow">THEO DÕI DOMAIN</p><h2>Điểm vào vận hành</h2><div className="sv-link-list"><a href="/admin/customer-credit"><span><strong>Store Credit</strong><small>Account theo Customer + tiền tệ</small></span><b>→</b></a><a href="/admin/gift-cards"><span><strong>Gift Card</strong><small>Thẻ, số dư và vòng đời</small></span><b>→</b></a><a href="/admin/stored-value/adjustments"><span><strong>Điều chỉnh có kiểm soát</strong><small>Yêu cầu và phê duyệt kép</small></span><b>→</b></a><a href="/admin/stored-value/legal-policies"><span><strong>Chính sách pháp lý</strong><small>Hiệu lực theo nguồn máy chủ</small></span><b>→</b></a></div></section>
+          <section className="sv-panel"><p className="sv-eyebrow">RECONCILIATION</p><h2>Đối soát tài khoản</h2>{storedValueReportState(reconciliation, "đối soát")}{reconciliation.state === "ready" ? <><div className={`sv-reconcile ${reconciliation.data.mismatches?.length ? "is-danger" : "is-good"}`}><strong>{reconciliation.data.mismatches?.length ? `${reconciliation.data.mismatches.length} điểm lệch cần kiểm tra` : "Account và Ledger đang khớp"}</strong><span>So sánh projection với tổng delta của Ledger.</span></div><a className="sv-text-link" href="/admin/stored-value/reconciliation">Xem báo cáo đối soát →</a></> : null}</section>
+        </aside>
+      </section>
+      <section className="sv-notice"><strong>Sổ Stored Value chỉ ghi thêm</strong><span>Số dư được cập nhật qua workflow của domain và Ledger bất biến. Màn hình này không cho sửa trực tiếp Account hoặc tạo giao dịch ngoài quy trình.</span></section>
+    </main>
+  );
 }
 
 function StoredValuePage({ config }: { config: Config }) {
@@ -172,20 +305,20 @@ function StoredValuePage({ config }: { config: Config }) {
       <nav className="topbar">
         {Object.entries(configs).map(([href, item]) => (
           <a key={href} href={href}>
-            {item.title}
+            {legacyText(item.title)}
           </a>
         ))}
       </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 10 · STORED VALUE</p>
+        <p className="eyebrow">NAILSOFT · STORED VALUE</p>
         <div className="title-row">
           <div>
-            <h1>{config.title}</h1>
+            <h1>{legacyText(config.title)}</h1>
             <p className="hint">
-              Append-only ledger · online commands · idempotency · dual control
+              Sổ append-only · lệnh online · idempotency · kiểm soát kép
             </p>
           </div>
-          <span className="timezone">PostgreSQL authoritative</span>
+          <span className="timezone">PostgreSQL là nguồn chính thức</span>
         </div>
         <CreateForm kind={config.kind} run={run} busy={busy} />
         {notice && (
@@ -212,29 +345,29 @@ function States({ resource }: { resource: ReturnType<typeof useResource> }) {
   if (resource.state === "loading")
     return (
       <div className="skeleton" role="status">
-        Loading secure stored-value data…
+        Đang tải dữ liệu Stored Value an toàn…
       </div>
     );
   if (resource.state === "forbidden")
     return (
       <div className="state" role="alert">
-        <h2>Permission denied</h2>
-        <p>This role cannot view or mutate stored-value liabilities.</p>
+        <h2>Không có quyền truy cập</h2>
+        <p>Vai trò hiện tại không được phép xem hoặc thay đổi nghĩa vụ Stored Value.</p>
       </div>
     );
   if (resource.state === "empty")
     return (
       <div className="state">
-        <h2>No records</h2>
-        <p>No matching stored-value records exist.</p>
-        <button onClick={() => void resource.load()}>Refresh</button>
+        <h2>Chưa có dữ liệu</h2>
+        <p>Chưa có bản ghi Stored Value phù hợp.</p>
+        <button onClick={() => void resource.load()}>Làm mới</button>
       </div>
     );
   return (
     <div className="state" role="alert">
-      <h2>Unable to load</h2>
+      <h2>Không thể tải dữ liệu</h2>
       <p>{resource.error}</p>
-      <button onClick={() => void resource.load()}>Retry</button>
+      <button onClick={() => void resource.load()}>Thử lại</button>
     </div>
   );
 }
@@ -347,11 +480,11 @@ function DataTable({
       <table>
         <thead>
           <tr>
-            <th>Reference</th>
-            <th>Status</th>
-            <th>Currency / balance</th>
-            <th>Version</th>
-            <th>Actions</th>
+            <th scope="col">Tham chiếu</th>
+            <th scope="col">Trạng thái</th>
+            <th scope="col">Tiền tệ / số dư</th>
+            <th scope="col">Phiên bản</th>
+            <th scope="col">Thao tác</th>
           </tr>
         </thead>
         <tbody>
@@ -365,21 +498,21 @@ function DataTable({
               "—";
             return (
               <tr key={id}>
-                <td>
+                <td data-label="Tham chiếu">
                   {row.cardReference ??
                     row.productCode ??
                     row.customerName ??
                     row.jurisdiction ??
                     row.accountType ??
                     row.entryType ??
-                    id}
+                    "Mã hệ thống"}
                 </td>
-                <td>{row.status ?? row.legalReviewStatus ?? "CURRENT"}</td>
-                <td>
-                  {row.currency ?? "VND"} {balance}
+                <td data-label="Trạng thái">{legacyValue(row.status ?? row.legalReviewStatus ?? "CURRENT", "status")}</td>
+                <td data-label="Tiền tệ / số dư">
+                  {row.currency ?? "VND"} {legacyValue(balance, "amountMinor")}
                 </td>
-                <td>{row.version ?? row.policyVersion ?? "—"}</td>
-                <td>
+                <td data-label="Phiên bản">{row.version ?? row.policyVersion ?? "—"}</td>
+                <td data-label="Thao tác">
                   <div className="actions">
                     {kind === "products" && row.status === "DRAFT" && (
                       <button
@@ -390,7 +523,7 @@ function DataTable({
                           })
                         }
                       >
-                        Activate
+                        Kích hoạt
                       </button>
                     )}
                     {kind === "cards" && row.status === "ACTIVE" && (
@@ -403,7 +536,7 @@ function DataTable({
                           })
                         }
                       >
-                        Suspend
+                        Tạm khóa
                       </button>
                     )}
                     {kind === "cards" && row.status === "SUSPENDED" && (
@@ -416,7 +549,7 @@ function DataTable({
                           })
                         }
                       >
-                        Reactivate
+                        Kích hoạt lại
                       </button>
                     )}
                     {kind === "adjustments" && row.status === "PENDING" && (
@@ -433,7 +566,7 @@ function DataTable({
                             )
                           }
                         >
-                          Approve
+                          Phê duyệt
                         </button>
                         <button
                           disabled={busy}
@@ -447,7 +580,7 @@ function DataTable({
                             )
                           }
                         >
-                          Reject
+                          Từ chối
                         </button>
                       </>
                     )}
@@ -464,11 +597,11 @@ function DataTable({
                           )
                         }
                       >
-                        Approve
+                        Phê duyệt
                       </button>
                     )}
                     {kind === "cards" && (
-                      <a href={`/admin/gift-cards/${id}`}>Open</a>
+                      <a href={`/admin/gift-cards/${id}`}>Mở chi tiết</a>
                     )}
                   </div>
                 </td>
@@ -481,19 +614,25 @@ function DataTable({
   );
 }
 
+function SafeFacts({ value }: { value: any }) {
+  const source = value && typeof value === "object" ? value : {};
+  const entries = Object.entries(source).filter(([key]) => !/(number|pin|secret|token|hash|json)/i.test(key)).slice(0, 12);
+  return <div className="legacy-data-grid">{entries.map(([key, item]) => <div className="legacy-data-item" key={key}><span>{legacyColumnLabel(key)}</span><strong>{legacyValue(item, key)}</strong></div>)}</div>;
+}
+
 function GiftCardDetail({ id }: { id: string }) {
   const card = useResource(`/v1/gift-cards/${id}`);
   const ledger = useResource(`/v1/gift-cards/${id}/ledger`);
   return (
     <main className="shell ops-shell">
       <section className="card">
-        <p className="eyebrow">GIFT CARD DETAIL</p>
-        <h1>Masked card and append-only ledger</h1>
+        <p className="eyebrow">NAILSOFT · GIFT CARD</p>
+        <h1>Thẻ đã che số và sổ append-only</h1>
         <States resource={card} />
         {card.state === "ready" && (
-          <pre>{JSON.stringify(card.data[0], null, 2)}</pre>
+          <SafeFacts value={card.data[0]} />
         )}
-        <h2>Ledger history</h2>
+        <h2>Lịch sử sổ</h2>
         <States resource={ledger} />
         {ledger.state === "ready" && (
           <DataTable
@@ -540,15 +679,15 @@ function OrderStoredValue({ orderId }: { orderId: string }) {
     <main className="shell ops-shell">
       <section className="card">
         <p className="eyebrow">POS · STORED VALUE</p>
-        <h1>Redeem without covering tip or gift-card funding</h1>
+        <h1>Kiểm tra và giữ Stored Value theo đơn POS</h1>
         <States resource={eligibility} />
         {eligibility.state === "ready" && (
-          <pre>{JSON.stringify(eligibility.data[0], null, 2)}</pre>
+          <SafeFacts value={eligibility.data[0]} />
         )}
         <div className="filters">
           <label>
-            Card number
-            <input value={number} onChange={(e) => setNumber(e.target.value)} />
+            Số Gift Card
+            <input type="password" autoComplete="off" value={number} onChange={(e) => setNumber(e.target.value)} />
           </label>
           <label>
             PIN
@@ -559,24 +698,24 @@ function OrderStoredValue({ orderId }: { orderId: string }) {
             />
           </label>
           <label>
-            Requested minor
+            Số tiền yêu cầu (minor)
             <input value={amount} onChange={(e) => setAmount(e.target.value)} />
           </label>
           <label>
-            Balance version
+            Phiên bản số dư
             <input
               value={version}
               onChange={(e) => setVersion(e.target.value)}
             />
           </label>
-          <button onClick={() => void apply()}>Reserve online</button>
+          <button onClick={() => void apply()}>Giữ số dư online</button>
         </div>
         {notice && (
           <p role="status" className="notice">
             {notice}
           </p>
         )}
-        <h2>Applications</h2>
+        <h2>Ứng dụng Stored Value</h2>
         <States resource={applications} />
         {applications.state === "ready" && (
           <DataTable

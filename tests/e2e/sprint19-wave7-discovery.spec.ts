@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
 import AxeBuilder from "@axe-core/playwright";
 
 const bookingWeb = "http://127.0.0.1:3002";
@@ -12,7 +12,7 @@ test.describe("Sprint 19 Wave 7 public discovery", () => {
     await expect(page.getByRole("heading", { name: /Thời gian|Time reserved/ })).toBeVisible();
     await expect(page.locator('a[href="/book/nailsoft-demo"]')).toHaveCount(0);
 
-    await page.getByLabel(/Ngôn ngữ|Language/).selectOption("en-US");
+    await page.locator(".landing-language select").selectOption("en-US");
     await expect(page.getByRole("button", { name: /Start booking/ })).toBeVisible();
     await page.getByLabel(/Salon code/).fill("nailsoft-demo");
     await page.getByRole("button", { name: /Start booking/ }).click();
@@ -24,7 +24,7 @@ test.describe("Sprint 19 Wave 7 public discovery", () => {
     await expect(branchButtons.first()).toBeVisible();
     await branchButtons.first().click();
 
-    await expect(page.getByRole("heading", { name: /Select services|Chọn dịch vụ/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Select services|Chọn dịch vụ/ }).first()).toBeVisible();
     const serviceCards = page.locator(".choice-card");
     await expect(serviceCards.first()).toContainText(/SVC|VND|₫|\$/);
     await serviceCards.first().click();

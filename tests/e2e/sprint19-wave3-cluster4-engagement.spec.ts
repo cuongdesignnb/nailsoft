@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
+import type { Page } from "@playwright/test";
 import { authenticated, close } from "./auth/setup";
 import { headers } from "./helpers/api-client";
 
@@ -21,21 +22,21 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 4 engagement workspace", () => {
   test("owner can open communications, marketing, reviews and recovery screens", async ({ page }) => {
     await loginUi(page, "owner@example.test");
     for (const [path, heading] of [
-      ["/admin/communications/templates", "Communication templates"],
-      ["/admin/communications/rules", "Communication rules"],
-      ["/admin/communications/messages", "Message delivery"],
-      ["/admin/communications/suppressions", "Contact suppressions"],
-      ["/admin/marketing/segments", "Customer segments"],
+      ["/admin/communications/templates", "Mẫu Email"],
+      ["/admin/communications/rules", "Quy tắc gửi"],
+      ["/admin/communications/messages", "Giao nhận Email"],
+      ["/admin/communications/suppressions", "Danh sách Email bị chặn"],
+      ["/admin/marketing/segments", "Nhóm khách hàng"],
       ["/admin/marketing/campaigns", "Marketing khách hàng"],
-      ["/admin/reviews", "Reviews"],
-      ["/admin/review-requests", "Review requests"],
-      ["/admin/service-recovery", "Service recovery"],
+      ["/admin/reviews", "Đánh giá khách hàng"],
+      ["/admin/review-requests", "Yêu cầu đánh giá"],
+      ["/admin/service-recovery", "Service Recovery"],
     ] as const) {
       await page.goto(path);
-      await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+      await expect(page.locator("h1").filter({ hasText: heading })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
     }
-    await expect(page.getByText("email only", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("Chỉ Email", { exact: false }).first()).toBeVisible();
     await expectA11y(page);
   });
 
@@ -45,7 +46,7 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 4 engagement workspace", () => {
     await expect(page.locator("h1").filter({ hasText: "July welcome fixture" })).toBeVisible();
     await expect(page.getByText(/consent and suppression/i).first()).toBeVisible();
     await page.goto("/admin/service-recovery/e5000000-0000-4000-8000-000000000001");
-    await expect(page.getByRole("heading", { name: /OPEN/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Đang mở", exact: true })).toBeVisible();
     const body = await page.locator("body").innerText();
     expect(body).not.toMatch(/password|provider[_ -]?token|secret|code_hash/i);
     await expectA11y(page);

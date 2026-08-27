@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
+import type { Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -45,7 +46,7 @@ test.describe("Sprint 19 Wave 1 remediation visual and accessibility evidence", 
     await signIn(page);
     await page.goto("/admin/operations/board");
     await expect(page.getByRole("heading", { name: "Operational board" })).toBeVisible();
-    await expect(page.getByText(/Data version/)).toBeVisible();
+    await expect(page.getByText(/Phiên bản dữ liệu/)).toBeVisible();
     await assertAccessible(page, "19.1.07-queue-board");
     await page.goto("/admin/service-sessions/77000000-0000-4000-8000-000000000008");
     await expect(page.locator("main")).toBeVisible();

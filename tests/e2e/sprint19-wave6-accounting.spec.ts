@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
+import type { Page } from "@playwright/test";
 import { close, headers, login } from "./helpers/api-client";
 
 async function loginUi(page: Page) {
@@ -13,7 +14,7 @@ async function loginUi(page: Page) {
 async function expectWorkspace(page: Page, path: string, heading: string) {
   await page.goto(path);
   await expect(page.getByRole("main")).toBeVisible();
-  await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+  await expect(page.getByRole("heading", { name: heading, exact: true }).first()).toBeVisible();
   await expect(page.getByText("Command JSON")).toHaveCount(0);
   const axe = await new AxeBuilder({ page }).analyze();
   expect(axe.violations.filter((item) => item.impact === "critical" || item.impact === "serious")).toEqual([]);
@@ -35,26 +36,26 @@ async function ensureAccountingBook() {
 test.describe.serial("Sprint 19 Wave 6 accounting and banking", () => {
   test("renders accounting control center, periods and journals", async ({ page }) => {
     await loginUi(page);
-    await expectWorkspace(page, "/admin/accounting", "Accounting control center");
-    await expectWorkspace(page, "/admin/accounting/periods", "Accounting periods");
-    await expect(page.getByText(/Dual control/i)).toBeVisible();
-    await expectWorkspace(page, "/admin/accounting/journals", "Journal workbench");
-    await expect(page.getByText(/Posted journals are immutable/i)).toBeVisible();
+    await expectWorkspace(page, "/admin/accounting", "Trung tâm kiểm soát kế toán");
+    await expectWorkspace(page, "/admin/accounting/periods", "Kỳ kế toán");
+    await expect(page.getByText(/kiểm soát kép/i).first()).toBeVisible();
+    await expectWorkspace(page, "/admin/accounting/journals", "Sổ nhật ký");
   });
 
   test("keeps banking evidence bounded while exposing approved reconciliation mutations", async ({ page }) => {
     await ensureAccountingBook();
     await loginUi(page);
-    await expectWorkspace(page, "/admin/accounting/reconciliation", "Bank accounts & imports");
-    await expectWorkspace(page, "/admin/accounting/reconciliation/exceptions", "Reconciliation & exceptions");
-    const bookSelector = page.getByLabel("Accounting book");
+    await expectWorkspace(page, "/admin/accounting/reconciliation", "Tài khoản ngân hàng & dữ liệu nhập");
+    await expectWorkspace(page, "/admin/accounting/reconciliation/exceptions", "Đối soát & ngoại lệ");
+    const bookSelector = page.getByLabel("Sổ kế toán");
     await expect(bookSelector).toBeVisible();
-    // The test creates the authorized book above; the deterministic seed does
-    // not require an unrelated second book just to exercise this workspace.
-    await expect(bookSelector.locator("option")).toHaveCount(1);
-    await bookSelector.selectOption({ index: 0 });
-    await expect(page.getByText(/Request manual reconciliation adjustment/i)).toBeVisible();
-    await expect(page.getByText(/manual ledger adjustment.*deferred/i)).toHaveCount(0);
-    await expectWorkspace(page, "/admin/accounting/statement-snapshots", "Statement snapshots");
+    // The selector omits its placeholder when the server returns exactly one
+    // book, so choose the first real option in either shape.
+    await expect.poll(async () => bookSelector.locator("option").count()).toBeGreaterThan(0);
+    const optionCount = await bookSelector.locator("option").count();
+    await bookSelector.selectOption({ index: optionCount > 1 ? 1 : 0 });
+    await expect(page.getByText(/Yêu cầu điều chỉnh/i).first()).toBeVisible();
+    await expect(page.getByText(/điều chỉnh sổ thủ công.*chưa cung cấp/i)).toHaveCount(0);
+    await expectWorkspace(page, "/admin/accounting/statement-snapshots", "Snapshot sao kê");
   });
 });

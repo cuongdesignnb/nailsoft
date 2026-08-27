@@ -25,6 +25,7 @@ export { isWave3CustomerEngagementPath, isWave3CustomerPath, isWave3Path };
 
 export default function Sprint19Wave3CustomerScreen({ pathname }: { pathname: string }) {
   if (pathname === "/admin/benefits" || pathname === "/admin/benefits/") return <CustomerBenefitsPage />;
+  if (pathname === "/admin/benefits/customers") return <CustomerBenefitsPage />;
   const benefitCustomer = pathname.match(/^\/admin\/benefits\/customers\/([^/]+)$/);
   if (benefitCustomer) return <BenefitsWallet customerId={benefitCustomer[1] ?? ""} />;
   if (pathname === "/admin/loyalty/programs") return <LoyaltyPrograms />;
@@ -32,6 +33,7 @@ export default function Sprint19Wave3CustomerScreen({ pathname }: { pathname: st
   const loyaltyCustomer = pathname.match(/^\/admin\/loyalty\/customers\/([^/]+)$/);
   if (loyaltyCustomer) return <CustomerLoyalty customerId={loyaltyCustomer[1] ?? ""} />;
   if (pathname === "/admin/membership" || pathname === "/admin/membership/") return <MembershipHub />;
+  if (pathname === "/admin/membership/customers") return <MembershipHub />;
   if (pathname === "/admin/membership/tiers") return <MembershipTiers />;
   const membershipCustomer = pathname.match(/^\/admin\/membership\/customers\/([^/]+)$/);
   if (membershipCustomer) return <CustomerMembership customerId={membershipCustomer[1] ?? ""} />;
@@ -45,6 +47,7 @@ export default function Sprint19Wave3CustomerScreen({ pathname }: { pathname: st
   const voucherCampaign = pathname.match(/^\/admin\/vouchers\/campaigns\/([^/]+)$/);
   if (voucherCampaign) return <VoucherCampaignDetail campaignId={voucherCampaign[1] ?? ""} />;
   if (pathname === "/admin/vouchers/codes") return <VoucherHub />;
+  if (pathname === "/admin/vouchers") return <VoucherHub basePath="/admin/vouchers" />;
   if (pathname === "/admin/gift-cards/products") return <GiftCardProducts />;
   if (pathname === "/admin/gift-cards/issuance") return <GiftCardIssuance />;
   if (pathname === "/admin/gift-cards") return <GiftCards />;

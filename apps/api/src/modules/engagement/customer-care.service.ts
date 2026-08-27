@@ -697,7 +697,7 @@ export class CustomerCareService {
       this.assertBranch(auth, row.branch_id);
       if (row.version !== version) throw new ConflictException({ code: "CUSTOMER_CARE_VERSION_CONFLICT", message: "Follow-up vừa được cập nhật bởi người khác." });
       if (!["OPEN","IN_PROGRESS"].includes(row.status)) throw new ConflictException({ code: "FOLLOWUP_NOT_ACTIVE", message: "Follow-up không còn ở trạng thái có thể cập nhật." });
-      const updated = (await client.query<any>("UPDATE customer_care_followups SET status=$3,completed_by_user_id=CASE WHEN $3='COMPLETED' THEN $4 ELSE NULL END,completed_at=CASE WHEN $3='COMPLETED' THEN now() ELSE NULL END,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING id,status,version,completed_at", [auth.tenantId, id, status, auth.userId])).rows[0];
+      const updated = (await client.query<any>("UPDATE customer_care_followups SET status=$3,completed_by_user_id=CASE WHEN $3='COMPLETED' THEN $4::uuid ELSE NULL END,completed_at=CASE WHEN $3='COMPLETED' THEN now() ELSE NULL END,version=version+1,updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING id,status,version,completed_at", [auth.tenantId, id, status, auth.userId])).rows[0];
       await this.evidence(client, auth, `customer_care.followup_${status.toLowerCase()}`, "customer_care_followup", id, row.branch_id, requestId, { previousStatus: row.status, status });
       return updated;
     });

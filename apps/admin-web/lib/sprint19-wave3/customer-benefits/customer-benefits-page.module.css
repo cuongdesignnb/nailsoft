@@ -111,3 +111,7 @@
 .page .inspectorCard strong,
 .page .sectionHeader h2,
 .page .emptyState strong { color: #273449; }
+.page .sectionHeader p { color: #5f6b78; }
+.page .livePill { color: #166b42; }
+.page .initials { background: #ffe5ec; color: #a71d3d; }
+.page .walletList b { color: #5f6b78; }

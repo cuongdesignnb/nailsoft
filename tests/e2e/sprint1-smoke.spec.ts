@@ -16,8 +16,8 @@ test("Admin Web exposes secure authentication routes without seeded credentials"
 test("operational routes render responsive loading and recovery states", async ({ page }) => {
   await page.route("http://localhost:3001/**", async (route) => route.fulfill({ status: 401, body: JSON.stringify({ error: { code: "SESSION_REVOKED" } }) }));
   await page.goto("/admin/team/users");
-  await expect(page.getByRole("heading", { name: "Team" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Permission required" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Team|Đội ngũ/ })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: /Permission required|Không có quyền truy cập/ })).toBeVisible();
   await page.goto("/admin/organization/branches/new");
-  await expect(page.getByRole("heading", { name: "Create branch" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Create branch|Thêm chi nhánh/ })).toBeVisible();
 });

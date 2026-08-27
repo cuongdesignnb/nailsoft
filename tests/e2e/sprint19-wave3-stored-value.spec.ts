@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
+import type { Page } from "@playwright/test";
 import { authenticated, close } from "./auth/setup";
 import { headers } from "./helpers/api-client";
 
@@ -21,7 +22,7 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 3", () => {
   test("voucher campaign and code surfaces are API-backed and mask secrets", async ({ page }) => {
     await loginUi(page);
     await page.goto("/admin/vouchers/campaigns");
-    await expect(page.getByRole("heading", { name: "Voucher campaigns" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Chiến dịch Voucher", exact: true })).toBeVisible();
     await page.goto("/admin/vouchers/codes");
     await expect(page.getByRole("heading", { name: "Voucher khách hàng", exact: true })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("code_hash");
@@ -31,10 +32,10 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 3", () => {
   test("gift-card products, issuance handoff and masked detail routes load", async ({ page }) => {
     await loginUi(page);
     await page.goto("/admin/gift-cards/products");
-    await expect(page.getByRole("heading", { name: "Gift card products" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sản phẩm Gift Card", exact: true })).toBeVisible();
     await page.goto("/admin/gift-cards/issuance");
-    await expect(page.getByRole("heading", { name: "Gift card issuance" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Start gift-card sale" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Phát hành Gift Card", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Mở POS để bán Gift Card" })).toBeVisible();
     await page.goto("/admin/gift-cards");
     await expect(page.getByRole("heading", { name: "Gift cards" })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("pin_hash");
@@ -46,8 +47,8 @@ test.describe.serial("Sprint 19 Wave 3 Cluster 3", () => {
     await page.goto("/admin/customer-credit");
     await expect(page.getByRole("heading", { name: "Store Credit", exact: true })).toBeVisible();
     await page.goto("/admin/stored-value/adjustments");
-    await expect(page.getByRole("heading", { name: "Stored-value adjustments" })).toBeVisible();
-    await expect(page.getByText("Approval required")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Điều chỉnh Store Credit", exact: true })).toBeVisible();
+    await expect(page.getByText("Cần phê duyệt", { exact: true })).toBeVisible();
     await expectA11y(page);
   });
 

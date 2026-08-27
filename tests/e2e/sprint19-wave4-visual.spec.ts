@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
+import type { Page } from "@playwright/test";
 
 async function loginUi(page: Page) {
   await page.goto("/auth/login");

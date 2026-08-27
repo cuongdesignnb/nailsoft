@@ -13,16 +13,18 @@ export function isWave3CustomerEngagementPath(pathname: string) {
 
 export function isWave3Cluster2Path(pathname: string) {
   return pathname === "/admin/benefits" || pathname === "/admin/benefits/" ||
+    pathname === "/admin/benefits/customers" ||
     /^\/admin\/benefits\/customers\/[^/]+$/.test(pathname) ||
     pathname === "/admin/loyalty/programs" || pathname === "/admin/loyalty/adjustments" ||
     /^\/admin\/loyalty\/customers\/[^/]+$/.test(pathname) ||
-    pathname === "/admin/membership" || pathname === "/admin/membership/" || pathname === "/admin/membership/tiers" || /^\/admin\/membership\/customers\/[^/]+$/.test(pathname) ||
+    pathname === "/admin/membership" || pathname === "/admin/membership/" || pathname === "/admin/membership/customers" || pathname === "/admin/membership/tiers" || /^\/admin\/membership\/customers\/[^/]+$/.test(pathname) ||
     pathname === "/admin/packages/catalog" || /^\/admin\/packages\/catalog\/[^/]+$/.test(pathname) ||
     pathname === "/admin/packages/entitlements" || /^\/admin\/packages\/entitlements\/[^/]+$/.test(pathname);
 }
 
 export function isWave3Cluster3Path(pathname: string) {
-  return pathname === "/admin/vouchers/campaigns" ||
+  return pathname === "/admin/vouchers" ||
+    pathname === "/admin/vouchers/campaigns" ||
     /^\/admin\/vouchers\/campaigns\/[^/]+$/.test(pathname) ||
     pathname === "/admin/vouchers/codes" ||
     pathname === "/admin/gift-cards" ||

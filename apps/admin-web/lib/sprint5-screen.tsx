@@ -124,7 +124,7 @@ function Shell({
         <a href="/admin/appointments">Appointments</a>
       </nav>
       <section className="wave1-legacy-card">
-        <p className="eyebrow">SPRINT 5 · LIVE SALON OPERATIONS</p>
+        <p className="eyebrow">NAILSOFT · VẬN HÀNH SALON</p>
         <div className="title-row">
           <div>
             <h1>{title}</h1>

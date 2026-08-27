@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { createApp } from "../../apps/api/src/main";
 import { DatabaseService } from "../../apps/api/src/infrastructure/database.service";
 
@@ -7,11 +8,20 @@ let token = "";
 let categoryId = "";
 let serviceId = "";
 let leaveId = "";
+let staffId = "";
+const originalNodeEnv = process.env.NODE_ENV;
+const idempotencyKey = `sprint2-staff-create-retry-${Date.now()}`;
+const idempotencyKeyHash = createHash("sha256").update(idempotencyKey).digest("hex");
+const staffEmployeeCode = `S2-IDEMPOTENT-${Date.now()}`;
 const tenantId = "10000000-0000-4000-8000-000000000001";
 const branchId = "20000000-0000-4000-8000-000000000001";
 
 describe("Sprint 2 service catalog and staff foundation", () => {
   beforeAll(async () => {
+    // The integration suite imports the application while Vitest is in test
+    // mode, then enables the local-development auth path for this app instance
+    // so the seeded owner can exercise the real write endpoints without MFA.
+    process.env.NODE_ENV = "development";
     app = await createApp();
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
@@ -28,7 +38,11 @@ describe("Sprint 2 service catalog and staff foundation", () => {
     }
     if (categoryId) await db.query("DELETE FROM service_categories WHERE tenant_id=$1 AND id=$2", [tenantId, categoryId]);
     if (leaveId) await db.query("DELETE FROM leave_requests WHERE tenant_id=$1 AND id=$2", [tenantId, leaveId]);
+    if (staffId) await db.query("DELETE FROM staff_profiles WHERE tenant_id=$1 AND id=$2", [tenantId, staffId]);
+    await db.query("DELETE FROM idempotency_keys WHERE tenant_id=$1 AND idempotency_key_hash=$2", [tenantId, idempotencyKeyHash]);
     await app.close();
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
   });
 
   it("creates and activates a bilingual service only after an active price exists", async () => {
@@ -73,5 +87,19 @@ describe("Sprint 2 service catalog and staff foundation", () => {
     const submitted = await app.inject({ method: "POST", url: `/v1/leave-requests/${leaveId}/submit`, headers });
     expect(submitted.statusCode).toBe(201);
     expect(submitted.json().data.status).toBe("PENDING");
+  });
+
+  it("replays a staff create safely when the same intent key is retried", async () => {
+    const headers = { authorization: `Bearer ${token}`, "x-tenant-id": tenantId, "idempotency-key": idempotencyKey };
+    const payload = { membershipId: null, employeeCode: staffEmployeeCode, displayName: "Idempotent QA Staff", employmentType: "FULL_TIME", preferredLocale: "vi-VN", hireDate: "2035-01-01" };
+    const first = await app.inject({ method: "POST", url: "/v1/staff", headers, payload });
+    const second = await app.inject({ method: "POST", url: "/v1/staff", headers, payload });
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    staffId = first.json().data.id;
+    expect(second.json().data.id).toBe(staffId);
+    expect(second.json().data.idempotencyReplayed).toBe(true);
+    const count = await app.get(DatabaseService).query("SELECT count(*)::int AS count FROM staff_profiles WHERE tenant_id=$1 AND employee_code=$2", [tenantId, payload.employeeCode]);
+    expect(count.rows[0].count).toBe(1);
   });
 });

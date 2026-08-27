@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { activeSession, authorizedFetch } from "./auth";
+import { legacyColumnLabel, legacyText, legacyValue } from "./legacy-workspace-ui";
 
 type State = "loading" | "ready" | "empty" | "error" | "forbidden";
 async function api(path: string, init?: RequestInit) {
@@ -80,29 +81,29 @@ function States({
   if (value.state === "loading")
     return (
       <div className="skeleton" role="status">
-        Loading {label}…
+        Đang tải {legacyText(label)}…
       </div>
     );
   if (value.state === "forbidden")
     return (
       <div className="state" role="alert">
-        <h2>Permission denied</h2>
-        <p>Your role or branch scope does not allow this benefit operation.</p>
+        <h2>Không có quyền truy cập</h2>
+        <p>Vai trò hoặc phạm vi chi nhánh hiện tại không cho phép thao tác quyền lợi này.</p>
       </div>
     );
   if (value.state === "empty")
     return (
       <div className="state">
-        <h2>No {label}</h2>
-        <p>Create the first record or change the current filters.</p>
-        <button onClick={() => void value.load()}>Refresh</button>
+        <h2>Chưa có {legacyText(label)}</h2>
+        <p>Chưa có bản ghi trong phạm vi được cấp quyền.</p>
+        <button onClick={() => void value.load()}>Làm mới</button>
       </div>
     );
   return (
     <div className="state" role="alert">
-      <h2>Unable to load</h2>
+      <h2>Không thể tải dữ liệu</h2>
       <p>{value.error}</p>
-      <button onClick={() => void value.load()}>Retry</button>
+      <button onClick={() => void value.load()}>Thử lại</button>
     </div>
   );
 }
@@ -115,26 +116,25 @@ function Shell({
 }) {
   return (
     <main className="shell ops-shell">
-      <nav className="topbar">
-        <a href="/admin/benefits">Wallet</a>
-        <a href="/admin/vouchers/campaigns">Vouchers</a>
+      <nav className="topbar" aria-label="Điều hướng quyền lợi">
+        <a href="/admin/benefits">Ví quyền lợi</a>
+        <a href="/admin/vouchers/campaigns">Voucher</a>
         <a href="/admin/loyalty/programs">Loyalty</a>
         <a href="/admin/membership/tiers">Membership</a>
-        <a href="/admin/packages/catalog">Packages</a>
-        <a href="/admin/benefits/reports">Reports</a>
-        <a href="/admin/benefits/liability">Liability</a>
+        <a href="/admin/packages/catalog">Gói dịch vụ</a>
+        <a href="/admin/benefits/reports">Báo cáo</a>
+        <a href="/admin/benefits/liability">Nghĩa vụ</a>
       </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 8 · CUSTOMER BENEFITS</p>
+        <p className="eyebrow">NAILSOFT · QUYỀN LỢI KHÁCH HÀNG</p>
         <div className="title-row">
           <div>
-            <h1>{title}</h1>
+            <h1>{legacyText(title)}</h1>
             <p className="hint">
-              Eligibility → reservation → commit/release. PostgreSQL ledgers
-              remain authoritative.
+              Đủ điều kiện → giữ → ghi nhận/hoàn giữ. Sổ PostgreSQL vẫn là nguồn dữ liệu chính thức.
             </p>
           </div>
-          <span className="timezone">Online commands only</span>
+          <span className="timezone">Chỉ lệnh online</span>
         </div>
         {children}
       </section>
@@ -152,6 +152,12 @@ const label = (x: any) =>
   x.codeLast4 ??
   x.entryType ??
   x.id;
+
+function SafeFacts({ value }: { value: any }) {
+  const source = value && typeof value === "object" ? value : {};
+  const entries = Object.entries(source).filter(([key]) => !/(secret|token|hash|json|email)/i.test(key)).slice(0, 14);
+  return <div className="legacy-data-grid">{entries.map(([key, item]) => <div className="legacy-data-item" key={key}><span>{legacyColumnLabel(key)}</span><strong>{legacyValue(item, key)}</strong></div>)}</div>;
+}
 
 export default function Sprint8Screen({ pathname }: { pathname: string }) {
   const parts = pathname.split("/").filter(Boolean),
@@ -264,37 +270,37 @@ function Resource({
       {create}
       <States value={value} label={title.toLowerCase()} />
       {value.state === "ready" && (
-        <div className="table-wrap">
+        <div className="table-wrap" tabIndex={0} role="region" aria-label="Bảng dữ liệu quyền lợi">
           <table>
             <thead>
               <tr>
-                <th>Name/reference</th>
-                <th>Status/type</th>
-                <th>Balance/usage</th>
-                <th>Expiry</th>
+                <th scope="col">Tên / tham chiếu</th>
+                <th scope="col">Trạng thái / loại</th>
+                <th scope="col">Số dư / sử dụng</th>
+                <th scope="col">Hạn dùng</th>
               </tr>
             </thead>
             <tbody>
               {rows(value.data).map((item: any) => (
                 <tr key={item.id ?? label(item)}>
-                  <td>{String(label(item))}</td>
-                  <td>
+                  <td data-label="Tên / tham chiếu">{legacyValue(label(item), "reference")}</td>
+                  <td data-label="Trạng thái / loại">
                     <span className="pill">
-                      {item.status ?? item.entryType ?? item.type ?? "ACTIVE"}
+                      {legacyValue(item.status ?? item.entryType ?? item.type ?? "ACTIVE", "status")}
                     </span>
                   </td>
-                  <td>
-                    {item.availablePoints ??
+                  <td data-label="Số dư / sử dụng">
+                    {legacyValue(item.availablePoints ??
                       item.availableUnits ??
                       item.usedCount ??
                       item.redeemedCount ??
                       item.amountMinor ??
-                      "—"}
+                      "—", "amountMinor")}
                   </td>
-                  <td>
+                  <td data-label="Hạn dùng">
                     {item.expiresAt
                       ? new Date(item.expiresAt).toLocaleString()
-                      : "—"}
+                      : "Không hết hạn"}
                   </td>
                 </tr>
               ))}
@@ -303,7 +309,7 @@ function Resource({
         </div>
       )}
       {value.state === "ready" && !Array.isArray(value.data) && (
-        <pre className="response">{JSON.stringify(value.data, null, 2)}</pre>
+        <SafeFacts value={value.data} />
       )}
     </Shell>
   );
@@ -349,7 +355,7 @@ function Detail({
               </button>
             ))}
           </div>
-          <pre className="response">{JSON.stringify(value.data, null, 2)}</pre>
+          <SafeFacts value={value.data} />
         </>
       )}
     </Shell>
@@ -625,19 +631,19 @@ function Wallet({ customerId }: { customerId: string }) {
       <div className="form-grid">
         <section>
           <h2>Loyalty</h2>
-          <pre>{JSON.stringify(resource.data, null, 2)}</pre>
+          <SafeFacts value={resource.data} />
         </section>
         <section>
           <h2>Membership</h2>
-          <pre>{JSON.stringify(membership.data, null, 2)}</pre>
+          <SafeFacts value={membership.data} />
         </section>
         <section>
-          <h2>Vouchers</h2>
-          <pre>{JSON.stringify(vouchers.data, null, 2)}</pre>
+          <h2>Voucher</h2>
+          <SafeFacts value={vouchers.data} />
         </section>
         <section>
-          <h2>Packages</h2>
-          <pre>{JSON.stringify(packages.data, null, 2)}</pre>
+          <h2>Gói dịch vụ</h2>
+          <SafeFacts value={packages.data} />
         </section>
       </div>
     </Shell>
@@ -650,9 +656,9 @@ function Adjustments() {
     try {
       await command(`/v1/loyalty-adjustments/${item.id}/${action}`, {
         version: item.version,
-        reason: `${action}d by authorized reviewer`,
+        reason: `Thao tác ${action} bởi người phê duyệt được cấp quyền`,
       });
-      setMessage("Decision recorded with dual control.");
+      setMessage("Quyết định đã được ghi nhận theo cơ chế phê duyệt kép.");
       await value.load();
     } catch (e: any) {
       setMessage(e.message);
@@ -703,12 +709,12 @@ function PosBenefits({ orderId }: { orderId: string }) {
         version: order.data.version,
         ...body,
       });
-      setMessage(`${type} benefit applied; order repriced.`);
+      setMessage("Quyền lợi đã áp dụng; đơn POS được tính lại.");
       await reload();
     } catch (e: any) {
       setMessage(
         e.code === "BENEFIT_VERSION_CONFLICT"
-          ? "Version conflict. Order refreshed; retry."
+          ? "Đơn POS vừa thay đổi. Dữ liệu đã tải lại; hãy thử lại."
           : e.message,
       );
       await reload();
@@ -719,37 +725,36 @@ function PosBenefits({ orderId }: { orderId: string }) {
       await command(`/v1/pos-orders/${orderId}/benefits/${item.id}/release`, {
         version: order.data.version,
       });
-      setMessage("Benefit released; order repriced.");
+      setMessage("Đã hoàn giữ quyền lợi; đơn POS được tính lại.");
       await reload();
     } catch (e: any) {
       setMessage(
         e.code === "BENEFIT_VERSION_CONFLICT"
-          ? "Version conflict. Order refreshed; retry."
+          ? "Đơn POS vừa thay đổi. Dữ liệu đã tải lại; hãy thử lại."
           : e.message,
       );
       await reload();
     }
   }
   return (
-    <Shell title="Customer Benefits">
+    <Shell title="Quyền lợi khách hàng">
       <States value={eligibility} label="eligibility" />
       <States value={order} label="order" />
       {message && <p role="status">{message}</p>}
-      <p>Order: package → membership → voucher → loyalty → tax → tip.</p>
+      <p>Thứ tự áp dụng tại POS: gói dịch vụ → Membership → Voucher → Loyalty → thuế → tip.</p>
       {order.state === "ready" && (
         <p>
-          <strong>{order.data.orderNumber}</strong> · version{" "}
-          {order.data.version} · due {order.data.amountDueMinor}{" "}
+          <strong>{order.data.orderNumber}</strong> · phiên bản {order.data.version} · còn phải thu {order.data.amountDueMinor}{" "}
           {order.data.currency}
         </p>
       )}
       <div className="form-grid">
         <section className="state">
-          <h2>Package</h2>
+          <h2>Gói dịch vụ</h2>
           <p>
             {packageCandidate
-              ? `${packageCandidate.calculatedUnits} unit available for this service.`
-              : "No eligible package."}
+              ? `${packageCandidate.calculatedUnits} đơn vị phù hợp với dịch vụ này.`
+              : "Không có gói đủ điều kiện."}
           </p>
           <button
             disabled={
@@ -763,15 +768,15 @@ function PosBenefits({ orderId }: { orderId: string }) {
               })
             }
           >
-            Apply package
+            Áp dụng gói
           </button>
         </section>
         <section className="state">
           <h2>Membership</h2>
           <p>
             {membership?.tierId
-              ? "Active tier benefit is available."
-              : "No active tier."}
+              ? "Quyền lợi cấp Membership đang khả dụng."
+              : "Chưa có cấp Membership đang hoạt động."}
           </p>
           <button
             disabled={!membership?.tierId || order.data?.status !== "DRAFT"}
@@ -781,19 +786,18 @@ function PosBenefits({ orderId }: { orderId: string }) {
               })
             }
           >
-            Apply membership
+            Áp dụng Membership
           </button>
         </section>
         <section className="state">
           <h2>Voucher</h2>
           {voucher && (
             <p>
-              Eligible code ending {voucher.codeLast4}; calculated{" "}
-              {voucher.calculatedAmountMinor} minor units.
+              Mã đủ điều kiện có 4 số cuối {voucher.codeLast4}; giá trị tính toán {voucher.calculatedAmountMinor} minor.
             </p>
           )}
           <label>
-            Voucher code
+            Mã Voucher
             <input
               value={voucherCode}
               onChange={(e) => setVoucherCode(e.target.value)}
@@ -806,16 +810,16 @@ function PosBenefits({ orderId }: { orderId: string }) {
             }
             onClick={() => void mutate("voucher", { code: voucherCode.trim() })}
           >
-            Apply voucher
+            Áp dụng Voucher
           </button>
         </section>
         <section className="state">
           <h2>Loyalty</h2>
           <p>
-            Up to {eligibility.data?.loyalty?.maxRedeemablePoints ?? 0} points.
+            Tối đa {eligibility.data?.loyalty?.maxRedeemablePoints ?? 0} điểm có thể dùng.
           </p>
           <label>
-            Points
+            Điểm
             <input
               type="number"
               min="1"
@@ -832,12 +836,12 @@ function PosBenefits({ orderId }: { orderId: string }) {
             }
             onClick={() => void mutate("loyalty", { points })}
           >
-            Apply points
+            Áp dụng điểm
           </button>
         </section>
       </div>
-      <h2>Applied reservations</h2>
-      {applied.state === "empty" && <p>No benefits applied.</p>}
+      <h2>Quyền lợi đã giữ</h2>
+      {applied.state === "empty" && <p>Chưa có quyền lợi nào được áp dụng.</p>}
       {rows(applied.data).map((x: any) => (
         <article className="state" key={x.id}>
           <strong>{x.benefitType}</strong> · {x.amountMinor} · {x.status}
@@ -845,7 +849,7 @@ function PosBenefits({ orderId }: { orderId: string }) {
             disabled={x.status !== "RESERVED" || order.data?.status !== "DRAFT"}
             onClick={() => void release(x)}
           >
-            Release
+            Hoàn giữ
           </button>
         </article>
       ))}
@@ -855,16 +859,16 @@ function PosBenefits({ orderId }: { orderId: string }) {
 function Reports() {
   const options = useMemo(
     () => [
-      { name: "Voucher effectiveness", path: "vouchers" },
-      { name: "Loyalty liability", path: "loyalty" },
-      { name: "Membership counts", path: "membership" },
-      { name: "Package liability", path: "packages" },
-      { name: "Expiring benefits", path: "expiring" },
+      { name: "Hiệu quả Voucher", path: "vouchers" },
+      { name: "Nghĩa vụ Loyalty", path: "loyalty" },
+      { name: "Số lượng Membership", path: "membership" },
+      { name: "Nghĩa vụ gói dịch vụ", path: "packages" },
+      { name: "Quyền lợi sắp hết hạn", path: "expiring" },
     ],
     [],
   );
   return (
-    <Shell title="Benefit reports">
+    <Shell title="Báo cáo quyền lợi">
       <div className="form-grid">
         {options.map((x) => (
           <ReportCard key={x.path} {...x} />
@@ -879,23 +883,21 @@ function ReportCard({ name, path }: { name: string; path: string }) {
     <section className="state">
       <h2>{name}</h2>
       <States value={value} label={name.toLowerCase()} />
-      {value.state === "ready" && (
-        <pre>{JSON.stringify(value.data, null, 2)}</pre>
-      )}
+      {value.state === "ready" && <SafeFacts value={value.data} />}
     </section>
   );
 }
 function CustomerLookup() {
   const [id, setId] = useState("");
   return (
-    <Shell title="Package entitlements">
+    <Shell title="Quyền lợi gói dịch vụ">
       <label>
-        Customer ID
+        Khách hàng
         <input value={id} onChange={(e) => setId(e.target.value)} />
       </label>
       {id && (
         <a className="button" href={`/admin/benefits/customers/${id}`}>
-          Open wallet
+          Mở ví quyền lợi
         </a>
       )}
     </Shell>
@@ -903,23 +905,23 @@ function CustomerLookup() {
 }
 function BenefitHome() {
   return (
-    <Shell title="Benefits workspace">
+    <Shell title="Trung tâm quyền lợi khách hàng">
       <div className="form-grid">
         <a className="state" href="/admin/vouchers/campaigns">
           <h2>Voucher</h2>
-          <p>Campaigns, hashed codes and usage limits.</p>
+          <p>Chiến dịch, mã đã che và giới hạn sử dụng.</p>
         </a>
         <a className="state" href="/admin/loyalty/programs">
           <h2>Loyalty</h2>
-          <p>Programs, accounts, ledgers and dual control.</p>
+          <p>Chương trình, tài khoản, sổ giao dịch và kiểm soát kép.</p>
         </a>
         <a className="state" href="/admin/membership/tiers">
           <h2>Membership</h2>
-          <p>Versioned tiers and effective assignments.</p>
+          <p>Hạng có phiên bản và phân bổ có hiệu lực.</p>
         </a>
         <a className="state" href="/admin/packages/catalog">
-          <h2>Packages</h2>
-          <p>Unit entitlements and booking/POS reservations.</p>
+          <h2>Gói dịch vụ</h2>
+          <p>Quyền sử dụng theo lượt và giữ chỗ tại lịch hẹn/POS.</p>
         </a>
       </div>
     </Shell>

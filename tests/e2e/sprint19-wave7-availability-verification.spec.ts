@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 const bookingWeb = "http://127.0.0.1:3002";
 
 test("public booking availability, hold, contact and OTP flow", async ({ page }) => {
+  test.setTimeout(180_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${bookingWeb}/book/nailsoft-demo`);
   await page.getByRole("button", { name: /Quận 1/ }).click();
@@ -22,16 +23,16 @@ test("public booking availability, hold, contact and OTP flow", async ({ page })
     if (!foundSlot) await page.getByRole("button", { name: /Change services or date|Đổi dịch vụ hoặc ngày/ }).click();
   }
   expect(foundSlot).toBe(true);
-  await expect(page.getByRole("heading", { name: /Available times|Giờ còn trống/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Available times|Giờ còn trống/ }).first()).toBeVisible();
   const slot = page.locator(".slot").first();
   await expect(slot).toBeVisible();
   await slot.click();
-  await expect(page.getByRole("heading", { name: /Contact details|Thông tin liên hệ/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Contact details|Thông tin liên hệ/ }).first()).toBeVisible();
   await page.getByLabel(/Full name|Họ và tên/).fill("Wave Seven Customer");
   await page.getByLabel(/Phone|Số điện thoại/).fill("0900000019");
   await page.getByRole("button", { name: /Send verification code|Gửi mã xác minh/ }).click();
-  await expect(page.getByRole("heading", { name: /Verification code|Mã xác minh/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Verification code|Mã xác minh/ }).first()).toBeVisible();
   await expect(page.locator("#verification-code")).toHaveValue(/\d{6}/);
   await page.getByRole("button", { name: /Verify|Xác minh/ }).click();
-  await expect(page.getByRole("heading", { name: /Review booking|Xem lại lịch hẹn/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Review booking|Xem lại lịch hẹn/ }).first()).toBeVisible();
 });

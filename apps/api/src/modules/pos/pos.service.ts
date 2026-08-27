@@ -2921,8 +2921,8 @@ export class PosService {
            JOIN pos_order_lines pol ON pol.tenant_id=il.tenant_id AND pol.id=il.source_order_line_id
           WHERE il.tenant_id=$1 AND il.invoice_id=$2 AND pol.line_type='SERVICE'
        ), contribution AS (
-         SELECT s.*,seg.staff_id,sum(extract(epoch FROM(seg.ended_at-seg.started_at)))::bigint work_seconds,
-                sum(sum(extract(epoch FROM(seg.ended_at-seg.started_at)))) OVER(PARTITION BY s.invoice_line_id)::bigint total_work_seconds
+         SELECT s.*,seg.staff_id,sum(extract(epoch FROM(seg.ended_at-seg.started_at))) work_seconds,
+                sum(sum(extract(epoch FROM(seg.ended_at-seg.started_at)))) OVER(PARTITION BY s.invoice_line_id) total_work_seconds
            FROM source s JOIN service_session_staff_segments seg
              ON seg.tenant_id=s.tenant_id AND seg.service_session_id=s.service_session_id AND seg.ended_at IS NOT NULL
           GROUP BY s.tenant_id,s.invoice_line_id,s.invoice_id,s.gross_minor,s.taxable_minor,s.service_id,s.service_session_id,

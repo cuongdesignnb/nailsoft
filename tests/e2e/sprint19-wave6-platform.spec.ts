@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
+import type { Page } from "@playwright/test";
 
 async function loginUi(page: Page) {
   await page.goto("/auth/login");
@@ -20,31 +21,31 @@ test.describe.serial("Sprint 19 Wave 6 platform billing and support", () => {
   test("keeps platform catalog separate from salon operations", async ({ page }) => {
     await loginUi(page);
     await page.goto("/platform/plans");
-    await expect(page.getByRole("heading", { name: "Plan, price & discount catalog" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Danh mục gói nền tảng" }).first()).toBeVisible();
     await expect(page.locator(".ns-branch-picker select")).toHaveCount(0);
     await expect(page.locator(".ns-header-actions .ns-status")).toHaveText("PLATFORM ADMIN");
     await audit(page);
     await page.goto("/platform/discounts");
-    await expect(page.getByRole("heading", { name: "Discount catalog" })).toBeVisible();
-    await expect(page.getByText(/Discount definitions are read-only/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Danh mục giảm giá nền tảng" }).first()).toBeVisible();
+    await expect(page.getByText(/đọc các định nghĩa giảm giá nền tảng; màn hình không cung cấp thao tác/i).first()).toBeVisible();
     await audit(page);
     await page.goto("/platform/invoices");
-    await expect(page.getByRole("heading", { name: "Platform invoice & payment operations" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Vận hành hóa đơn nền tảng", exact: true }).first()).toBeVisible();
     await audit(page);
   });
 
   test("renders refund, reconciliation, dunning and disabled break-glass surfaces", async ({ page }) => {
     await loginUi(page);
     await page.goto("/platform/refunds");
-    await expect(page.getByRole("heading", { name: "Refund & reconciliation" })).toBeVisible();
-    await expect(page.getByText(/Dual control/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Hoàn tiền & đối soát nền tảng", exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/kiểm soát kép/i)).toBeVisible();
     await audit(page);
     await page.goto("/platform/dunning");
-    await expect(page.getByRole("heading", { name: "Dunning & platform reports" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Theo dõi công nợ nền tảng", exact: true }).first()).toBeVisible();
     await audit(page);
     await page.goto("/platform/break-glass");
-    await expect(page.getByRole("heading", { name: "Break-glass access" })).toBeVisible();
-    await expect(page.getByText(/disabled by platform security policy/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Truy cập khẩn cấp", exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/đang được tắt/i)).toBeVisible();
     await audit(page);
   });
 });

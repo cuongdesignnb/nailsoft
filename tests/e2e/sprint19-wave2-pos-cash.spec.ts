@@ -1,7 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
 import AxeBuilder from "@axe-core/playwright";
 
-const seededOrder = "a4000000-0000-4000-8000-000000000001";
+const seededOrder = "a4000000-0000-4000-8000-000000000003";
 
 async function loginUi(page: import("@playwright/test").Page, email = "cashier@example.test") {
   await page.goto("/auth/login");
@@ -19,11 +19,11 @@ async function assertAccessible(page: import("@playwright/test").Page) {
 
 test.describe("Sprint 19 Wave 2 POS, payment and cash surfaces", () => {
   test("POS home exposes branch/register context and responsive actions", async ({ page }) => {
-    await loginUi(page);
+    await loginUi(page, "owner@example.test");
     await page.goto("/admin/pos");
-    await expect(page.getByRole("heading", { name: "Front desk control centre" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "New sale" })).toBeVisible();
-    await expect(page.getByLabel("Working branch")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Trung tâm POS", exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Tạo đơn mới" })).toBeVisible();
+    await expect(page.getByLabel("Chi nhánh làm việc")).toBeVisible();
     await assertAccessible(page);
     await page.screenshot({ path: test.info().outputPath("pos-sale-desktop.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -35,21 +35,21 @@ test.describe("Sprint 19 Wave 2 POS, payment and cash surfaces", () => {
     await loginUi(page);
     await page.goto(`/admin/pos/orders/${seededOrder}`);
     await expect(page.getByRole("heading", { name: "Chi tiết đơn hàng", exact: true })).toBeVisible();
-    await expect(page.getByText("#POS-SEED-DRAFT", { exact: true })).toBeVisible();
+    await expect(page.getByText("#POS-SEED-PARTIAL", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Dịch vụ & sản phẩm", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Giao dịch thanh toán", exact: true })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Tiếp tục chỉnh đơn" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Thu số còn lại" }).first()).toBeVisible();
     await assertAccessible(page);
   });
 
   test("payment surface keeps server due and split-tender safeguards visible", async ({ page }) => {
     await loginUi(page);
-    await page.goto(`/admin/pos/orders/a4000000-0000-4000-8000-000000000002/payment`);
+    await page.goto(`/admin/pos/orders/a4000000-0000-4000-8000-000000000003/payment`);
     await expect(page.getByRole("heading", { name: "Thanh toán", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Số tiền khách thanh toán", exact: true })).toBeVisible();
     await expect(page.getByRole("radio", { name: /Tiền mặt/ })).toBeVisible();
     await expect(page.getByText("Cho phép thu từng phần", { exact: true })).toBeVisible();
-    await expect(page.getByText(/115\.000/).first()).toBeVisible();
+    await expect(page.getByText(/80\.000/).first()).toBeVisible();
     await assertAccessible(page);
     await page.screenshot({ path: test.info().outputPath("split-tender-checkout.png"), fullPage: true });
   });
@@ -71,8 +71,8 @@ test.describe("Sprint 19 Wave 2 POS, payment and cash surfaces", () => {
     await page.goto("/admin/pos/registers");
     await expect(page.getByRole("heading", { name: "Quản lý quầy thu ngân", exact: true })).toBeVisible();
     await page.goto("/admin/refunds/new");
-    await expect(page.getByRole("heading", { name: "Refund initiation" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Preview refund" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Tạo yêu cầu hoàn tiền", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Xem trước hoàn tiền" })).toBeVisible();
     await assertAccessible(page);
     await page.screenshot({ path: test.info().outputPath("refund-review.png"), fullPage: true });
   });

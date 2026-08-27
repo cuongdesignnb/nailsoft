@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Put, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, Inject, Param, Patch, Post, Put, Query, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { AuthGuard } from "../identity/auth.guard.js";
 import { PermissionGuard } from "../identity/permission.guard.js";
@@ -56,7 +56,7 @@ export class ServiceCatalogController {
 
   @Get("staff") @RequirePermission("staff.read") staff(@Query() q:any,@Req() req:AuthenticatedRequest){return this.ok(this.service.staff(req.auth,q),req);}
   @Get("staff/me") @RequirePermission("staff.read") staffMe(@Req() req:AuthenticatedRequest){return this.ok(this.service.staffMe(req.auth),req);}
-  @Post("staff") @RequirePermission("staff.create") createStaff(@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.createStaff(req.auth,b,this.rid(req)),req);}
+  @Post("staff") @RequirePermission("staff.create") createStaff(@Body() b:unknown,@Headers("idempotency-key") key:string|undefined,@Req() req:AuthenticatedRequest){return this.ok(this.service.createStaff(req.auth,b,key,this.rid(req)),req);}
   @Get("staff/:id") @RequirePermission("staff.read") staffOne(@Param("id") id:string,@Req() req:AuthenticatedRequest){return this.ok(this.service.staffOne(req.auth,id),req);}
   @Patch("staff/:id") @RequirePermission("staff.update") updateStaff(@Param("id") id:string,@Body() b:unknown,@Req() req:AuthenticatedRequest){return this.ok(this.service.updateStaff(req.auth,id,b,this.rid(req)),req);}
   @Post("staff/:id/activate") @RequirePermission("staff.update") activateStaff(@Param("id") id:string,@Req() req:AuthenticatedRequest){return this.ok(this.service.staffStatus(req.auth,id,"ACTIVE",this.rid(req)),req);}

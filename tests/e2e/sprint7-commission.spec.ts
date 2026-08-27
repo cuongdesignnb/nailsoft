@@ -17,13 +17,13 @@ test("owner reviews and locks a commission period while technician remains own-s
   await loginUi(page);
   await page.goto(`http://localhost:3000/admin/commission/periods/${periodId}`);
   await expect(
-    page.getByRole("heading", { name: "Commission period" }),
+    page.getByRole("heading", { name: "Chi tiết kỳ hoa hồng" }),
   ).toBeVisible();
   await expect(page.getByText(/SEED-OPEN-01/)).toBeVisible();
-  await page.getByRole("button", { name: "Start review" }).click();
-  await expect(page.getByText(/SEED-OPEN-01.*REVIEW/)).toBeVisible();
-  await page.getByRole("button", { name: "Lock evidence" }).click();
-  await expect(page.getByText(/SEED-OPEN-01.*LOCKED/)).toBeVisible();
+  await page.getByRole("button", { name: "Bắt đầu rà soát" }).click();
+  await expect(page.getByText("Đang rà soát", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Khóa bằng chứng" }).click();
+  await expect(page.getByText("Đã khóa", { exact: true })).toBeVisible();
 
   const technician = await login("staff5@example.test");
   try {

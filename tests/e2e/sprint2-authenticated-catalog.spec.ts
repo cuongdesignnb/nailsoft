@@ -8,7 +8,7 @@ test.describe("authenticated service catalog and pricing", () => {
     const prefix = unique("CATALOG"); const session = await authenticated("owner");
     try {
       await page.goto("/admin/catalog/categories");
-      await expect(page.getByRole("heading", { name: "Service categories" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Nhóm dịch vụ" })).toBeVisible();
       const root = await session.api.post("/v1/service-categories", { headers: { authorization: `Bearer ${session.accessToken}`, "x-tenant-id": session.tenantId }, data: { code: `${prefix}-ROOT`, name: names("Root") } });
       expect(root.status()).toBe(201); const rootId = (await root.json()).data.id;
       const child = await session.api.post("/v1/service-categories", { headers: { authorization: `Bearer ${session.accessToken}`, "x-tenant-id": session.tenantId }, data: { parentId: rootId, code: `${prefix}-CHILD`, name: names("Child") } });
