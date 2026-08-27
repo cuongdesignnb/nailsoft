@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
 import AxeBuilder from "@axe-core/playwright";
 
 const bookingWeb = "http://127.0.0.1:3002";

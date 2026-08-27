@@ -111,3 +111,9 @@
 @media (max-width: 1320px) { .page { padding-inline: 22px; }.kpiGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.filterGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }.searchField { grid-column: span 3; } }
 @media (max-width: 1050px) { .workspace, .lowerGrid { grid-template-columns: 1fr; }.rail { grid-template-columns: repeat(2, minmax(0, 1fr)); }.railCard:first-child { grid-column: span 2; }.channelGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.channel:nth-child(3) { border-left: 0; } }
 @media (max-width: 700px) { .page { padding: 18px 14px 82px; }.pageHeader { flex-direction: column; }.headerActions { justify-content: flex-start; }.kpiGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.kpi { min-height: 100px; padding: 12px; }.kpi strong { font-size: 20px; }.filterGrid { grid-template-columns: 1fr; }.searchField { grid-column: auto; }.filterFooter, .pagination { align-items: flex-start; flex-direction: column; }.filterTools { width: 100%; justify-content: space-between; }.channelGrid, .rail { grid-template-columns: 1fr; }.channel { border-left: 0; border-top: 1px solid #f0e5e8; }.channel:first-child { border-top: 0; }.railCard:first-child { grid-column: auto; }.followupRow { grid-template-columns: 1fr 1fr; }.followupRow .rowAction { justify-self: start; }.errorBanner { align-items: flex-start; flex-wrap: wrap; }.errorBanner button { margin-left: 0; }.drawer { padding: 18px; } }
+.searchField > svg, .searchField span { color: #6b5f66; }
+.chipActive { color: #a92e49; }
+.miniAvatar { color: #a92e49; }
+.toneDanger { color: #a92e49; }
+.priority_MEDIUM { color: #7a5200; }
+.followupRow small { color: #6d626a; }

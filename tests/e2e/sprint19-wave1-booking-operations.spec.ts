@@ -19,7 +19,7 @@ test.describe("Sprint 19 Wave 1 booking operations", () => {
   test("overview routes expose real API state surfaces", async ({ page }) => {
     await signIn(page);
     const screens = [
-      { path: "/admin/dashboard", heading: "Dashboard tổng quan" },
+      { path: "/admin/dashboard", heading: "Tổng quan vận hành" },
       { path: "/admin/calendar/day", heading: "Lịch hôm nay" },
       { path: "/admin/calendar/week", heading: "Lịch tuần" },
       { path: "/admin/appointments", heading: "Lịch hẹn" },

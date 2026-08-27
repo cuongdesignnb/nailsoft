@@ -127,6 +127,81 @@ const nav = [
   "/admin/payroll/statements",
   "/admin/payouts",
 ];
+const workforceLabels: Record<string, string> = {
+  "Live time clock": "Chấm công thời gian thực",
+  "Attendance sessions": "Phiên chấm công",
+  "Attendance exceptions": "Ngoại lệ chấm công",
+  "Trusted clock devices": "Thiết bị chấm công tin cậy",
+  "Staff timesheets": "Bảng công nhân sự",
+  "Timesheet periods": "Kỳ bảng công",
+  "Workforce policies": "Chính sách nhân sự",
+  "Workforce compliance": "Tuân thủ nhân sự",
+  "Workforce reports": "Báo cáo nhân sự",
+  "Payroll calendars": "Lịch bảng lương",
+  "Payroll periods": "Kỳ bảng lương",
+  "Payroll runs": "Kỳ chạy bảng lương",
+  "Payroll exceptions": "Ngoại lệ bảng lương",
+  "Pay statements": "Phiếu lương",
+  "Payroll reports": "Báo cáo bảng lương",
+  "Payout batches": "Đợt chi trả",
+  "Payout reconciliation": "Đối soát chi trả",
+  "Staff pay profile": "Hồ sơ lương nhân sự",
+  "Server-time attendance and active sessions": "Chấm công theo thời gian máy chủ và các phiên đang hoạt động.",
+  "Scheduled versus actual, breaks and review state": "Đối chiếu lịch, thời gian thực tế, giờ nghỉ và trạng thái rà soát.",
+  "Evidence-led missed punch and compliance review": "Rà soát thiếu lượt chấm và tuân thủ theo bằng chứng.",
+  "Branch-bound kiosk and device trust": "Thiết bị và kiosk tin cậy theo chi nhánh.",
+  "Review, correction, dual approval and source lock": "Rà soát, điều chỉnh, phê duyệt kép và khóa dữ liệu nguồn.",
+  "Submission and review windows": "Khoảng thời gian gửi và rà soát bảng công.",
+  "Versioned configurable rules with legal-review gate": "Quy tắc có phiên bản, cấu hình được và có bước rà soát pháp lý.",
+  "No jurisdiction rule is hardcoded": "Không hardcode quy tắc theo khu vực pháp lý.",
+  "Attendance, overtime, break and exception evidence": "Bằng chứng chấm công, tăng ca, giờ nghỉ và ngoại lệ.",
+  "Timezone-aware configurable payroll frequency": "Tần suất bảng lương có cấu hình theo múi giờ.",
+  "Ready periods from locked timesheet windows": "Kỳ sẵn sàng từ các khoảng bảng công đã khóa.",
+  "Deterministic sources, independent approval and immutable finalize": "Nguồn dữ liệu xác định, phê duyệt độc lập và chốt kỳ bất biến.",
+  "Blocking source, policy, currency and payout readiness issues": "Các vấn đề chặn nguồn, chính sách, tiền tệ và điều kiện chi trả.",
+  "Private immutable finalized statements": "Phiếu lương riêng tư, bất biến sau khi chốt.",
+  "Earnings, commission, tips and source reconciliation": "Thu nhập, hoa hồng, tiền tip và đối soát nguồn.",
+  "No PAID state without external or approved manual evidence": "Không ghi nhận đã chi nếu thiếu bằng chứng bên ngoài hoặc phê duyệt thủ công.",
+  "Expected, confirmed, reversed and variance evidence": "Bằng chứng dự kiến, xác nhận, đảo và chênh lệch.",
+  "Effective-dated pay configuration and payout readiness": "Cấu hình lương theo thời điểm hiệu lực và điều kiện chi trả.",
+};
+const workforceColumnLabels: Record<string, string> = {
+  id: "Mã bản ghi", tenantId: "Tenant", branchId: "Chi nhánh", staffId: "Nhân sự", shiftId: "Ca làm",
+  deviceId: "Thiết bị", clockInEventId: "Sự kiện vào ca", clockOutEventId: "Sự kiện ra ca", employeeCode: "Mã nhân sự", displayName: "Tên hiển thị", status: "Trạng thái",
+  version: "Phiên bản", startAt: "Bắt đầu", endAt: "Kết thúc", scheduledAt: "Theo lịch", actualAt: "Thực tế",
+  clockInAt: "Giờ vào", clockOutAt: "Giờ ra", dueAt: "Hạn xử lý", createdAt: "Ngày tạo", updatedAt: "Cập nhật",
+  periodId: "Kỳ bảng công", payrollRunId: "Kỳ bảng lương", leaveRequestId: "Đơn nghỉ", exceptionId: "Ngoại lệ", currency: "Tiền tệ", totalMinor: "Tổng tiền",
+};
+const workforceValueLabels: Record<string, string> = {
+  ACTIVE: "Đang hoạt động", INACTIVE: "Không hoạt động", OPEN: "Đang mở", CLOSED: "Đã đóng", OFF: "Ngoài ca",
+  PRESENT: "Có mặt", ABSENT: "Vắng mặt", LATE: "Đi muộn", ON_BREAK: "Đang nghỉ", MISSED: "Thiếu lượt chấm",
+  IN_PROGRESS: "Đang xử lý", PENDING: "Đang chờ", SUBMITTED: "Đã gửi", LOCKED: "Đã khóa", VOIDED: "Đã vô hiệu",
+  HOURLY: "Theo giờ", SALARY: "Theo lương", COMMISSION_ONLY: "Chỉ hoa hồng", HOURLY_PLUS_COMMISSION: "Theo giờ + hoa hồng",
+  SALARY_PLUS_COMMISSION: "Theo lương + hoa hồng",
+};
+function workforceText(value: string) { return workforceLabels[value] ?? workforceValueLabels[value] ?? value; }
+function workforceColumn(value: string) { return workforceColumnLabels[value] ?? value.replaceAll("_", " ").replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase()); }
+function workforceAction(value: string) {
+  const labels: Record<string, string> = { acknowledge: "Xác nhận", resolve: "Xử lý", waive: "Miễn trừ", revoke: "Thu hồi", submit: "Gửi duyệt", approve: "Phê duyệt", reject: "Từ chối", reopen: "Mở lại", lock: "Khóa", calculate: "Tính toán", recalculate: "Tính lại", finalize: "Chốt kỳ", "request-void": "Yêu cầu vô hiệu", "approve-void": "Phê duyệt vô hiệu", process: "Xử lý", cancel: "Hủy" };
+  return labels[value] ?? value;
+}
+function workforceValue(value: any, key = ""): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const normalizedKey = key.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " ").toLowerCase();
+  if (key === "id" || key.endsWith("Id") || key.endsWith("ID") || normalizedKey.endsWith(" id") || normalizedKey.endsWith(" uuid")) return "Mã hệ thống";
+  if (typeof value === "boolean") return value ? "Có" : "Không";
+  if (typeof value === "object") return value.displayName ?? value.name ?? value.code ?? "Thông tin liên quan";
+  if (typeof value === "string" && value.includes("@")) {
+    const [name, domain] = value.split("@");
+    return `${(name ?? "").slice(0, 2)}•••@${domain ?? ""}`;
+  }
+  if (typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value)) return "Mã hệ thống";
+  const mapped = workforceValueLabels[String(value).toUpperCase()];
+  if (mapped) return mapped;
+  if (/(at|date|start|end|from|to|due)$/.test(normalizedKey) && !Number.isNaN(Date.parse(String(value)))) return new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(String(value)));
+  if (typeof value === "number") return new Intl.NumberFormat("vi-VN").format(value);
+  return String(value);
+}
 async function api(path: string, init?: RequestInit) {
   const response = await authorizedFetch(path, init),
     body = await response.json().catch(() => ({}));
@@ -178,7 +253,8 @@ export default function Sprint12Screen({ pathname }: { pathname: string }) {
   const cfg = configs[normalized]!;
   return <Workspace config={cfg} detailId={detail?.[2]} />;
 }
-function Workspace({
+ // PostgreSQL remains the authoritative source; the browser only reflects the API state.
+ function Workspace({
   config,
   detailId,
 }: {
@@ -250,43 +326,41 @@ function Workspace({
       <nav className="topbar">
         {nav.map((href) => (
           <a key={href} href={href}>
-            {configs[href]?.title}
+            {workforceText(configs[href]?.title ?? href)}
           </a>
         ))}
       </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 12 · WORKFORCE & PAYROLL</p>
+        <p className="eyebrow">NAILSOFT · NHÂN SỰ & BẢNG LƯƠNG</p>
         <div className="title-row">
           <div>
-            <h1>{config.title}</h1>
-            <p className="hint">{config.hint}</p>
+            <h1>{workforceText(config.title)}</h1>
+            <p className="hint">{workforceText(config.hint)}</p>
           </div>
-          <span className="timezone">Online writes · UTC ledger</span>
+          <span className="timezone">Dữ liệu máy chủ · Sổ theo UTC</span>
         </div>
         {notice && <p className="success">{notice}</p>}
         {state === "loading" && (
-          <div className="skeleton">Loading authoritative workforce data…</div>
+          <div className="skeleton">Đang tải dữ liệu nhân sự từ máy chủ…</div>
         )}
         {state === "forbidden" && (
           <div className="state">
-            <h2>Permission denied</h2>
-            <p>
-              Your role, tenant or branch scope does not permit this workspace.
-            </p>
+            <h2>Không có quyền truy cập</h2>
+            <p>Vai trò, tenant hoặc phạm vi chi nhánh hiện tại không bao gồm màn hình này.</p>
           </div>
         )}
         {state === "error" && (
           <div className="state">
-            <h2>Unable to load</h2>
+            <h2>Không thể tải dữ liệu</h2>
             <p>{error}</p>
-            <button onClick={() => void load()}>Retry</button>
+            <button onClick={() => void load()}>Thử lại</button>
           </div>
         )}
         {state === "empty" && (
           <div className="state">
-            <h2>No records</h2>
-            <p>No matching records yet. This is an operational empty state.</p>
-            <button onClick={() => void load()}>Refresh</button>
+            <h2>Chưa có dữ liệu</h2>
+            <p>Chưa có bản ghi phù hợp trong phạm vi được cấp quyền.</p>
+            <button onClick={() => void load()}>Làm mới</button>
           </div>
         )}
         {state === "ready" && (
@@ -295,27 +369,21 @@ function Workspace({
               <thead>
                 <tr>
                   {columns.map((c) => (
-                    <th key={c}>{c}</th>
+                    <th key={c} scope="col">{workforceColumn(c)}</th>
                   ))}
-                  {config.actions && <th>Actions</th>}
+                  {config.actions && <th scope="col">Thao tác</th>}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id}>
                     {columns.map((c) => (
-                      <td key={c}>
-                        {typeof row[c] === "object"
-                          ? JSON.stringify(row[c])
-                          : String(row[c] ?? "—")}
-                      </td>
+                      <td key={c} data-label={workforceColumn(c)}>{workforceValue(row[c], c)}</td>
                     ))}
                     {config.actions && (
                       <td className="actions">
                         {config.actions.map((a) => (
-                          <button key={a} onClick={() => void act(row, a)}>
-                            {a}
-                          </button>
+                          <button key={a} onClick={() => void act(row, a)}>{workforceAction(a)}</button>
                         ))}
                       </td>
                     )}
@@ -328,20 +396,19 @@ function Workspace({
         {config.create && (
           <form onSubmit={create} className="form-grid">
             <label className="full">
-              Command payload (validated by API)
+              Dữ liệu lệnh (được API kiểm tra)
               <textarea
                 value={json}
                 onChange={(e) => setJson(e.target.value)}
                 rows={7}
               />
             </label>
-            <button type="submit">Create</button>
+            <button type="submit">Tạo mới</button>
           </form>
         )}
         <p className="hint">
-          Realtime messages are refetch signals; PostgreSQL remains
-          authoritative. Sensitive bank, device, location and statement payloads
-          are not rendered in list views.
+          Sự kiện realtime chỉ kích hoạt tải lại; PostgreSQL vẫn là nguồn dữ liệu chính thức.
+          Thông tin nhạy cảm về thiết bị, vị trí và phiếu lương không hiển thị trong danh sách.
         </p>
       </section>
     </main>

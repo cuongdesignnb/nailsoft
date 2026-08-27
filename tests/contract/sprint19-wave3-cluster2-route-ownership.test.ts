@@ -5,11 +5,13 @@ describe("Sprint 19 Wave 3 Cluster 2 route ownership", () => {
   it("owns benefits, loyalty, membership and package surfaces", () => {
     for (const path of [
       "/admin/benefits",
+      "/admin/benefits/customers",
       "/admin/benefits/customers/60000000-0000-4000-8000-000000000001",
       "/admin/loyalty/programs",
       "/admin/loyalty/adjustments",
       "/admin/loyalty/customers/60000000-0000-4000-8000-000000000001",
       "/admin/membership/tiers",
+      "/admin/membership/customers",
       "/admin/membership/customers/60000000-0000-4000-8000-000000000001",
       "/admin/packages/catalog",
       "/admin/packages/catalog/70000000-0000-4000-8000-000000000001",

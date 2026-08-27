@@ -338,7 +338,7 @@ export class FinancialReportingService {
              FROM refund_items ri JOIN refunds r ON r.tenant_id=ri.tenant_id AND r.id=ri.refund_id AND r.status='COMPLETED'
             WHERE ri.tenant_id=$1 AND ri.item_type='INVOICE_LINE' GROUP BY ri.invoice_line_id
          )
-         SELECT service_id,service_name,currency,count(DISTINCT invoice_line_id)::int performed_count,
+         SELECT service_id,service_name,currency,count(DISTINCT l.invoice_line_id)::int performed_count,
                 sum(net_minor)::bigint invoice_revenue_minor,COALESCE(sum(rl.completed_refund_minor),0)::bigint completed_refund_minor,
                 sum(net_minor-COALESCE(rl.completed_refund_minor,0))::bigint net_sales_minor
            FROM lines l LEFT JOIN refund_lines rl ON rl.invoice_line_id=l.invoice_line_id

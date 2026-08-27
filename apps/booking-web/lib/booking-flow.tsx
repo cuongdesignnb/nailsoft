@@ -4,8 +4,10 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   formatMinorAmount,
+  formatBookingDate,
   formatSalonDateTime,
   formatSalonTime,
+  bookingStatusLabel,
   getInitialLocale,
   getMessage,
   localizedValue,
@@ -37,24 +39,61 @@ const steps: Array<{ id: FlowStep; label: BookingMessageKey }> = [
   { id: "RESULT", label: "bookingSuccess" },
 ];
 
+const heroLabels: Record<FlowStep, BookingMessageKey> = {
+  BRANCH: "selectBranch",
+  SERVICES: "selectServices",
+  AVAILABILITY: "availableTimes",
+  CONTACT: "contact",
+  OTP: "verificationCode",
+  REVIEW: "review",
+  RESULT: "bookingSuccess",
+};
+
 async function call(path: string, init?: RequestInit) {
   const response = await fetch(`${api}${path}`, init);
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw Object.assign(
-      new Error(body.error?.message ?? "Unable to complete the request."),
+      new Error(body.error?.message ?? "Không thể hoàn tất yêu cầu."),
       { code: body.error?.code, details: body.error?.details },
     );
   }
   return body.data;
 }
 
+function localizedError(cause: any, locale: Locale) {
+  const code = String(cause?.code ?? "");
+  const messages: Partial<Record<string, BookingMessageKey>> = {
+    PUBLIC_BOOKING_UNAVAILABLE: "bookingUnavailable",
+    PUBLIC_BOOKING_DISABLED: "bookingUnavailable",
+    SLOT_HOLD_EXPIRED: "holdExpired",
+    AVAILABILITY_CHANGED: "bookingChanged",
+    SLOT_UNAVAILABLE: "noAvailability",
+  };
+  const key = messages[code];
+  return key ? getMessage(locale, key) : getMessage(locale, "retry");
+}
+
 function localName(value: any, locale: Locale) {
   return localizedValue(value, locale, "Service");
 }
 
+function servicePrice(value: any, locale: Locale, fallbackCurrency: string) {
+  const currency = value?.currency ?? fallbackCurrency;
+  if (value?.amount != null) {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: currency === "VND" ? 0 : 2,
+    }).format(Number(value.amount));
+  }
+  return formatMinorAmount(value?.amountMinor ?? 0, currency, locale);
+}
+
 export default function BookingFlow({ salonSlug, attributionReference }: { salonSlug: string; attributionReference?: string }) {
-  const [locale, setLocale] = useState<Locale>(() => getInitialLocale());
+  // Keep the first client render identical to the server render. Browser locale
+  // and saved preferences are applied after hydration in the effect below.
+  const [locale, setLocale] = useState<Locale>("vi-VN");
   const [state, setState] = useState<AsyncState>("loading");
   const [error, setError] = useState("");
   const [step, setStep] = useState<FlowStep>("BRANCH");
@@ -77,6 +116,9 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
     locale: "vi-VN" as Locale,
   });
   const [challenge, setChallenge] = useState<any>();
+  const [challengeExpiresAt, setChallengeExpiresAt] = useState<number | null>(null);
+  const [challengeRemaining, setChallengeRemaining] = useState(0);
+  const [challengeExpired, setChallengeExpired] = useState(false);
   const [code, setCode] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
   const [policyAccepted, setPolicyAccepted] = useState(false);
@@ -88,6 +130,10 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
     document.documentElement.lang = locale;
     setContact((current) => ({ ...current, locale }));
   }, [locale]);
+
+  useEffect(() => {
+    setLocale(getInitialLocale());
+  }, []);
 
   useEffect(() => {
     void loadSalon();
@@ -114,6 +160,18 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
     const timer = window.setInterval(update, 1000);
     return () => window.clearInterval(timer);
   }, [hold?.expiresAt, locale]);
+
+  useEffect(() => {
+    if (!challenge?.challengeId || !challengeExpiresAt) return;
+    const update = () => {
+      const seconds = Math.max(0, Math.ceil((challengeExpiresAt - Date.now()) / 1000));
+      setChallengeRemaining(seconds);
+      if (!seconds) setChallengeExpired(true);
+    };
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [challenge?.challengeId, challengeExpiresAt]);
 
   const t = (key: BookingMessageKey) => getMessage(locale, key);
 
@@ -284,7 +342,7 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
       }
       if (!candidate)
         throw Object.assign(
-          new Error(`No continuous time is available for ${localName(service.name, locale)}.`),
+          new Error(getMessage(locale, "noContinuousTime")),
           { code: "SLOT_UNAVAILABLE" },
         );
       items.push({
@@ -334,7 +392,7 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
     event.preventDefault();
     if (!hold) return;
     if (!contact.phone.trim() && !contact.email.trim()) {
-      setError(`${t("phone")} or ${t("email")} is required.`);
+      setError(t("contactRequired"));
       return;
     }
     setState("loading");
@@ -352,6 +410,10 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
         },
       );
       setChallenge(data);
+      const expiresIn = Number(data.expiresIn);
+      setChallengeExpiresAt(Number.isFinite(expiresIn) && expiresIn > 0 ? Date.now() + expiresIn * 1000 : null);
+      setChallengeRemaining(Number.isFinite(expiresIn) && expiresIn > 0 ? Math.ceil(expiresIn) : 0);
+      setChallengeExpired(false);
       // Test codes are intentionally never rendered in production.
       if (process.env.NODE_ENV !== "production") setCode(data.testCode ?? "");
       setState("ready");
@@ -375,6 +437,9 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
         },
       );
       setVerificationToken(data.verificationToken);
+      setChallengeExpiresAt(null);
+      setChallengeRemaining(0);
+      setChallengeExpired(false);
       setState("ready");
       setStep("REVIEW");
     } catch (cause: any) {
@@ -440,7 +505,7 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
       setError(t("bookingUnavailable"));
       return;
     }
-    setError(`${cause.code ? `${cause.code}: ` : ""}${cause.message}`);
+    setError(localizedError(cause, locale));
     setState(!navigator.onLine ? "offline" : "error");
   }
 
@@ -487,12 +552,19 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
         </div>
       </header>
 
-      <section className="hero" aria-labelledby="booking-title">
-        <p>{t("brandEyebrow")} · {salon?.name ?? salonSlug}</p>
-        <h1 id="booking-title">{t("selectServices")}</h1>
-        <p className="muted">
-          {t("salonTime")}: {branch?.timezone ?? salon?.timezone ?? "—"}
-        </p>
+      <section className="hero booking-flow-hero" aria-labelledby="booking-title">
+        <div>
+          <p>{t("brandEyebrow")} · {salon?.name ?? salonSlug}</p>
+          <h1 id="booking-title">{t(heroLabels[step])}</h1>
+          <p className="muted">
+            {t("salonTime")}: {branch?.timezone ?? salon?.timezone ?? "—"}
+          </p>
+        </div>
+        <aside className="booking-context-card" aria-label={t("workspace")}>
+          <span className="booking-context-mark" aria-hidden="true">✦</span>
+          <div><small>{t("workspace")}</small><strong>{salon?.name ?? salonSlug}</strong></div>
+          <span className="booking-context-status">{salon?.bookingAvailable ? "●" : "—"}</span>
+        </aside>
       </section>
 
       <section className="card booking-card">
@@ -514,26 +586,25 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
             {t("chooseTime")}: {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}
           </p>
         )}
-        <StatePanel state={state} error={error} retry={() => void loadSalon()} locale={locale} />
+        {!(state === "empty" && step === "AVAILABILITY") && (
+          <StatePanel state={state} error={error} retry={() => void loadSalon()} locale={locale} />
+        )}
 
         {state === "ready" && step === "BRANCH" && (
           <div className="grid" aria-labelledby="branch-heading">
             <h2 id="branch-heading">{t("selectBranch")}</h2>
-            <div className="choice-grid">
+            <div className="choice-grid branch-choice-grid">
               {branches.map((item) => (
                 <button
-                  className="choice choice-card"
+                  className="choice choice-card branch-choice"
                   type="button"
                   key={item.id}
                   onClick={() => void chooseBranch(item)}
                 >
+                  <span className="branch-choice-top"><span className="branch-choice-icon" aria-hidden="true">⌖</span><small>{t("branch")}</small><span className="branch-choice-arrow" aria-hidden="true">↗</span></span>
                   <strong>{item.name}</strong>
                   <small>{item.timezone}</small>
-                  {item.bookingWindow && (
-                    <small>
-                      {item.bookingWindow.earliestDate} – {item.bookingWindow.latestDate}
-                    </small>
-                  )}
+                  {item.bookingWindow ? <span className="branch-choice-window">{formatBookingDate(item.bookingWindow.earliestDate, locale)} – {formatBookingDate(item.bookingWindow.latestDate, locale)}</span> : null}
                 </button>
               ))}
             </div>
@@ -565,7 +636,7 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
                   >
                     <strong>{localName(item.name, locale)}</strong>
                     <span>
-                      {item.durationMin} {t("duration").toLowerCase()} · {item.price?.amount ?? formatMinorAmount(item.price?.amountMinor ?? 0, item.price?.currency ?? salon?.currency ?? "VND", locale)} {item.price?.currency ?? salon?.currency}
+                      {item.durationMin} {t("minutes")} · {servicePrice(item.price, locale, salon?.currency ?? "VND")}
                     </span>
                   </button>
                 );
@@ -649,54 +720,127 @@ export default function BookingFlow({ salonSlug, attributionReference }: { salon
                 </button>
               ))}
             </div>
-            {!visibleSlots.length && <EmptyState message={t("noAvailability")} />}
+            {!visibleSlots.length && (
+              <div className="state" role="status">
+                <strong>{t("noAvailability")}</strong>
+                <button className="secondary" type="button" onClick={() => void findSlots()}>{t("retry")}</button>
+              </div>
+            )}
             <button className="secondary" type="button" onClick={() => { setState("ready"); setStep("SERVICES"); }}>{t("changeSelection")}</button>
           </div>
         )}
 
         {state === "ready" && step === "CONTACT" && (
-          <form className="grid" onSubmit={requestCode} aria-labelledby="contact-heading">
-            <h2 id="contact-heading">{t("contact")}</h2>
-            <label className="field" htmlFor="contact-name">{t("displayName")}<input id="contact-name" required value={contact.displayName} onChange={(event) => setContact({ ...contact, displayName: event.target.value })} /></label>
-            <label className="field" htmlFor="contact-phone">{t("phone")}<input id="contact-phone" inputMode="tel" value={contact.phone} onChange={(event) => setContact({ ...contact, phone: event.target.value })} /></label>
-            <label className="field" htmlFor="contact-email">{t("email")} ({t("optional")})<input id="contact-email" type="email" value={contact.email} onChange={(event) => setContact({ ...contact, email: event.target.value })} /></label>
-            <p className="muted">{t("verificationHint")}</p>
-            <button className="primary" type="submit">{t("sendCode")}</button>
-          </form>
+          <div className="booking-step-layout">
+            <form className="booking-step-main" onSubmit={requestCode} aria-labelledby="contact-heading">
+              <div className="booking-step-heading">
+                <p className="eyebrow">04 / {t("contact")}</p>
+                <h2 id="contact-heading">{t("contact")}</h2>
+                <p>{t("contactIntro")}</p>
+              </div>
+              <div className="booking-form-section">
+                <div className="booking-form-section-heading">
+                  <span className="booking-section-icon" aria-hidden="true">♡</span>
+                  <div><strong>{t("contactDetails")}</strong><small>{t("contactDetailsHint")}</small></div>
+                </div>
+                <div className="booking-form-fields">
+                  <label className="field" htmlFor="contact-name">
+                    <span>{t("displayName")}</span>
+                    <input id="contact-name" name="name" autoComplete="name" required value={contact.displayName} onChange={(event) => setContact({ ...contact, displayName: event.target.value })} />
+                  </label>
+                  <label className="field" htmlFor="contact-phone">
+                    <span>{t("phone")}</span>
+                    <input id="contact-phone" name="phone" autoComplete="tel" inputMode="tel" value={contact.phone} onChange={(event) => setContact({ ...contact, phone: event.target.value })} />
+                    <small>{t("verificationChannelHint")}</small>
+                  </label>
+                  <label className="field" htmlFor="contact-email">
+                    <span>{t("email")} <em>({t("optional")})</em></span>
+                    <input id="contact-email" name="email" autoComplete="email" type="email" value={contact.email} onChange={(event) => setContact({ ...contact, email: event.target.value })} />
+                  </label>
+                </div>
+              </div>
+              <div className="booking-trust-note" role="note">
+                <span aria-hidden="true">✓</span>
+                <p><strong>{t("privacyTitle")}</strong>{t("privacyHint")}</p>
+              </div>
+              <div className="booking-form-actions">
+                <button className="secondary" type="button" onClick={() => { setState("ready"); setStep("AVAILABILITY"); }}>{t("chooseAnotherTime")}</button>
+                <button className="primary" type="submit">{t("sendCode")} <span aria-hidden="true">→</span></button>
+              </div>
+            </form>
+            <BookingSelectionSummary branch={branch} slot={slot} selectedServices={selectedServices} salon={salon} locale={locale} remaining={remaining} t={t} />
+          </div>
         )}
 
         {state === "ready" && step === "OTP" && (
-          <div className="grid" aria-labelledby="otp-heading">
-            <h2 id="otp-heading">{t("verificationCode")}</h2>
-            <label className="field" htmlFor="verification-code">{t("verificationCode")}<input id="verification-code" autoFocus inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} /></label>
-            <p className="muted">{t("verificationHint")}</p>
-            <button className="primary" type="button" disabled={!/^\d{6}$/.test(code)} onClick={() => void verify()}>{t("verify")}</button>
+          <div className="booking-step-layout">
+            <div className="booking-step-main" aria-labelledby="otp-heading">
+              <div className="booking-step-heading">
+                <p className="eyebrow">05 / {t("verificationCode")}</p>
+                <h2 id="otp-heading">{t("verificationTitle")}</h2>
+                <p>{t("verificationSentTo")} <strong>{maskVerificationDestination(contact)}</strong></p>
+              </div>
+              {challengeExpired ? (
+                <div className="error error-summary booking-alert" role="alert">
+                  <span className="booking-alert-icon" aria-hidden="true">!</span>
+                  <div><strong>{t("verificationExpired")}</strong><p>{t("verificationExpiredHint")}</p></div>
+                  <button className="secondary" type="button" onClick={() => { setStep("CONTACT"); setChallenge(undefined); setChallengeExpiresAt(null); setChallengeRemaining(0); setChallengeExpired(false); setCode(""); }}>{t("requestNewCode")}</button>
+                </div>
+              ) : (
+                <div className="otp-panel">
+                  <label className="field otp-field" htmlFor="verification-code">
+                    <span>{t("verificationCode")}</span>
+                    <input id="verification-code" autoFocus inputMode="numeric" pattern="[0-9]{6}" maxLength={6} autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} />
+                  </label>
+                  <p className="muted">{t("verificationHint")}</p>
+                  {challengeRemaining > 0 && <p className="countdown" role="status">{t("verificationExpires")}: {Math.floor(challengeRemaining / 60)}:{String(challengeRemaining % 60).padStart(2, "0")}</p>}
+                  <div className="booking-form-actions"><button className="secondary" type="button" onClick={() => { setStep("CONTACT"); setChallenge(undefined); setChallengeExpiresAt(null); setChallengeRemaining(0); setChallengeExpired(false); setCode(""); }}>{t("changeContact")}</button><button className="primary" type="button" disabled={!/^\d{6}$/.test(code)} onClick={() => void verify()}>{t("verify")} <span aria-hidden="true">→</span></button></div>
+                </div>
+              )}
+              <div className="booking-trust-note" role="note"><span aria-hidden="true">⌁</span><p><strong>{t("verificationPrivacyTitle")}</strong>{t("verificationPrivacyHint")}</p></div>
+            </div>
+            <BookingSelectionSummary branch={branch} slot={slot} selectedServices={selectedServices} salon={salon} locale={locale} remaining={remaining} t={t} />
           </div>
         )}
 
         {state === "ready" && step === "REVIEW" && branch && slot && (
-          <div className="grid" aria-labelledby="review-heading">
-            <h2 id="review-heading">{t("review")}</h2>
-            <div className="summary review-summary">
-              <span><strong>{t("branch")}:</strong> {branch.name}</span>
-              <span><strong>{t("timezoneLabel")}:</strong> {branch.timezone}</span>
-              <span><strong>{t("chooseTime")}:</strong> {formatSalonDateTime(slot.startAt, locale, branch.timezone)}</span>
-              {selectedServices.map((item, index) => <span key={item.id}><strong>{index + 1}.</strong> {localName(item.name, locale)} · {item.durationMin} {t("duration").toLowerCase()} · {item.price?.amount ?? "—"} {item.price?.currency ?? salon?.currency}</span>)}
+          <div className="booking-step-layout booking-review-layout">
+            <div className="booking-step-main" aria-labelledby="review-heading">
+              <div className="booking-step-heading">
+                <p className="eyebrow">06 / {t("review")}</p>
+                <h2 id="review-heading">{t("reviewTitle")}</h2>
+                <p>{t("reviewHint")}</p>
+              </div>
+              <div className="review-detail-grid">
+                <section className="review-detail-card"><span className="booking-section-icon" aria-hidden="true">⌖</span><div><small>{t("branch")}</small><strong>{branch.name}</strong><span>{branch.timezone}</span></div></section>
+                <section className="review-detail-card"><span className="booking-section-icon" aria-hidden="true">◷</span><div><small>{t("chooseTime")}</small><strong>{formatSalonDateTime(slot.startAt, locale, branch.timezone)}</strong><span>{t("holdExpires")}: {formatSalonTime(hold?.expiresAt, locale, branch.timezone)}</span></div></section>
+              </div>
+              <section className="review-services-card">
+                <div className="booking-form-section-heading"><span className="booking-section-icon" aria-hidden="true">✦</span><div><strong>{t("services")}</strong><small>{selectedServices.length} {t("service").toLowerCase()}</small></div></div>
+                <div className="review-service-list">{selectedServices.map((item, index) => <div className="review-service-row" key={item.id}><span>{String(index + 1).padStart(2, "0")}</span><div><strong>{localName(item.name, locale)}</strong><small>{item.durationMin} {t("minutes")}</small></div><b>{servicePrice(item.price, locale, salon?.currency ?? "VND")}</b></div>)}</div>
+              </section>
+              <div className="review-policy-stack">
+                <label className="check-field"><input type="checkbox" required checked={policyAccepted} onChange={(event) => setPolicyAccepted(event.target.checked)} /><span>{t("policyConsent")} <a href={branch.policy.documentUrl ?? "#policy"}>v{branch.policy.version}</a>. {branch.policy.summary}</span></label>
+                <label className="check-field"><input type="checkbox" checked={marketingConsent} onChange={(event) => setMarketingConsent(event.target.checked)} /><span>{t("marketingConsent")} <small>({t("marketingConsentHint")})</small></span></label>
+              </div>
+              <div className="booking-trust-note" role="note"><span aria-hidden="true">✓</span><p><strong>{t("noPayment")}</strong>{t("reviewPrivacyHint")}</p></div>
+              <div className="booking-form-actions"><button className="secondary" type="button" onClick={() => setStep("AVAILABILITY")}>{t("chooseAnotherTime")}</button><button className="primary" type="button" disabled={!policyAccepted} onClick={() => void create()}>{t("confirmBooking")} <span aria-hidden="true">→</span></button></div>
             </div>
-            <label className="check-field"><input type="checkbox" required checked={policyAccepted} onChange={(event) => setPolicyAccepted(event.target.checked)} /><span>{t("policyConsent")} <a href={branch.policy.documentUrl ?? "#policy"}>v{branch.policy.version}</a>. {branch.policy.summary}</span></label>
-            <label className="check-field"><input type="checkbox" checked={marketingConsent} onChange={(event) => setMarketingConsent(event.target.checked)} /><span>{t("marketingConsent")} <small>({t("marketingConsentHint")})</small></span></label>
-            <p className="muted">{t("noPayment")}</p>
-            <div className="actions"><button className="secondary" type="button" onClick={() => setStep("AVAILABILITY")}>{t("chooseAnotherTime")}</button><button className="primary" type="button" disabled={!policyAccepted} onClick={() => void create()}>{t("confirmBooking")}</button></div>
           </div>
         )}
 
         {state === "ready" && step === "RESULT" && result && (
-          <div className="success" role="status" tabIndex={-1} aria-labelledby="result-heading">
-            <p className="eyebrow">{t("bookingSuccess")}</p>
+          <div className="booking-result" role="status" tabIndex={-1} aria-labelledby="result-heading">
+            <div className="booking-result-mark" aria-hidden="true">✓</div>
+            <p className="eyebrow">07 / {t("bookingSuccess")}</p>
             <h2 id="result-heading">{t("bookingSuccess")}</h2>
-            <p>{t("bookingReference")}: <strong>{result.bookingReference}</strong></p>
-            <p>{result.startAt && branch ? formatSalonDateTime(result.startAt, locale, branch.timezone) : ""} · {result.status}</p>
-            <div className="actions"><a className="primary" href={`/manage-booking?salon=${encodeURIComponent(salonSlug)}`}>{t("manageBooking")}</a><a className="secondary" href="/">{t("bookAnother")}</a></div>
+            <p className="booking-result-lead">{t("bookingSuccessHint")}</p>
+            <div className="booking-result-card">
+              <div><small>{t("bookingReference")}</small><strong>{result.bookingReference}</strong></div>
+              <div><small>{t("chooseTime")}</small><strong>{result.startAt && branch ? formatSalonDateTime(result.startAt, locale, branch.timezone) : "—"}</strong></div>
+              <div><small>{t("status")}</small><strong>{bookingStatusLabel(result.status, locale)}</strong></div>
+            </div>
+            <div className="booking-form-actions"><a className="primary" href={`/manage-booking?salon=${encodeURIComponent(salonSlug)}`}>{t("manageBooking")} <span aria-hidden="true">→</span></a><a className="secondary" href="/">{t("bookAnother")}</a></div>
           </div>
         )}
       </section>
@@ -708,7 +852,7 @@ function StatePanel({ state, error, retry, locale }: { state: AsyncState; error:
   const t = (key: BookingMessageKey) => getMessage(locale, key);
   if (state === "loading") return <div className="state" role="status">{t("loading")}</div>;
   if (state === "unavailable") return <div className="error error-summary" role="alert"><strong>{t("bookingUnavailable")}</strong><p>{t("manageBookingDescription")}</p><a className="secondary" href="/manage-booking">{t("manageBooking")}</a></div>;
-  if (state === "offline") return <div className="error error-summary" role="alert"><strong>Offline</strong><p>{t("noPayment")}</p><button className="secondary" type="button" onClick={retry}>{t("retry")}</button></div>;
+  if (state === "offline") return <div className="error error-summary" role="alert"><strong>{t("offline")}</strong><p>{t("noPayment")}</p><button className="secondary" type="button" onClick={retry}>{t("retry")}</button></div>;
   if (state === "error") return <div className="error error-summary" role="alert"><strong>{t("retry")}</strong><p>{error}</p><button className="secondary" type="button" onClick={retry}>{t("retry")}</button></div>;
   if (state === "empty") return <div className="state"><strong>{t("noAvailability")}</strong><button className="secondary" type="button" onClick={retry}>{t("retry")}</button></div>;
   return null;
@@ -716,6 +860,34 @@ function StatePanel({ state, error, retry, locale }: { state: AsyncState; error:
 
 function EmptyState({ message }: { message: string }) {
   return <div className="state" role="status">{message}</div>;
+}
+
+function BookingSelectionSummary({ branch, slot, selectedServices, salon, locale, remaining, t }: { branch: any; slot: any; selectedServices: any[]; salon: any; locale: Locale; remaining: number; t: (key: BookingMessageKey) => string }) {
+  return (
+    <aside className="booking-selection-summary" aria-label={t("bookingSummary")}>
+      <div className="booking-summary-top"><span className="booking-summary-mark" aria-hidden="true">✦</span><div><small>{t("bookingSummary")}</small><strong>{salon?.name ?? "—"}</strong></div></div>
+      <div className="booking-summary-highlight"><small>{t("chooseTime")}</small><strong>{slot?.startAt && branch ? formatSalonDateTime(slot.startAt, locale, branch.timezone) : "—"}</strong><span>{branch?.name ?? "—"}</span></div>
+      <dl className="booking-summary-list">
+        <div><dt>{t("branch")}</dt><dd>{branch?.name ?? "—"}</dd></div>
+        <div><dt>{t("services")}</dt><dd>{selectedServices.length ? selectedServices.map((item) => localName(item.name, locale)).join(", ") : "—"}</dd></div>
+        <div><dt>{t("contact")}</dt><dd>{t("afterVerification")}</dd></div>
+      </dl>
+      {remaining > 0 && <div className="booking-summary-hold"><span aria-hidden="true">◷</span><div><strong>{t("holdActive")}</strong><small>{Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")} · {t("holdHint")}</small></div></div>}
+      <p className="booking-summary-footnote">{t("summaryUpdates")}</p>
+    </aside>
+  );
+}
+
+function maskVerificationDestination(contact: { phone?: string; email?: string }) {
+  if (contact.phone?.trim()) {
+    const digits = contact.phone.replace(/\D/g, "");
+    return digits.length > 3 ? `•••• ${digits.slice(-4)}` : "••••";
+  }
+  if (contact.email?.includes("@")) {
+    const [name = "", domain = ""] = contact.email.split("@");
+    return `${name.slice(0, 2)}•••@${domain}`;
+  }
+  return "—";
 }
 
 function getClientKey() {

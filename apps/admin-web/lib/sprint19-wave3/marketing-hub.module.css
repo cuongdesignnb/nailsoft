@@ -5,3 +5,9 @@
 @media (max-width:620px){.page{padding:18px 13px 40px}.kpis,.filterGrid{grid-template-columns:1fr}.search{grid-column:auto}.funnel{grid-template-columns:1fr 1fr}.funnelStep:after{display:none}.rail{grid-template-columns:1fr}.filterTools{display:grid;grid-template-columns:1fr 1fr}.filterTools label{min-width:0}.pagination{align-items:flex-start;flex-direction:column;padding-block:12px}.pager{width:100%;justify-content:space-between}.headerActions>*{flex:1}.quiet,.primary{padding-inline:9px}}
 .kpiText span{color:#62565e}.kpiText small{color:#6d5f67}.sectionHead p,.tableHead small,.lowerHead small{color:#6a5e65}.breadcrumb{color:#6a5e65}.owner small,.detailList dt,.consentList dt,.miniList small,.segmentRow small,.calendarRow small,.attentionRow small{color:#6b5f66}
 .breadcrumb span{color:#c5224d}.subtitle{color:#6a5e65}.primary{border-color:#c5224d;background:#c5224d}.primary:hover{background:#b31b42}
+.chipActive, .eyebrow, .owner a, .railHeading a, .detailList .emphasis dt, .detailList .emphasis dd, .segmentCount { color: #b42345; }
+.badge_PENDING_APPROVAL { color: #7a5200; }
+.avatar { background: #b42345; }
+.campaignButton small, .tableScroll td small { color: #6d626a; }
+.pagination, .pager > b { color: #6d626a; }
+.empty { color: #6d626a; }

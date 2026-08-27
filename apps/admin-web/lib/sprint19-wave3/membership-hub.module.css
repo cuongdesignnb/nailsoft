@@ -16,3 +16,39 @@
 @media (max-width:1200px) { .filterRow { grid-template-columns:repeat(3,minmax(0,1fr)); }.mainGrid { grid-template-columns:1fr; }.inspector { position:static; }.bottomGrid { grid-template-columns:1fr; } }
 @media (max-width:900px) { .page { padding:20px 18px 88px; }.header { align-items:flex-start; flex-direction:column; }.actions { justify-content:flex-start; }.kpis { grid-template-columns:repeat(3,minmax(0,1fr)); }.tierGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:620px) { .page { padding:16px 12px 88px; }.header h1 { font-size:26px; }.actions { display:grid; grid-template-columns:1fr 1fr; width:100%; }.actions .primary { grid-column:1/-1; }.kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }.tierGrid,.filterRow { grid-template-columns:1fr; }.card { padding:13px; }.distributionLabels { grid-template-columns:repeat(2,minmax(0,1fr)); }.footer { align-items:stretch; flex-direction:column; margin-left:-12px; margin-right:-12px; padding-left:12px; padding-right:12px; }.footer .button { width:100%; }.chips { overflow-x:auto; flex-wrap:nowrap; }.chips button { flex:0 0 auto; } }
+
+/* Keep dense tables contained on narrow screens and keep muted text readable. */
+.mainGrid > * { min-width: 0; }
+.mainGrid { min-width: 0; width: 100%; }
+.tableWrap { min-width: 0; width: 100%; max-width: 100%; overflow-x: auto; contain: paint; }
+.page .breadcrumb { color: #5f6b78; }
+.page .breadcrumb b { color: #5f6b78; }
+.page .breadcrumb strong,
+.page .header p,
+.page .kpi span,
+.page .kpi small,
+.page .cardHeader p,
+.page .distributionLabels small,
+.page .table th,
+.page .table td small,
+.page .loadingText,
+.page .inspectorHead p,
+.page .details dt,
+.page .nextTier span,
+.page .nextTier small,
+.page .snapshot small,
+.page .snapshot p,
+.page .empty,
+.page .footer { color: #5f6b78; }
+.page .primary { background: #a71d3d; border-color: #a71d3d; }
+.page .button:hover:not(:disabled),
+.page .inspectorLinks a,
+.page .detailButton,
+.page .textLink,
+.page .roseText { color: #a71d3d; }
+.page .chips .activeChip,
+.page .chips .activeChip small { color: #a71d3d; }
+.page .statusGreen { color: #166b42; }
+.page .statusAmber { color: #8a5a00; }
+.page .avatar,
+.page .avatarLarge { background: #ffe5ec; color: #a71d3d; }

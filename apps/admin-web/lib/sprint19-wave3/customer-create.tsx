@@ -9,7 +9,7 @@ import styles from "./customer-create.module.css";
 type ActionMode = "list" | "profile" | "appointment";
 type DuplicateState = "idle" | "checking" | "clear" | "possible" | "unavailable";
 type FormState = { displayName: string; phone: string; email: string; locale: "vi-VN" | "en-US" };
-type Customer = { id: string; displayName?: string; phone?: string | null; email?: string | null; resolution?: "CREATED" | "EXISTING" };
+type Customer = { id: string; customerCode?: string | null; displayName?: string; phone?: string | null; email?: string | null; resolution?: "CREATED" | "EXISTING" };
 
 const initialForm: FormState = { displayName: "", phone: "", email: "", locale: "vi-VN" };
 
@@ -199,7 +199,7 @@ export default function CustomerCreate() {
     {error ? <div className={`${styles.notice} ${styles.noticeError}`} role="alert"><strong>Không thể lưu khách hàng</strong><span>{error}</span></div> : null}
     {notice ? <div className={`${styles.notice} ${savedResolution === "CREATED" ? styles.noticeSuccess : styles.noticeInfo}`} role="status" aria-live="polite"><strong>{savedResolution === "CREATED" ? "Đã lưu" : "Kiểm tra hồ sơ hiện có"}</strong><span>{notice}</span></div> : null}
 
-    {isSaved && resolvedCustomer ? <section className={styles.resolution} aria-labelledby="resolution-title"><div className={styles.resolutionIcon}>{savedResolution === "EXISTING" ? "!" : "✓"}</div><div className={styles.resolutionCopy}><p className={styles.eyebrow}>{savedResolution === "EXISTING" ? "HỒ SƠ ĐÃ TỒN TẠI" : "HỒ SƠ ĐÃ ĐƯỢC TẠO"}</p><h2 id="resolution-title">{resolvedCustomer.displayName ?? previewName}</h2><p>{contactLabel(resolvedCustomer)} · Mã hồ sơ: {resolvedCustomer.id}</p><div className={styles.resolutionActions}><a className={`${styles.button} ${styles.buttonPrimary}`} href={`/admin/customers/${encodeURIComponent(resolvedCustomer.id)}`}>Mở hồ sơ</a><a className={`${styles.button} ${styles.buttonSecondary}`} href={createAppointmentHref(resolvedCustomer.id)}>Dùng hồ sơ để tạo lịch hẹn</a><a className={`${styles.button} ${styles.buttonQuiet}`} href="/admin/customers">Về danh sách</a></div></div></section> : null}
+    {isSaved && resolvedCustomer ? <section className={styles.resolution} aria-labelledby="resolution-title"><div className={styles.resolutionIcon}>{savedResolution === "EXISTING" ? "!" : "✓"}</div><div className={styles.resolutionCopy}><p className={styles.eyebrow}>{savedResolution === "EXISTING" ? "HỒ SƠ ĐÃ TỒN TẠI" : "HỒ SƠ ĐÃ ĐƯỢC TẠO"}</p><h2 id="resolution-title">{resolvedCustomer.displayName ?? previewName}</h2><p>{contactLabel(resolvedCustomer)} · Mã hồ sơ: {resolvedCustomer.customerCode ?? "Mã hệ thống"}</p><div className={styles.resolutionActions}><a className={`${styles.button} ${styles.buttonPrimary}`} href={`/admin/customers/${encodeURIComponent(resolvedCustomer.id)}`}>Mở hồ sơ</a><a className={`${styles.button} ${styles.buttonSecondary}`} href={createAppointmentHref(resolvedCustomer.id)}>Dùng hồ sơ để tạo lịch hẹn</a><a className={`${styles.button} ${styles.buttonQuiet}`} href="/admin/customers">Về danh sách</a></div></div></section> : null}
 
     <div className={styles.contentGrid}>
       <form ref={formRef} className={styles.formColumn} onSubmit={(event) => void submit(event)} noValidate>

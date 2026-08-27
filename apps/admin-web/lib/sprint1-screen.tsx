@@ -37,6 +37,7 @@ import OpenCashSessionPage from "./pos/open-cash-session-page";
 import CashSessionHistoryPage from "./pos/cash-session-history-page";
 import CashSessionDetailPage from "./pos/cash-session-detail-page";
 import CashSessionClosingPage from "./pos/cash-session-closing-page";
+import PosStoredValueWorkspace from "./pos/pos-stored-value-workspace";
 import InvoiceDirectoryPage from "./financial/invoice-directory-page";
 import PaymentTransactionDirectoryPage from "./financial/payment-directory-page";
 import PaymentReconciliationPage from "./financial/payment-reconciliation-page";
@@ -46,6 +47,10 @@ import CreditNoteDirectoryPage from "./financial/credit-note-directory-page";
 import EmployeeCommissionPage from "./financial/employee-commission-page";
 import CommissionAdjustmentsPage from "./financial/commission-adjustments-page";
 import NetSalesPage from "./financial/net-sales-page";
+import WorkforceHub from "./workforce-hubs";
+import AdminControlHub from "./admin-control-hubs";
+import CatalogHub from "./catalog-hubs";
+import OrganizationHub from "./organization-hub";
 
 type Resource = {
   title: string;
@@ -239,6 +244,10 @@ export default function Sprint1Screen() {
   }
   if (isWave5AssetsPath(pathname)) return <Sprint19Wave5Assets pathname={pathname} />;
   if (isWave6Path(pathname)) return <Sprint19Wave6Screen pathname={pathname} />;
+  if (pathname === "/admin/organization/general") return <OrganizationHub />;
+  if (pathname.startsWith("/admin/organization/branches") || pathname.startsWith("/admin/team/users") || pathname === "/admin/security/sessions")
+    return <AdminControlHub pathname={pathname} />;
+  if (pathname.startsWith("/admin/catalog/")) return <CatalogHub pathname={pathname} />;
   if (pathname.startsWith("/admin/assets")) return <Sprint16Screen />;
   if (isWave5ProcurementPath(pathname)) return <Sprint19Wave5Procurement pathname={pathname} />;
   if (pathname.startsWith("/admin/procurement")) return <Sprint15Screen />;
@@ -246,6 +255,8 @@ export default function Sprint1Screen() {
   if (pathname.startsWith("/admin/billing") || pathname.startsWith("/admin/support-access"))
     return <Sprint13Screen />;
   if (isWave4Path(pathname)) return <Sprint19Wave4Screen pathname={pathname} />;
+  if (pathname === "/admin/staff/list" || pathname === "/admin/time-clock" || pathname === "/admin/payroll/runs" || /^\/admin\/payroll\/runs\/[^/]+$/.test(pathname))
+    return <WorkforceHub pathname={pathname} />;
   if (
     pathname.startsWith("/admin/time-clock") ||
     pathname.startsWith("/admin/timesheets") ||
@@ -294,6 +305,10 @@ export default function Sprint1Screen() {
   const cashSessionDetailMatch = pathname.match(/^\/admin\/pos\/cash-sessions\/([^/]+)\/?$/);
   if (cashSessionDetailMatch) {
     return <CashSessionDetailPage sessionId={cashSessionDetailMatch[1]!} />;
+  }
+  const posStoredValueMatch = pathname.match(/^\/admin\/pos\/orders\/([^/]+)\/(stored-value|gift-card)$/);
+  if (posStoredValueMatch) {
+    return <PosStoredValueWorkspace orderId={posStoredValueMatch[1]!} mode={posStoredValueMatch[2] as "stored-value" | "gift-card"} />;
   }
   if (
     pathname.startsWith("/admin/stored-value") ||
@@ -512,16 +527,16 @@ function ResourceScreen({
     <main className="shell">
       <WorkspaceNav />
       <section className="card" aria-busy={state === "loading"}>
-        <p className="eyebrow">SPRINT 2 · OPERATIONS</p>
+        <p className="eyebrow">NAILSOFT · VẬN HÀNH</p>
         <div className="title-row">
           <div>
-            <h1>{resource.title}</h1>
+            <h1>{legacyTitle(resource.title)}</h1>
             <p className="hint">
-              Tenant-scoped changes are audited and safe to retry.
+              Thay đổi theo tenant được audit và an toàn khi thử lại.
             </p>
           </div>
           <button onClick={() => setFormOpen((open) => !open)}>
-            {formOpen ? "Close form" : "Create"}
+            {formOpen ? "Đóng biểu mẫu" : "Tạo mới"}
           </button>
         </div>
         {notice && (
@@ -531,27 +546,27 @@ function ResourceScreen({
         )}
         {state === "loading" && (
           <div role="status" className="skeleton">
-            Loading securely…
+            Đang tải dữ liệu an toàn…
           </div>
         )}
         {state === "forbidden" && (
           <div role="alert" className="state">
-            <h2>Permission denied</h2>
-            <p>Your role cannot access this workspace area.</p>
+            <h2>Không có quyền truy cập</h2>
+            <p>Vai trò hiện tại không được phép xem khu vực này.</p>
           </div>
         )}
         {state === "error" && (
           <div role="alert" className="state">
-            <h2>Unable to load</h2>
+            <h2>Không thể tải dữ liệu</h2>
             <p>{error}</p>
-            <button onClick={() => void load()}>Retry</button>
+            <button onClick={() => void load()}>Thử lại</button>
           </div>
         )}
         {state === "empty" && (
           <div className="state">
-            <h2>Nothing here yet</h2>
-            <p>{resource.empty}</p>
-            <button onClick={() => void load()}>Refresh</button>
+            <h2>Chưa có dữ liệu</h2>
+            <p>{legacyMessage(resource.empty)}</p>
+            <button onClick={() => void load()}>Làm mới</button>
           </div>
         )}
         {error && state !== "error" && (
@@ -593,10 +608,10 @@ function ResourceForm({
   if (!resource.fields?.length) return null;
   return (
     <form className="form-grid" onSubmit={onSubmit} noValidate>
-      <h2>Validated create form</h2>
+      <h2>Biểu mẫu tạo có kiểm tra</h2>
       {resource.fields.map((field) => (
         <label key={field.name}>
-          {field.label}
+          {legacyFieldLabel(field.label)}
           <input
             name={field.name}
             type={field.type ?? "text"}
@@ -606,14 +621,111 @@ function ResourceForm({
         </label>
       ))}
       <button type="submit" disabled={saving}>
-        {saving ? "Saving…" : "Save"}
+        {saving ? "Đang lưu…" : "Lưu"}
       </button>
       <p className="hint">
-        Required fields are validated before submission. Server version
-        conflicts and permission errors are shown here.
+        Trường bắt buộc được kiểm tra trước khi gửi. Xung đột phiên bản và lỗi quyền sẽ hiển thị tại đây.
       </p>
     </form>
   );
+}
+
+type LegacyColumn = { key: string; label: string };
+
+function legacyTitle(value: string) {
+  const labels: Record<string, string> = {
+    "Salon overview": "Tổng quan salon",
+    Organization: "Thông tin tổ chức",
+    Branches: "Chi nhánh",
+    Team: "Đội ngũ",
+    "My active sessions": "Phiên đăng nhập của tôi",
+    "Service categories": "Nhóm dịch vụ",
+    "Service catalog": "Danh mục dịch vụ",
+    Skills: "Kỹ năng",
+    "Resource types": "Loại tài nguyên",
+    "Branch resources": "Tài nguyên chi nhánh",
+    "Staff profiles": "Hồ sơ nhân sự",
+    "Create staff profile": "Tạo hồ sơ nhân sự",
+    "Shift planner": "Lập lịch ca",
+    "Leave review": "Duyệt đơn nghỉ",
+  };
+  return labels[value] ?? value;
+}
+function legacyFieldLabel(value: string) {
+  const labels: Record<string, string> = {
+    Code: "Mã", Name: "Tên", "Name (vi-VN)": "Tên hiển thị", "Category ID": "Nhóm dịch vụ",
+    "Duration (minutes)": "Thời lượng (phút)", "Branch ID": "Chi nhánh", "Resource type ID": "Loại tài nguyên",
+    Capacity: "Sức chứa", "Employee code": "Mã nhân sự", "Display name": "Tên hiển thị", "Membership ID": "Membership",
+    Start: "Bắt đầu", End: "Kết thúc", "Command payload (validated by API)": "Dữ liệu lệnh (được API kiểm tra)",
+  };
+  return labels[value] ?? value;
+}
+function legacyMessage(value: string) {
+  const labels: Record<string, string> = {
+    "Create the first service category.": "Hãy tạo nhóm dịch vụ đầu tiên.",
+    "No active services are configured.": "Chưa có dịch vụ đang hoạt động.",
+    "No skills are configured.": "Chưa có kỹ năng được cấu hình.",
+    "No resource types are configured.": "Chưa có loại tài nguyên.",
+    "No branch resources are configured.": "Chưa có tài nguyên chi nhánh.",
+    "No staff profiles match the current filters.": "Chưa có hồ sơ nhân sự phù hợp.",
+    "Complete the profile to create a staff member.": "Hoàn tất hồ sơ để tạo nhân sự.",
+    "No shifts have been created.": "Chưa có ca làm.",
+    "No leave requests are pending.": "Không có đơn nghỉ đang chờ.",
+  };
+  return labels[value] ?? value;
+}
+
+function legacyColumns(pathname: string, row: any): LegacyColumn[] {
+  const byPath: Record<string, LegacyColumn[]> = {
+    "/admin/organization/branches": [
+      { key: "name", label: "Tên chi nhánh" }, { key: "code", label: "Mã" },
+      { key: "timezone", label: "Múi giờ" }, { key: "status", label: "Trạng thái" }, { key: "createdAt", label: "Ngày tạo" },
+    ],
+    "/admin/team/users": [
+      { key: "displayName", label: "Người dùng" }, { key: "email", label: "Email" },
+      { key: "locale", label: "Ngôn ngữ" }, { key: "status", label: "Trạng thái" }, { key: "roles", label: "Vai trò" },
+    ],
+    "/admin/security/sessions": [
+      { key: "deviceName", label: "Thiết bị" }, { key: "platform", label: "Nền tảng" },
+      { key: "lastSeenAt", label: "Hoạt động gần nhất" }, { key: "expiresAt", label: "Hết hạn" }, { key: "isCurrent", label: "Phiên hiện tại" },
+    ],
+    "/admin/organization/general": [
+      { key: "name", label: "Tên tổ chức" }, { key: "slug", label: "Mã salon" },
+      { key: "locale", label: "Ngôn ngữ" }, { key: "currency", label: "Tiền tệ" }, { key: "timezone", label: "Múi giờ" },
+    ],
+  };
+  if (byPath[pathname]) return byPath[pathname]!;
+  return Object.keys(row ?? {}).filter((key) => !["id", "tenantId", "tenant_id"].includes(key) && !key.toLowerCase().includes("json")).slice(0, 6).map((key) => ({ key, label: key.replaceAll("_", " ") }));
+}
+
+function legacyStatus(value: unknown) {
+  const raw = String(value ?? "").toUpperCase();
+  const labels: Record<string, string> = { ACTIVE: "Đang hoạt động", INACTIVE: "Không hoạt động", CURRENT: "Phiên hiện tại", REVOKED: "Đã thu hồi", EXPIRED: "Đã hết hạn", PENDING: "Đang chờ", SUSPENDED: "Tạm ngưng", CANCELLED: "Đã hủy", PUBLISHED: "Đã công bố", DRAFT: "Bản nháp", ANNUAL: "Nghỉ phép năm", SICK: "Nghỉ ốm", UNPAID: "Nghỉ không lương", STANDARD: "Tiêu chuẩn" };
+  return labels[raw] ?? (raw ? raw.replaceAll("_", " ") : "—");
+}
+
+function legacyValue(value: unknown, key: string) {
+  if (value == null || value === "") return "—";
+  const normalizedKey = key.replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " ").toLowerCase();
+  if (key === "id" || key.endsWith("Id") || key.endsWith("ID") || normalizedKey.endsWith(" id") || normalizedKey.endsWith(" uuid")) return "Mã hệ thống";
+  if (key.toLowerCase().includes("email") && typeof value === "string") {
+    const [local, domain] = value.split("@");
+    return domain ? `${local?.slice(0, 2) ?? ""}…@${domain}` : value;
+  }
+  if (key.toLowerCase().includes("status") || key.toLowerCase() === "state" || key === "isCurrent") return typeof value === "boolean" ? (value ? "Có" : "Không") : legacyStatus(value);
+  if (typeof value === "boolean") return value ? "Có" : "Không";
+  if (Array.isArray(value)) return value.length ? `${value.length} mục` : "—";
+  if (typeof value === "object") {
+    const objectValue = value as Record<string, unknown>;
+    return String(objectValue.displayName ?? objectValue.name ?? objectValue.code ?? "Đã có dữ liệu");
+  }
+  if (/(At|Date|_at|_date|Start|End|From|To)$/.test(key) && !Number.isNaN(Date.parse(String(value)))) return new Intl.DateTimeFormat("vi-VN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(String(value)));
+  return String(value);
+}
+
+function LegacyDataTable({ pathname, title, rows }: { pathname?: string | undefined; title: string; rows: any[] }) {
+  const columns = legacyColumns(pathname ?? "", rows[0] ?? {});
+  return <div className="table-wrap legacy-table-wrap"><table><caption className="sr-only">{title}</caption><thead><tr>{columns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? row.code ?? index}>{columns.map((column) => <td key={column.key} data-label={column.label}>{legacyValue(row[column.key], column.key)}</td>)}</tr>)}</tbody></table></div>;
 }
 
 function DataTable({
@@ -630,10 +742,10 @@ function DataTable({
       <table>
         <thead>
           <tr>
-            <th>Record</th>
-            <th>Status</th>
-            <th>Version</th>
-            <th>Actions</th>
+            <th scope="col">Bản ghi</th>
+            <th scope="col">Trạng thái</th>
+            <th scope="col">Phiên bản</th>
+            <th scope="col">Thao tác</th>
           </tr>
         </thead>
         <tbody>
@@ -642,25 +754,29 @@ function DataTable({
             const label =
               row.code ??
               row.displayName ??
+              row.staffName ??
+              row.branchName ??
               row.name?.["vi-VN"] ??
               row.name ??
-              id;
+              row.type ??
+              row.kind ??
+              (row.staffId ? "Nhân sự" : row.branchId ? "Chi nhánh" : "Mã hệ thống");
             return (
               <tr key={id}>
-                <td>
+                <td data-label="Bản ghi">
                   <strong>{label}</strong>
-                  <small>{id}</small>
+                  <small>Mã hệ thống</small>
                 </td>
-                <td>{row.status ?? "ACTIVE"}</td>
-                <td>{row.version ?? "—"}</td>
-                <td className="actions">
+                <td data-label="Trạng thái">{legacyStatus(row.status ?? "ACTIVE")}</td>
+                <td data-label="Phiên bản">{row.version ?? "—"}</td>
+                <td data-label="Thao tác" className="actions">
                   {resource.fields?.length && id && (
                     <button
                       onClick={() => {
                         const field = resource.fields?.[0]?.name;
                         const value = field
                           ? window.prompt(
-                              `New ${field}`,
+                              `Nhập ${field}`,
                               String(row[field] ?? ""),
                             )
                           : null;
@@ -672,7 +788,7 @@ function DataTable({
                           );
                       }}
                     >
-                      Edit
+                      Chỉnh sửa
                     </button>
                   )}
                   {resource.title === "Service categories" && (
@@ -683,7 +799,7 @@ function DataTable({
                         })
                       }
                     >
-                      Reorder
+                      Sắp xếp lại
                     </button>
                   )}
                   {resource.actions?.map((action) => (
@@ -699,14 +815,14 @@ function DataTable({
                         )
                       }
                     >
-                      {action.label}
+                      {{ Archive: "Lưu trữ", Publish: "Công bố", Cancel: "Hủy", Approve: "Phê duyệt", Reject: "Từ chối" }[action.label] ?? action.label}
                     </button>
                   ))}
                   {resource.title === "Service catalog" && (
-                    <a href={`/admin/catalog/services/${id}`}>Open tabs</a>
+                    <a href={`/admin/catalog/services/${id}`}>Mở các mục</a>
                   )}
                   {resource.title === "Staff profiles" && (
-                    <a href={`/admin/staff/${id}`}>Assignments & skills</a>
+                    <a href={`/admin/staff/${id}`}>Phân công & kỹ năng</a>
                   )}
                 </td>
               </tr>
@@ -722,12 +838,12 @@ function ServiceTabs({ rows }: { rows: any[] }) {
   return (
     <div className="tabs" role="tablist">
       <span role="tab" aria-selected="true">
-        General
+        Thông tin chung
       </span>
-      <span role="tab">Pricing ({rows.length})</span>
-      <span role="tab">Skills</span>
-      <span role="tab">Resources</span>
-      <span role="tab">Add-ons</span>
+      <span role="tab">Bảng giá ({rows.length})</span>
+      <span role="tab">Kỹ năng</span>
+      <span role="tab">Tài nguyên</span>
+      <span role="tab">Dịch vụ bổ sung</span>
     </div>
   );
 }
@@ -777,8 +893,8 @@ function ServiceDetailScreen({ id }: { id: string }) {
     <main className="shell">
       <WorkspaceNav />
       <section className="card">
-        <p className="eyebrow">SERVICE CONFIGURATION</p>
-        <h1>{service?.name?.["vi-VN"] ?? service?.code ?? "Service detail"}</h1>
+        <p className="eyebrow">NAILSOFT · DANH MỤC DỊCH VỤ</p>
+        <h1>{service?.name?.["vi-VN"] ?? service?.code ?? "Chi tiết dịch vụ"}</h1>
         <div className="tabs" role="tablist">
           <button
             role="tab"
@@ -789,7 +905,7 @@ function ServiceDetailScreen({ id }: { id: string }) {
               setState("ready");
             }}
           >
-            General
+            Thông tin chung
           </button>
           {Object.keys(tabs).map((name) => (
             <button
@@ -801,26 +917,26 @@ function ServiceDetailScreen({ id }: { id: string }) {
                 void load(tabs[name] ?? "");
               }}
             >
-              {name}
+              {{ Pricing: "Bảng giá", Skills: "Kỹ năng", Resources: "Tài nguyên", "Add-ons": "Dịch vụ bổ sung" }[name] ?? name}
             </button>
           ))}
         </div>
         {state === "loading" && (
           <div role="status" className="skeleton">
-            Loading {tab.toLowerCase()}…
+            Đang tải {tab === "General" ? "thông tin chung" : tab.toLowerCase()}…
           </div>
         )}
-        {state === "forbidden" && <p role="alert">Permission denied.</p>}
+        {state === "forbidden" && <p role="alert">Không có quyền truy cập.</p>}
         {state === "error" && (
           <p role="alert">
-            Unable to load this tab. Retry by selecting it again.
+            Không thể tải mục này. Hãy chọn lại để thử.
           </p>
         )}
-        {state === "empty" && <p>No {tab.toLowerCase()} configured yet.</p>}
+        {state === "empty" && <p>Chưa có dữ liệu {tab.toLowerCase()}.</p>}
         {state === "ready" && (
-          <pre className="data-panel">{JSON.stringify(data, null, 2)}</pre>
+          <LegacyDataTable title={tab === "General" ? "Thông tin chung" : tab} rows={data} />
         )}
-        <a href="/admin/catalog/services">Back to services</a>
+        <a href="/admin/catalog/services">Quay lại danh mục dịch vụ</a>
       </section>
     </main>
   );
@@ -830,12 +946,18 @@ function StaffDetailScreen({ id }: { id: string }) {
   const [staff, setStaff] = useState<any>();
   const [assignments, setAssignments] = useState<any[]>([]);
   const [skills, setSkills] = useState<any[]>([]);
+  const [branchOptions, setBranchOptions] = useState<any[]>([]);
+  const [skillOptions, setSkillOptions] = useState<any[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState("");
+  const [selectedSkillId, setSelectedSkillId] = useState("");
   const [message, setMessage] = useState("");
   async function load() {
-    const [profile, branchRows, skillRows] = await Promise.all([
+    const [profile, branchRows, skillRows, branchDirectory, skillDirectory] = await Promise.all([
       authorizedFetch(`/v1/staff/${id}`),
       authorizedFetch(`/v1/staff/${id}/branches`),
       authorizedFetch(`/v1/staff/${id}/skills`),
+      authorizedFetch("/v1/branches"),
+      authorizedFetch("/v1/skills"),
     ]);
     if (!profile.ok) {
       setMessage("Unable to load staff profile.");
@@ -844,13 +966,14 @@ function StaffDetailScreen({ id }: { id: string }) {
     setStaff((await profile.json()).data);
     setAssignments((await branchRows.json()).data ?? []);
     setSkills((await skillRows.json()).data ?? []);
+    setBranchOptions(unwrap(await branchDirectory.json()));
+    setSkillOptions(unwrap(await skillDirectory.json()));
   }
   useEffect(() => {
     void load();
   }, [id]);
   async function assign() {
-    const branchId = window.prompt("Branch ID");
-    if (!branchId) return;
+    if (!selectedBranchId) return;
     const response = await authorizedFetch(`/v1/staff/${id}/branches`, {
       method: "POST",
       headers: {
@@ -858,7 +981,7 @@ function StaffDetailScreen({ id }: { id: string }) {
         "idempotency-key": crypto.randomUUID(),
       },
       body: JSON.stringify({
-        branchId,
+        branchId: selectedBranchId,
         effectiveFrom: new Date().toISOString().slice(0, 10),
         isPrimary: false,
         canBeBooked: true,
@@ -872,8 +995,7 @@ function StaffDetailScreen({ id }: { id: string }) {
     await load();
   }
   async function assignSkill() {
-    const skillId = window.prompt("Skill ID");
-    if (!skillId) return;
+    if (!selectedSkillId) return;
     const response = await authorizedFetch(`/v1/staff/${id}/skills`, {
       method: "PUT",
       headers: {
@@ -881,7 +1003,7 @@ function StaffDetailScreen({ id }: { id: string }) {
         "idempotency-key": crypto.randomUUID(),
       },
       body: JSON.stringify({
-        skills: [{ skillId, proficiencyLevel: "STANDARD" }],
+        skills: [{ skillId: selectedSkillId, proficiencyLevel: "STANDARD" }],
       }),
     });
     setMessage(
@@ -893,24 +1015,31 @@ function StaffDetailScreen({ id }: { id: string }) {
     <main className="shell">
       <WorkspaceNav />
       <section className="card">
-        <p className="eyebrow">STAFF PROFILE</p>
-        <h1>{staff?.displayName ?? "Staff detail"}</h1>
+        <p className="eyebrow">NAILSOFT · HỒ SƠ NHÂN SỰ</p>
+        <h1>{staff?.displayName ?? "Chi tiết nhân sự"}</h1>
         {message && <p role="status">{message}</p>}
         <div className="tabs">
-          <span>General</span>
-          <span>Branches ({assignments.length})</span>
-          <span>Skills ({skills.length})</span>
-          <span>Upcoming shifts</span>
-          <span>Leave</span>
+          <span>Thông tin chung</span>
+          <span>Chi nhánh ({assignments.length})</span>
+          <span>Kỹ năng ({skills.length})</span>
+          <span>Ca sắp tới</span>
+          <span>Đơn nghỉ</span>
+        </div>
+        <div className="legacy-profile-grid">
+          <article className="legacy-profile-card"><span>Mã nhân sự</span><strong>{staff?.employeeCode ?? "—"}</strong><small>{staff?.employmentType ?? "—"}</small></article>
+          <article className="legacy-profile-card"><span>Ngôn ngữ</span><strong>{staff?.preferredLocale ?? "vi-VN"}</strong><small>{staff?.status ?? "—"}</small></article>
         </div>
         <div className="actions">
-          <button onClick={() => void assign()}>Assign branch</button>
-          <button onClick={() => void assignSkill()}>Assign skill</button>
+          <label>Gán chi nhánh<select value={selectedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)}><option value="">Chọn chi nhánh</option>{branchOptions.map((branch) => <option key={branch.id} value={branch.id}>{branch.name ?? branch.displayName ?? branch.code}</option>)}</select></label>
+          <button onClick={() => void assign()} disabled={!selectedBranchId}>Gán chi nhánh</button>
+          <label>Gán kỹ năng<select value={selectedSkillId} onChange={(event) => setSelectedSkillId(event.target.value)}><option value="">Chọn kỹ năng</option>{skillOptions.map((skill) => <option key={skill.id} value={skill.id}>{skill.name?.["vi-VN"] ?? skill.name ?? skill.code}</option>)}</select></label>
+          <button onClick={() => void assignSkill()} disabled={!selectedSkillId}>Gán kỹ năng</button>
         </div>
-        <pre className="data-panel">
-          {JSON.stringify({ staff, assignments, skills }, null, 2)}
-        </pre>
-        <a href="/admin/staff/list">Back to staff</a>
+        <h2>Phân công chi nhánh</h2>
+        <LegacyDataTable title="Phân công chi nhánh" rows={assignments} />
+        <h2>Kỹ năng</h2>
+        <LegacyDataTable title="Kỹ năng" rows={skills} />
+        <a href="/admin/staff/list">Quay lại danh sách nhân sự</a>
       </section>
     </main>
   );
@@ -952,37 +1081,34 @@ function LegacyScreen({
     void load();
   }, [config.endpoint]);
   return (
-    <main className="shell">
-      <WorkspaceNav />
+    <main className="shell ops-shell">
       <section className="card" aria-busy={state === "loading"}>
-        <p className="eyebrow">ADMINISTRATION</p>
-        <h1>{config.title}</h1>
+        <p className="eyebrow">NAILSOFT · QUẢN TRỊ</p>
+        <h1>{legacyTitle(config.title)}</h1>
         {state === "loading" && (
           <div role="status" className="skeleton">
-            Loading securely…
+            Đang tải dữ liệu an toàn…
           </div>
         )}
         {state === "forbidden" && (
           <div role="alert" className="state">
-            <h2>Permission required</h2>
-            <p>Permission denied: your role cannot access this area.</p>
+            <h2>Cần có quyền truy cập</h2>
+            <p>Vai trò hiện tại không được phép xem khu vực này.</p>
           </div>
         )}
         {state === "error" && (
           <div role="alert" className="state">
             <p>{error}</p>
-            <button onClick={() => void load()}>Retry</button>
+            <button onClick={() => void load()}>Thử lại</button>
           </div>
         )}
         {state === "empty" && (
           <div className="state">
             <p>{config.empty}</p>
-            <button onClick={() => void load()}>Refresh</button>
+            <button onClick={() => void load()}>Làm mới</button>
           </div>
         )}
-        {state === "ready" && (
-          <pre className="data-panel">{JSON.stringify(data, null, 2)}</pre>
-        )}
+        {state === "ready" && (pathname === "/admin/profile" ? <ProfileOverview value={data[0]} /> : <LegacyDataTable pathname={pathname} title={legacyTitle(config.title)} rows={data} />)}
         {pathname?.endsWith("/branches/new") && (
           <form
             className="form-grid"
@@ -1005,32 +1131,52 @@ function LegacyScreen({
   );
 }
 
+function ProfileOverview({ value }: { value: any }) {
+  const user = value?.user ?? {};
+  const workspace = value?.workspace ?? {};
+  const authorization = value?.authorization ?? {};
+  const permissions = Array.isArray(authorization.permissions) ? authorization.permissions : [];
+  const roles = Array.isArray(authorization.roles) ? authorization.roles : [];
+  return <div className="legacy-profile-grid">
+    <article className="legacy-profile-card"><span>Người dùng</span><strong>{user.displayName ?? user.email ?? "—"}</strong><small>{user.email ?? "—"}</small></article>
+    <article className="legacy-profile-card"><span>Không gian làm việc</span><strong>{workspace.tenantName ?? "—"}</strong><small>{workspace.tenantSlug ?? workspace.tenantId ?? "—"}</small></article>
+    <article className="legacy-profile-card"><span>Quyền truy cập</span><strong>{roles.join(", ") || "—"}</strong><small>{permissions.length} quyền được cấp · Chế độ {workspace.accessMode ?? "—"}</small></article>
+    <article className="legacy-profile-card"><span>Ngôn ngữ & tiền tệ</span><strong>{workspace.locale ?? "vi-VN"}</strong><small>{workspace.currency ?? "—"} · {workspace.timezone ?? "—"}</small></article>
+  </div>;
+}
+
 function WorkspaceNav() {
   return (
     <nav className="topbar">
       <a href="/admin/dashboard">Nailsoft</a>
-      <a href="/admin/catalog/categories">Categories</a>
-      <a href="/admin/catalog/services">Services</a>
-      <a href="/admin/catalog/skills">Skills</a>
-      <a href="/admin/catalog/resources">Resources</a>
-      <a href="/admin/staff/list">Staff</a>
-      <a href="/admin/scheduling/shifts">Shifts</a>
-      <a href="/admin/scheduling/leave-requests">Leave</a>
+      <a href="/admin/catalog/categories">Nhóm dịch vụ</a>
+      <a href="/admin/catalog/services">Dịch vụ</a>
+      <a href="/admin/catalog/skills">Kỹ năng</a>
+      <a href="/admin/catalog/resources">Tài nguyên</a>
+      <a href="/admin/staff/list">Nhân sự</a>
+      <a href="/admin/scheduling/shifts">Ca làm</a>
+      <a href="/admin/scheduling/leave-requests">Đơn nghỉ</a>
     </nav>
   );
 }
 function inferConfig(pathname: string) {
+  if (pathname === "/admin/profile")
+    return {
+      title: "Hồ sơ tài khoản",
+      endpoint: "/v1/auth/context",
+      empty: "Chưa có thông tin tài khoản.",
+    };
   if (pathname.includes("/branches/"))
     return {
-      title: pathname.endsWith("/hours") ? "Business hours" : "Branch details",
+      title: pathname.endsWith("/hours") ? "Giờ hoạt động" : "Chi tiết chi nhánh",
       endpoint: "/v1/branches",
-      empty: "Branch data is unavailable.",
+      empty: "Chưa có dữ liệu chi nhánh.",
     };
   if (pathname.includes("/team/users/"))
     return {
-      title: pathname.endsWith("/sessions") ? "User sessions" : "User details",
+      title: pathname.endsWith("/sessions") ? "Phiên đăng nhập người dùng" : "Chi tiết người dùng",
       endpoint: "/v1/users",
-      empty: "User data is unavailable.",
+      empty: "Chưa có dữ liệu người dùng.",
     };
-  return { title: "Administration", empty: "No data is available." };
+  return { title: "Khu vực quản trị", empty: "Chưa có dữ liệu phù hợp." };
 }

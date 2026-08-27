@@ -21,7 +21,7 @@ test("Reception uses the real operational board and walk-in lifecycle UI", async
     page.getByRole("heading", { name: "Operational board" }),
   ).toBeVisible();
   await page.getByLabel("Branch").selectOption(branch);
-  await expect(page.getByText(/Data version/)).toBeVisible();
+  await expect(page.getByText(/Phiên bản dữ liệu/)).toBeVisible();
 
   await page.goto("http://localhost:3000/admin/operations/walk-ins/new");
   await page.getByLabel("Branch").selectOption(branch);

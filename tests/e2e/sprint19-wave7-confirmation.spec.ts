@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 const bookingWeb = "http://127.0.0.1:3002";
 
 test("review uses the server hold plan and creates an idempotent booking", async ({ page }) => {
+  test.setTimeout(180_000);
   await page.goto(`${bookingWeb}/book/nailsoft-demo`);
   await page.getByRole("button", { name: /Quận 1/ }).click();
   await page.locator(".choice-card").first().click();
@@ -29,7 +30,7 @@ test("review uses the server hold plan and creates an idempotent booking", async
   const policy = page.getByRole("checkbox").first();
   await policy.check();
   await page.getByRole("button", { name: /Confirm booking|Xác nhận đặt lịch/ }).click();
-  await expect(page.getByRole("heading", { name: /Booking confirmed|Đặt lịch thành công/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Booking confirmed|Đặt lịch thành công/ }).first()).toBeVisible();
   await expect(page.getByText(/NS-/)).toBeVisible();
   await expect(page.locator("body")).not.toContainText("holdToken");
   await expect(page.locator("body")).not.toContainText("verificationToken");

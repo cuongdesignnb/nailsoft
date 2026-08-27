@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
 
 const ownerMobile = "http://127.0.0.1:3003";
 

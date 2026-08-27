@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
+import type { Page } from "@playwright/test";
 import { authenticated, close } from "./auth/setup";
 import { headers } from "./helpers/api-client";
 import { unique } from "./helpers/test-data";
@@ -24,15 +25,15 @@ test.describe.serial("Sprint 19 Wave 3 Customer 360", () => {
   test("owner can search, paginate and open the real Customer 360 profile", async ({ page }) => {
     await loginUi(page, "owner@example.test");
     await page.goto("/admin/customers");
-    await expect(page.getByRole("heading", { name: "Customers" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Danh sách khách hàng", exact: true })).toBeVisible();
     await expect(page.getByRole("search")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open customer" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Mở hồ sơ" }).first()).toBeVisible();
     const firstCustomerName = await page.locator(".s19-customer-table tbody tr").first().locator("td strong").innerText();
-    await page.getByLabel("Search customers").fill(firstCustomerName);
-    await page.getByRole("button", { name: "Search" }).click();
-    await expect(page.getByRole("link", { name: "Open customer" }).first()).toBeVisible();
+    await page.getByLabel("Tìm khách hàng").fill(firstCustomerName);
+    await page.getByRole("button", { name: "Tìm kiếm" }).click();
+    await expect(page.getByRole("link", { name: "Mở hồ sơ" }).first()).toBeVisible();
     await expectA11y(page);
-    await page.getByRole("link", { name: "Open customer" }).first().click();
+    await page.getByRole("link", { name: "Mở hồ sơ" }).first().click();
     await expect(page.getByRole("heading", { name: "Chi tiết khách hàng" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Lịch sử lịch hẹn" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Tạo lịch hẹn" }).first()).toBeVisible();
@@ -64,7 +65,7 @@ test.describe.serial("Sprint 19 Wave 3 Customer 360", () => {
   test("technician and platform users receive the forbidden state", async ({ page }) => {
     await loginUi(page, "staff5@example.test");
     await page.goto("/admin/customers");
-    await expect(page.getByRole("heading", { name: "Permission denied" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Không có quyền truy cập", exact: true })).toBeVisible();
 
     await page.evaluate(() => localStorage.clear());
     await loginUi(page, "platform-e2e@example.test");
@@ -100,7 +101,7 @@ test.describe.serial("Sprint 19 Wave 3 Customer 360", () => {
     await loginUi(page, "owner@example.test");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/admin/customers");
-    await expect(page.getByRole("heading", { name: "Customers" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Danh sách khách hàng", exact: true })).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     expect(overflow).toBe(false);
   });

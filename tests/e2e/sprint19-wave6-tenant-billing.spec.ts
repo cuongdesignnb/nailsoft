@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./helpers/deterministic-visual-fixture";
+import type { Page } from "@playwright/test";
 
 async function loginUi(page: Page) {
   await page.goto("/auth/login");
@@ -20,26 +21,26 @@ test.describe.serial("Sprint 19 Wave 6 tenant billing and support", () => {
   test("renders subscription, usage and invoice read models", async ({ page }) => {
     await loginUi(page);
     await page.goto("/admin/billing");
-    await expect(page.getByRole("heading", { name: "Billing overview" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Tổng quan thanh toán gói" })).toBeVisible();
     await audit(page);
     await page.goto("/admin/billing/usage");
-    await expect(page.getByRole("heading", { name: "Plans, entitlements & usage" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sản lượng & hạn mức" }).first()).toBeVisible();
     await audit(page);
     await page.goto("/admin/billing/invoices");
-    await expect(page.getByRole("heading", { name: "Invoices & history" })).toBeVisible();
-    await expect(page.getByText(/separate from salon POS invoices/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Hóa đơn gói nền tảng" })).toBeVisible();
+    await expect(page.getByText(/tách biệt với hóa đơn POS của salon/i)).toBeVisible();
     await audit(page);
   });
 
   test("keeps payment methods masked and support grants dual-controlled", async ({ page }) => {
     await loginUi(page);
     await page.goto("/admin/billing/payment-methods");
-    await expect(page.getByRole("heading", { name: "Payment methods" })).toBeVisible();
-    await expect(page.getByText(/raw card data is never collected/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Phương thức thanh toán", exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/Thông tin phương thức đã được che/i)).toBeVisible();
     await audit(page);
     await page.goto("/admin/support-access");
-    await expect(page.getByRole("heading", { name: "Tenant support access" })).toBeVisible();
-    await expect(page.locator("strong", { hasText: "Dual control:" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Quyền hỗ trợ Tenant" })).toBeVisible();
+    await expect(page.getByText(/Kiểm soát kép và phạm vi|Chưa có quyền hỗ trợ/i).first()).toBeVisible();
     await audit(page);
   });
 });

@@ -209,11 +209,12 @@ test("public booking supports real date, multi-service ordering and scoped manag
 }) => {
   const publicPhone = `090${String(Date.now()).slice(-7)}`;
   await page.goto("http://localhost:3002/book/nailsoft-demo");
-  await expect(page.getByRole("heading", { name: /Select services|Chọn dịch vụ/ }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Select branch|Chọn chi nhánh/ }).first()).toBeVisible();
   const branch = page.getByRole("button", { name: /Q1|Quận 1/ });
   await expect(branch).toBeVisible();
   await expect(page.getByRole("link", { name: /Manage booking|Quản lý lịch hẹn/ })).toBeVisible();
   await branch.click();
+  await expect(page.getByRole("heading", { name: /Select services|Chọn dịch vụ/ }).first()).toBeVisible();
 
   const choices = page.locator("button.choice");
   await expect(choices.first()).toBeVisible();
@@ -236,21 +237,21 @@ test("public booking supports real date, multi-service ordering and scoped manag
     if (!foundSlot) await page.getByRole("button", { name: /Change services or date|Đổi dịch vụ hoặc ngày/ }).click();
   }
   expect(foundSlot).toBe(true);
-  await expect(page.getByRole("heading", { name: /Available times|Giờ còn trống/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Available times|Giờ còn trống/ }).first()).toBeVisible();
   await page.locator(".slot").first().click();
-  await expect(page.getByRole("heading", { name: /Contact details|Thông tin liên hệ/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Contact details|Thông tin liên hệ/ }).first()).toBeVisible();
   await page.locator("#contact-name").fill("Khách E2E Sprint 4");
   await page.locator("#contact-phone").fill(publicPhone);
   await page.getByRole("button", { name: /Send verification code|Gửi mã xác minh/ }).click();
   await expect(page.locator("#verification-code")).toHaveValue("123456");
   await page.getByRole("button", { name: /Verify|Xác minh/ }).click();
-  await expect(page.getByRole("heading", { name: /Review booking|Xem lại lịch hẹn/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Review booking|Xem lại lịch hẹn/ }).first()).toBeVisible();
   const consents = page.locator('input[type="checkbox"]');
   await expect(consents.nth(1)).not.toBeChecked();
   await consents.first().check();
   await page.getByRole("button", { name: /Confirm booking|Xác nhận đặt lịch/ }).click();
-  await expect(page.getByRole("heading", { name: /Booking confirmed|Đặt lịch thành công/ })).toBeVisible();
-  const reference = await page.locator(".success strong").first().innerText();
+  await expect(page.getByRole("heading", { name: /Booking confirmed|Đặt lịch thành công/ }).first()).toBeVisible();
+  const reference = await page.locator(".booking-result-card strong").first().innerText();
   expect(reference).toMatch(/^NS-/);
 
   await page.goto("http://localhost:3002/manage-booking?salon=nailsoft-demo");
@@ -261,7 +262,7 @@ test("public booking supports real date, multi-service ordering and scoped manag
   await page.getByRole("button", { name: /Send verification code|Gửi mã xác minh/ }).click();
   await expect(page.locator("#manage-code")).toHaveValue("123456");
   await page.getByRole("button", { name: /Verify|Xác minh/ }).click();
-  await expect(page.getByRole("heading", { name: reference })).toBeVisible();
+  await expect(page.getByText(reference, { exact: true }).first()).toBeVisible();
   const manageDate = page.locator("#manage-date");
   const manageMin = (await manageDate.getAttribute("min")) ?? "";
   const manageMax = (await manageDate.getAttribute("max")) ?? manageMin;
