@@ -93,7 +93,7 @@ export function FreshnessBadge({ value }: { value?: unknown }) {
 }
 
 export function ImmutableRecordBadge() { return <StatusBadge tone="info">Bản ghi bất biến</StatusBadge>; }
-export function DualControlNotice({ children = "Thao tác phê duyệt cần một người dùng khác đã xác thực." }: { children?: ReactNode }) { return <p className="ns-gallery-banner"><strong>Dual control · Kiểm soát kép:</strong> {children}</p>; }
+export function DualControlNotice({ children = "Thao tác phê duyệt cần một người dùng khác đã xác thực." }: { children?: ReactNode }) { return <p className="ns-gallery-banner"><strong>Dual control: Kiểm soát kép:</strong> {children}</p>; }
 export function VersionConflictPanel() { return <StatePanel state="error" title="Dữ liệu vừa thay đổi" detail="Bản ghi trên máy chủ đã thay đổi. Hãy tải lại trước khi thử lại." />; }
 export function SensitiveReference({ value }: { value?: unknown }) { return <span className="ns-sensitive-reference">{value ? "••••" : "Không hiển thị"}</span>; }
 
