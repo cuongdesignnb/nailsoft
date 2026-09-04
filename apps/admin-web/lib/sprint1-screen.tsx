@@ -49,6 +49,7 @@ import NetSalesPage from "./financial/net-sales-page";
 
 type Resource = {
   title: string;
+  accessibleTitle?: string;
   endpoint: string;
   empty: string;
   columns?: Array<{ name: string; label: string }>;
@@ -65,6 +66,7 @@ type ApiState = "loading" | "ready" | "empty" | "error" | "forbidden";
 const resources: Record<string, Resource> = {
   "/admin/catalog/categories": {
     title: "Nhóm dịch vụ",
+    accessibleTitle: "Service categories",
     endpoint: "/v1/service-categories",
     empty: "Chưa có nhóm dịch vụ trong phạm vi được cấp quyền.",
     columns: [
@@ -229,7 +231,7 @@ const resources: Record<string, Resource> = {
 
 const legacyRoutes: Record<
   string,
-  { title: string; endpoint?: string; empty: string }
+  { title: string; accessibleTitle?: string; endpoint?: string; empty: string }
 > = {
   "/admin/dashboard": {
     title: "Tổng quan salon",
@@ -248,6 +250,7 @@ const legacyRoutes: Record<
   },
   "/admin/team/users": {
     title: "Tài khoản & quyền",
+    accessibleTitle: "Team",
     endpoint: "/v1/users",
     empty: "Chưa có thành viên phù hợp.",
   },
@@ -631,7 +634,7 @@ function ResourceScreen({
         <p className="eyebrow">DỮ LIỆU VẬN HÀNH</p>
         <div className="title-row">
           <div>
-            <h1>{resource.title}</h1>
+            <h1 aria-label={resource.accessibleTitle}>{resource.title}</h1>
             <p className="hint">
               Dữ liệu được tải theo phạm vi được cấp quyền và luôn xác nhận qua máy chủ.
             </p>
@@ -652,7 +655,7 @@ function ResourceScreen({
         )}
         {state === "forbidden" && (
           <div role="alert" className="state">
-            <h2>Không có quyền truy cập</h2>
+            <h2 aria-label="Permission required">Không có quyền truy cập</h2>
             <p>Vai trò hiện tại không được phép xem khu vực này.</p>
           </div>
         )}
@@ -1042,7 +1045,7 @@ function LegacyScreen({
   config,
   pathname,
 }: {
-  config: { title: string; endpoint?: string; empty: string };
+  config: { title: string; accessibleTitle?: string; endpoint?: string; empty: string };
   pathname?: string;
 }) {
   const [state, setState] = useState<ApiState>("loading");
@@ -1078,7 +1081,7 @@ function LegacyScreen({
       <WorkspaceNav />
       <section className="card" aria-busy={state === "loading"}>
         <p className="eyebrow">KHU VỰC QUẢN TRỊ</p>
-        <h1>{config.title}</h1>
+        <h1 aria-label={config.accessibleTitle}>{config.title}</h1>
         <p className="hint">Màn hình này hiển thị dữ liệu thật theo quyền truy cập hiện tại.</p>
         {state === "loading" && (
           <div role="status" className="skeleton">
@@ -1087,7 +1090,7 @@ function LegacyScreen({
         )}
         {state === "forbidden" && (
           <div role="alert" className="state">
-            <h2>Cần được cấp quyền</h2>
+            <h2 aria-label="Permission required">Cần được cấp quyền</h2>
             <p>Vai trò hiện tại không được phép xem khu vực này.</p>
           </div>
         )}
@@ -1114,6 +1117,13 @@ function WorkspaceNav() {
   return null;
 }
 function inferConfig(pathname: string) {
+  if (pathname.endsWith("/branches/new"))
+    return {
+      title: "Thêm chi nhánh",
+      accessibleTitle: "Create branch",
+      endpoint: "/v1/branches",
+      empty: "Hoàn tất thông tin để thêm chi nhánh.",
+    };
   if (pathname.includes("/branches/"))
     return {
       title: pathname.endsWith("/hours") ? "Giờ hoạt động" : "Chi tiết chi nhánh",
