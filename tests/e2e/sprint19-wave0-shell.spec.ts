@@ -28,10 +28,15 @@ async function prepareVisualPage(page: Page) {
         caret-color: transparent !important;
       }
       /* Next dev tools are environment chrome, not part of the shell baseline. */
-      #next-logo {
+      nextjs-portal {
         display: none !important;
       }
     `,
+  });
+  await page.evaluate(() => {
+    const removeDevTools = () => document.querySelectorAll("nextjs-portal").forEach((node) => node.remove());
+    removeDevTools();
+    new MutationObserver(removeDevTools).observe(document.documentElement, { childList: true, subtree: true });
   });
   const fontState = await page.evaluate(() => ({
     status: document.fonts.status,
