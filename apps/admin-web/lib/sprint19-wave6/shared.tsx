@@ -93,7 +93,7 @@ export function FreshnessBadge({ value }: { value?: unknown }) {
 }
 
 export function ImmutableRecordBadge() { return <StatusBadge tone="info">Bản ghi bất biến</StatusBadge>; }
-export function DualControlNotice({ children = "Thao tác phê duyệt cần một người dùng khác đã xác thực." }: { children?: ReactNode }) { return <p className="ns-gallery-banner"><strong>Kiểm soát kép:</strong> {children}</p>; }
+export function DualControlNotice({ children = "Thao tác phê duyệt cần một người dùng khác đã xác thực." }: { children?: ReactNode }) { return <p className="ns-gallery-banner"><strong>Dual control · Kiểm soát kép:</strong> {children}</p>; }
 export function VersionConflictPanel() { return <StatePanel state="error" title="Dữ liệu vừa thay đổi" detail="Bản ghi trên máy chủ đã thay đổi. Hãy tải lại trước khi thử lại." />; }
 export function SensitiveReference({ value }: { value?: unknown }) { return <span className="ns-sensitive-reference">{value ? "••••" : "Không hiển thị"}</span>; }
 
@@ -128,7 +128,7 @@ export function ReadWorkspace({ route, endpoint, columns, description, actions =
   const title = routeLabel(route);
   return <main className="ns-data-workspace">
     <WorkspaceNav route={route} />
-    <PageHeader eyebrow="TÀI CHÍNH &amp; VẬN HÀNH" title={title} description={description ?? route.description} actions={<Button variant="secondary" onClick={() => void load()} disabled={state === "loading"}>Làm mới</Button>} />
+    <PageHeader eyebrow="TÀI CHÍNH &amp; VẬN HÀNH" title={title} accessibleTitle={route.title} description={description ?? route.description} actions={<Button variant="secondary" onClick={() => void load()} disabled={state === "loading"}>Làm mới</Button>} />
     {notice && <p role="status" className="success">{notice}</p>}
     {state === "loading" && <StatePanel state="loading" title="Đang tải dữ liệu" detail="Dữ liệu được đọc từ máy chủ và giữ nguyên bằng chứng nguồn." />}
     {state === "forbidden" && <StatePanel state="forbidden" title="Không có quyền truy cập" detail="Quyền hoặc phạm vi hiện tại không bao gồm màn hình này." onRetry={() => void load()} />}

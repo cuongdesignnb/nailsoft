@@ -41,8 +41,8 @@ export function StatePanel({ state, title, detail, onRetry }: { state: "loading"
   </section>;
 }
 
-export function PageHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
-  return <header className="ns-page-header"><div>{eyebrow ? <p className="ns-eyebrow">{eyebrow}</p> : null}<h1>{title}</h1>{description ? <p>{description}</p> : null}</div>{actions ? <div className="ns-page-header__actions">{actions}</div> : null}</header>;
+export function PageHeader({ eyebrow, title, accessibleTitle, description, actions }: { eyebrow?: string; title: string; accessibleTitle?: string; description?: string; actions?: ReactNode }) {
+  return <header className="ns-page-header"><div>{eyebrow ? <p className="ns-eyebrow">{eyebrow}</p> : null}<h1 aria-label={accessibleTitle}>{title}</h1>{description ? <p>{description}</p> : null}</div>{actions ? <div className="ns-page-header__actions">{actions}</div> : null}</header>;
 }
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) { return <section className={`ns-card ${className}`.trim()}>{children}</section>; }
