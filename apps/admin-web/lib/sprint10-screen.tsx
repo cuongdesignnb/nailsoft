@@ -4,6 +4,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { activeSession, authorizedFetch } from "./auth";
+import { SafeDataTable } from "./safe-data-view";
 
 type LoadState = "loading" | "ready" | "empty" | "error" | "forbidden";
 type Config = { title: string; endpoint: string; kind: string };
@@ -177,7 +178,7 @@ function StoredValuePage({ config }: { config: Config }) {
         ))}
       </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 10 · STORED VALUE</p>
+        <p className="eyebrow">GIÁ TRỊ LƯU TRỮ</p>
         <div className="title-row">
           <div>
             <h1>{config.title}</h1>
@@ -490,9 +491,7 @@ function GiftCardDetail({ id }: { id: string }) {
         <p className="eyebrow">GIFT CARD DETAIL</p>
         <h1>Masked card and append-only ledger</h1>
         <States resource={card} />
-        {card.state === "ready" && (
-          <pre>{JSON.stringify(card.data[0], null, 2)}</pre>
-        )}
+        {card.state === "ready" && <SafeDataTable rows={card.data[0] ? [card.data[0]] : []} caption="Thông tin Gift Card" />}
         <h2>Ledger history</h2>
         <States resource={ledger} />
         {ledger.state === "ready" && (
@@ -542,9 +541,7 @@ function OrderStoredValue({ orderId }: { orderId: string }) {
         <p className="eyebrow">POS · STORED VALUE</p>
         <h1>Redeem without covering tip or gift-card funding</h1>
         <States resource={eligibility} />
-        {eligibility.state === "ready" && (
-          <pre>{JSON.stringify(eligibility.data[0], null, 2)}</pre>
-        )}
+        {eligibility.state === "ready" && <SafeDataTable rows={eligibility.data[0] ? [eligibility.data[0]] : []} caption="Điều kiện sử dụng giá trị lưu trữ" />}
         <div className="filters">
           <label>
             Card number

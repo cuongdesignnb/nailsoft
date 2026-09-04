@@ -37,7 +37,7 @@ export function StatePanel({ state, title, detail, onRetry }: { state: "loading"
   const icon: Record<typeof state, IconName> = { loading: "activity", empty: "file", error: "alert", forbidden: "lock", offline: "alert", partial: "alert" };
   return <section className={`ns-state ns-state--${state}`} aria-busy={state === "loading"} role={state === "error" || state === "forbidden" || state === "offline" ? "alert" : "status"}>
     <Icon name={icon[state]} decorative />
-    <div><h2>{title}</h2>{detail ? <p>{detail}</p> : null}{onRetry ? <Button variant="secondary" onClick={onRetry}><Icon name="refresh" />Retry</Button> : null}</div>
+    <div><h2>{title}</h2>{detail ? <p>{detail}</p> : null}{onRetry ? <Button variant="secondary" onClick={onRetry}><Icon name="refresh" />Thử lại</Button> : null}</div>
   </section>;
 }
 
@@ -57,9 +57,9 @@ export function ChartFallback({ title, description, rows, empty = false, loading
   const state = loading ? "loading" : empty || rows.length === 0 ? "empty" : "ready";
   return <section role="group" className="ns-chart" aria-label={`${title} (${state})`} aria-describedby={description ? descriptionId : undefined} aria-busy={loading}>
     <div><h3>{title}</h3>{description ? <p id={descriptionId}>{description}</p> : null}</div>
-    {state === "loading" ? <div className="ns-skeleton" role="status" aria-label="Loading chart" /> : state === "empty" ? <p role="status">No chart data available.</p> : <>
-      <div className="ns-chart__bars" aria-hidden="true">{rows.map((row, index) => <span key={row.label} style={{ height: `${Math.max(12, 100 - index * 12)}%` }} />)}</div>
-      <table aria-label={title}><caption>{title}</caption><thead><tr><th scope="col">Label</th><th scope="col">Value</th></tr></thead><tbody>{rows.map((row) => <tr key={row.label}><th scope="row">{row.label}</th><td>{row.value}</td></tr>)}</tbody></table>
+    {state === "loading" ? <div className="ns-skeleton" role="status" aria-label="Đang tải biểu đồ" /> : state === "empty" ? <p role="status">Chưa có dữ liệu biểu đồ.</p> : <>
+      <div className="ns-chart__bars" aria-hidden="true">{rows.map((row, index) => <span key={`${row.label}-${index}`} style={{ height: `${Math.max(12, 100 - index * 12)}%` }} />)}</div>
+      <table aria-label={title}><caption>{title}</caption><thead><tr><th scope="col">Nhãn</th><th scope="col">Giá trị</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.label}-${index}`}><th scope="row">{row.label}</th><td>{row.value}</td></tr>)}</tbody></table>
     </>}
   </section>;
 }

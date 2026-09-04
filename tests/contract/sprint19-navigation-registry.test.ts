@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { canSeeNavigation, navigationRegistry } from "../../apps/admin-web/lib/navigation-registry.js";
+import {
+  activeNavigationGroupIds,
+  activeNavigationItemId,
+  canSeeNavigation,
+  navigationRegistry,
+  visibleNavigation,
+} from "../../apps/admin-web/lib/navigation-registry.js";
 import type { AuthContext } from "../../packages/domain-types/src/index.js";
 
 const base: AuthContext = {
@@ -23,5 +29,18 @@ describe("Sprint 19 navigation registry", () => {
     const platformItem = navigationRegistry.flatMap((group) => group.items).find((item) => item.href === "/platform/tenants")!;
     expect(canSeeNavigation(dashboard, platform)).toBe(false);
     expect(canSeeNavigation(platformItem, platform)).toBe(true);
+  });
+
+  it("keeps the sidebar at two levels and removes empty parent groups", () => {
+    expect(navigationRegistry.every((group) => group.items.every((item) => !("items" in item)))).toBe(true);
+    const visible = visibleNavigation(base);
+    expect(visible.find((group) => group.id === "inventory-assets")?.items.map((item) => item.id)).toEqual(["inventory"]);
+    expect(visible.some((group) => group.id === "marketing-care")).toBe(false);
+  });
+
+  it("selects the most specific child for deep links", () => {
+    const finance = navigationRegistry.find((group) => group.id === "finance")!;
+    expect(activeNavigationItemId(finance, "/admin/financial/invoices/123")).toBe("invoices");
+    expect(activeNavigationGroupIds(navigationRegistry, "/admin/financial/invoices/123")).toContain("finance");
   });
 });

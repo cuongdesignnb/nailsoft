@@ -3,6 +3,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { authorizedFetch } from "./auth";
+import { SafeDataTable } from "./safe-data-view";
 
 type ViewState =
   "loading" | "ready" | "empty" | "error" | "forbidden" | "offline";
@@ -134,7 +135,7 @@ function Shell({
         <a href="/admin/calendar/day">Calendar</a>
       </nav>
       <section className="wave1-legacy-card">
-        <p className="eyebrow">SPRINT 4 · BOOKING OPERATIONS</p>
+        <p className="eyebrow">QUẢN LÝ LỊCH HẸN</p>
         <div className="title-row">
           <div>
             <h1>{title}</h1>
@@ -758,7 +759,7 @@ function AppointmentDetail({
         </div>
       )}
       {tab === "policy" && (
-        <pre className="data-panel">{JSON.stringify(row.policy, null, 2)}</pre>
+        <SafeDataTable rows={row.policy ? [row.policy] : []} caption="Chính sách lịch hẹn" />
       )}
       {tab === "history" && <History appointmentId={appointmentId} />}
       {tab === "cancel" && <CancelForm row={row} run={run} />}

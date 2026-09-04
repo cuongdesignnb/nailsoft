@@ -94,7 +94,7 @@ function useBookResources(bookId: string): BookResources {
 }
 
 function BankingFrame({ route, children }: { route: Wave6Route; children: ReactNode }) {
-  return <main className="shell ops-shell"><WorkspaceNav route={route} /><header className="page-header"><div><p className="eyebrow">SPRINT 19 · WAVE 6 · {route.screenId}</p><h1>{route.title}</h1><p>{route.description}</p></div></header>{children}</main>;
+  return <main className="shell ops-shell"><WorkspaceNav route={route} /><header className="page-header"><div><p className="eyebrow">{route.title}</p><h1>{route.title}</h1><p>{route.description}</p></div></header>{children}</main>;
 }
 
 function BookSelector({ context }: { context: BookContext }) {

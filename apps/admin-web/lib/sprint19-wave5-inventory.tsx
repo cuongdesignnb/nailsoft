@@ -152,7 +152,7 @@ export default function Sprint19Wave5Inventory({ pathname }: { pathname: string 
   const needsBranch = Boolean(screen.branchScoped);
   return <main className="shell ops-shell">
     <section className="card">
-      <p className="eyebrow">SPRINT 19 · WAVE 5 · INVENTORY</p>
+      <p className="eyebrow">KHO HÀNG</p>
       <div className="title-row"><div><h1>{screen.title}</h1><p className="hint">{screen.description}</p></div><button onClick={() => void load()} disabled={state === "loading"}>Refresh</button></div>
       {branchState === "loading" && <p role="status" aria-busy="true">Loading authorized branches…</p>}
       {branchState === "forbidden" && <p role="alert">Permission denied. Branch context is unavailable.</p>}

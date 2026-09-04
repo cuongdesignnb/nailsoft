@@ -120,7 +120,7 @@ function Shell({
         <a href="/admin/financial/reconciliation">Reconciliation</a>
       </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 6 · FINANCIAL OPERATIONS</p>
+        <p className="eyebrow">TÀI CHÍNH & THANH TOÁN</p>
         <div className="title-row">
           <div>
             <h1>{title}</h1>

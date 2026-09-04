@@ -8,7 +8,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { translate } from "@nailsoft/localization";
 import { Button, Icon, StatePanel } from "@nailsoft/ui-web";
 import { ACTIVE_BRANCH_CHANGED_EVENT, getActiveBranchId, getAuthContext, setActiveBranchId } from "./auth";
-import { canSeeNavigation, navigationRegistry } from "./navigation-registry";
+import {
+  activeNavigationItemId,
+  activeNavigationGroupIds,
+  visibleNavigation,
+  type NavigationGroup,
+} from "./navigation-registry";
 
 export function AdminShell({ children }: { children: ReactNode }) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } }));
@@ -20,6 +25,7 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const [compact, setCompact] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [activeBranchId, setShellActiveBranchId] = useState<string | undefined>(() => getActiveBranchId());
   const contextQuery = useQuery({ queryKey: ["auth-context"], queryFn: getAuthContext });
   const context = contextQuery.data;
@@ -64,8 +70,30 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
     document.addEventListener("click", handleInternalNavigation);
     return () => document.removeEventListener("click", handleInternalNavigation);
   }, [router]);
-  const visibleGroups = context ? navigationRegistry.map((group) => ({ ...group, items: group.items.filter((item) => canSeeNavigation(item, context)) })).filter((group) => group.items.length > 0) : [];
-  if (contextQuery.isPending) return <div className="ns-shell-loading"><StatePanel state="loading" title="Loading workspace" detail="Checking your current access and branch scope." /></div>;
+  const visibleGroups = context ? visibleNavigation(context) : [];
+  const activeGroupIds = activeNavigationGroupIds(visibleGroups, pathname);
+  useEffect(() => {
+    if (!activeGroupIds.length) return;
+    setOpenGroups((current) => {
+      const next = { ...current };
+      activeGroupIds.forEach((id) => { next[id] = true; });
+      return next;
+    });
+  }, [activeGroupIds.join("|")]);
+  useEffect(() => {
+    if (!navigationOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavigationOpen(false);
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [navigationOpen]);
+  if (contextQuery.isPending) return <div className="ns-shell-loading"><StatePanel state="loading" title="Đang tải không gian làm việc" detail="Đang kiểm tra quyền truy cập và phạm vi chi nhánh." /></div>;
   if (contextQuery.isError || !context) return <UnauthenticatedAdminShell>{children}</UnauthenticatedAdminShell>;
   const locale = context.user.locale;
   const platformRoute = pathname === "/platform" || pathname.startsWith("/platform/");
@@ -82,16 +110,23 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
     <a className="ns-skip-link" href="#main-content">{translate(locale, "skipToContent")}</a>
     <aside className={`ns-admin-sidebar ${navigationOpen ? "ns-admin-sidebar--open" : ""}`} aria-label={translate(locale, "navigation")}>
       <Link className="ns-brand" href="/admin/dashboard"><span className="ns-brand__mark"><span>N</span></span><span className="ns-brand__wordmark"><strong>NailSoft</strong><small>— CMS —</small></span></Link>
-       <nav>{visibleGroups.map((group) => <section key={group.label} className="ns-nav-group"><p>{translate(locale, group.label)}</p>{group.items.map((item) => { const isAppointmentsRoute = item.href === "/admin/calendar" && (pathname === "/admin/appointments" || pathname.startsWith("/admin/appointments/")); const isCustomerMarketingRoute = pathname === "/admin/marketing/segments" || pathname === "/admin/marketing/campaigns" || pathname.startsWith("/admin/marketing/campaigns/"); const isCustomerBenefitsRoute = item.href === "/admin/customers" && (pathname === "/admin/benefits" || pathname.startsWith("/admin/benefits/") || pathname === "/admin/membership" || pathname.startsWith("/admin/membership/") || pathname.startsWith("/admin/loyalty/") || pathname.startsWith("/admin/packages/") || pathname.startsWith("/admin/vouchers/") || pathname.startsWith("/admin/gift-cards") || pathname === "/admin/customer-credit" || pathname.startsWith("/admin/stored-value/") || pathname === "/admin/customer-care" || pathname.startsWith("/admin/customer-care/") || isCustomerMarketingRoute); const isMarketingTopLevelRoute = item.href === "/admin/marketing" && isCustomerMarketingRoute; const isCurrent = !isMarketingTopLevelRoute && (pathname === item.href || pathname.startsWith(`${item.href}/`) || isAppointmentsRoute || isCustomerBenefitsRoute); return <Link key={item.href} href={item.href} aria-current={isCurrent ? "page" : undefined}><Icon name={item.icon} /> <span>{translate(locale, item.label)}</span></Link>; })}</section>)}</nav>
-      <Button variant="quiet" className="ns-sidebar-collapse" onClick={() => setCompact((value) => !value)} aria-label="Thu gọn menu"><Icon name="chevronLeft" /> <span>Thu gọn menu</span></Button>
+      <NavigationTree
+        groups={visibleGroups}
+        pathname={pathname}
+        compact={compact}
+        openGroups={openGroups}
+        onToggle={(id) => setOpenGroups((current) => ({ ...current, [id]: !current[id] }))}
+        onNavigate={() => setNavigationOpen(false)}
+      />
+      <Button variant="quiet" className="ns-sidebar-collapse" onClick={() => setCompact((value) => !value)} aria-label={compact ? "Mở rộng menu" : "Thu gọn menu"}><Icon name="chevronLeft" /> <span>{compact ? "Mở rộng menu" : "Thu gọn menu"}</span></Button>
     </aside>
-    {navigationOpen ? <button className="ns-nav-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} /> : null}
+    {navigationOpen ? <button className="ns-nav-backdrop" aria-label="Đóng điều hướng" onClick={() => setNavigationOpen(false)} /> : null}
     <div className="ns-app-body">
       <header className="ns-admin-header">
         <Button variant="quiet" className="ns-mobile-menu" aria-label={translate(locale, "menu")} onClick={() => setNavigationOpen(true)}><Icon name="menu" /></Button>
         <Link className="ns-global-search" href="/admin/customers" aria-label="Mở tìm kiếm khách hàng"><Icon name="search" /><span>Tìm kiếm nhanh...</span></Link>
         <div className="ns-header-actions">
-          {platformRoute ? <span className="ns-status ns-status--info">PLATFORM ADMIN</span> : <label className="ns-branch-picker"><span className="sr-only">{translate(locale, "branch")}</span><Icon name="store" /><select value={branchId ?? ""} onChange={(event) => selectBranch(event.target.value || undefined)}>{authorizedBranches.length === 0 || authorizedBranches.length > 1 ? <option value="" aria-label={translate(locale, "workspace")}>Workspace</option> : null}{authorizedBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
+          {platformRoute ? <span className="ns-status ns-status--info">QUẢN TRỊ NỀN TẢNG</span> : <label className="ns-branch-picker"><span className="sr-only">{translate(locale, "branch")}</span><Icon name="store" /><select value={branchId ?? ""} onChange={(event) => selectBranch(event.target.value || undefined)}>{authorizedBranches.length === 0 || authorizedBranches.length > 1 ? <option value="" aria-label={translate(locale, "workspace")}>Không gian làm việc</option> : null}{authorizedBranches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
           <div className="ns-header-date"><Icon name="calendar" /><span>Hôm nay · {new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date())}</span><Icon name="chevronDown" /></div>
           <Link className="ns-notification-link" href="/admin/communications" aria-label={translate(locale, "notifications")}><Icon name="notification" /></Link>
           <Link className="ns-user-menu" href="/admin/profile"><span className="ns-avatar">{context.user.displayName.slice(0, 1).toUpperCase()}</span><span className="ns-user-details"><strong>{context.user.displayName}</strong><small>{roleLabel}</small></span><Icon name="chevronDown" /></Link>
@@ -102,6 +137,48 @@ function AuthenticatedAdminShell({ children }: { children: ReactNode }) {
   </div>;
 }
 
+function NavigationTree({
+  groups,
+  pathname,
+  compact,
+  openGroups,
+  onToggle,
+  onNavigate,
+}: {
+  groups: NavigationGroup[];
+  pathname: string;
+  compact: boolean;
+  openGroups: Record<string, boolean>;
+  onToggle: (id: string) => void;
+  onNavigate: () => void;
+}) {
+  return <nav className="ns-navigation-tree ns-nav-group" aria-label="Điều hướng chính">
+    {groups.map((group) => {
+      const activeItemId = activeNavigationItemId(group, pathname);
+      const active = Boolean(activeItemId);
+      const open = openGroups[group.id] ?? active;
+      const controlId = `ns-nav-children-${group.id}`;
+      const single = group.items.length === 1;
+      return <section key={group.id} className={`ns-nav-section${active ? " ns-nav-section--active" : ""}${open ? " ns-nav-section--open" : ""}`} data-open={open ? "true" : "false"} data-active={active ? "true" : "false"}>
+        {single ? <a className="ns-nav-parent ns-nav-parent--single" href={group.items[0]!.href} aria-current={activeItemId === group.items[0]!.id ? "page" : undefined} onClick={onNavigate}>
+          <Icon name={group.icon} /><span>{group.label}</span>
+        </a> : <button className="ns-nav-parent" type="button" aria-expanded={open} aria-controls={controlId} onClick={() => onToggle(group.id)}>
+          <Icon name={group.icon} /><span>{group.label}</span><Icon name="chevronDown" />
+        </button>}
+        {!single ? <div id={controlId} className="ns-nav-children" aria-hidden={!open}>
+          {group.items.map((item) => {
+            const current = activeItemId === item.id;
+            return <a key={item.id} className="ns-nav-child" href={item.href} aria-current={current ? "page" : undefined} onClick={onNavigate}>
+              <Icon name={item.icon} /><span>{item.label}</span>
+            </a>;
+          })}
+        </div> : null}
+      </section>;
+    })}
+    <span className="sr-only">{compact ? "Menu thu gọn: chọn một nhóm để mở các trang con." : "Mỗi nhóm có thể mở rộng để hiển thị các trang con."}</span>
+  </nav>;
+}
+
 function UnauthenticatedAdminShell({ children }: { children: ReactNode }) {
-  return <div className="ns-app-frame"><a className="ns-skip-link" href="#main-content">Skip to content</a><aside className="ns-admin-sidebar" aria-label="Navigation"><Link className="ns-brand" href="/admin/dashboard"><span className="ns-brand__mark">N</span><span>Nailsoft</span></Link><nav><section className="ns-nav-group"><p>Workspace</p><Link href="/admin/dashboard"><Icon name="home" /><span>Dashboard</span></Link><Link href="/auth/login"><Icon name="lock" /><span>Sign in</span></Link></section></nav></aside><div className="ns-app-body"><header className="ns-admin-header"><div className="ns-breadcrumb"><strong>Workspace access required</strong></div><Link className="ns-user-menu" href="/auth/login"><Icon name="lock" /><span>Sign in</span></Link></header><div id="main-content" className="ns-route-slot" tabIndex={-1}>{children}</div></div></div>;
+  return <div className="ns-app-frame"><a className="ns-skip-link" href="#main-content">Bỏ qua đến nội dung</a><aside className="ns-admin-sidebar" aria-label="Điều hướng"><Link className="ns-brand" href="/admin/dashboard"><span className="ns-brand__mark">N</span><span>Nailsoft</span></Link><nav><section className="ns-nav-group"><p>Không gian làm việc</p><Link href="/admin/dashboard"><Icon name="home" /><span>Tổng quan</span></Link><Link href="/auth/login"><Icon name="lock" /><span>Đăng nhập</span></Link></section></nav></aside><div className="ns-app-body"><header className="ns-admin-header"><div className="ns-breadcrumb"><strong>Cần đăng nhập để tiếp tục</strong></div><Link className="ns-user-menu" href="/auth/login"><Icon name="lock" /><span>Đăng nhập</span></Link></header><div id="main-content" className="ns-route-slot" tabIndex={-1}>{children}</div></div></div>;
 }

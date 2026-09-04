@@ -1,36 +1,37 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { authorizedFetch, getAuthorizedBranchContext, setActiveBranchId } from "./auth";
+import { SafeDataTable, safeLabel } from "./safe-data-view";
 
 type State = "loading" | "ready" | "empty" | "error" | "forbidden";
 type View = { title: string; endpoint: string; hint: string; create?: "vendor" | "request" };
 
 const views: Record<string, View> = {
-  "/admin/procurement": { title: "Procurement control center", endpoint: "/v1/procurement/vendors", hint: "Vendor-to-AP workflow with immutable snapshots and approval evidence." },
-  "/admin/procurement/vendors": { title: "Vendors", endpoint: "/v1/procurement/vendors", hint: "Masked payment references and ON_HOLD vendors are blocked from new spend.", create: "vendor" },
-  "/admin/procurement/purchase-requests": { title: "Purchase requests", endpoint: "/v1/procurement/purchase-requests", hint: "Submit and independently approve requested quantities.", create: "request" },
-  "/admin/procurement/purchase-orders": { title: "Purchase orders", endpoint: "/v1/procurement/purchase-orders", hint: "Server-numbered, versioned and immutable after approval." },
-  "/admin/procurement/receipts": { title: "Goods and service receipts", endpoint: "/v1/procurement/receipts", hint: "Partial receipt and tolerance caps are enforced in PostgreSQL." },
-  "/admin/procurement/vendor-bills": { title: "Vendor bills", endpoint: "/v1/procurement/vendor-bills", hint: "Duplicate invoice guard and 3-way match before posting." },
-  "/admin/procurement/ap": { title: "Accounts payable", endpoint: "/v1/procurement/ap/open-items", hint: "Aging, holds and outstanding balances are derived from allocations." },
-  "/admin/procurement/payment-proposals": { title: "Payment proposals", endpoint: "/v1/procurement/payment-proposals", hint: "Reserve open-item amounts before dual-control approval." },
-  "/admin/procurement/vendor-payments": { title: "Vendor payments", endpoint: "/v1/procurement/vendor-payments", hint: "Provider processing is worker-owned and unknown outcomes require reconciliation." },
-  "/admin/procurement/credit-notes": { title: "Vendor credit notes", endpoint: "/v1/procurement/vendor-credit-notes", hint: "Exact bill-line eligibility and cumulative caps protect AP." },
-  "/admin/procurement/returns": { title: "Vendor returns", endpoint: "/v1/procurement/vendor-returns", hint: "Returned quantity cannot exceed accepted receipt quantity." },
+  "/admin/procurement": { title: "Trung tâm mua hàng", endpoint: "/v1/procurement/vendors", hint: "Theo dõi nhà cung cấp, yêu cầu mua và bằng chứng phê duyệt." },
+  "/admin/procurement/vendors": { title: "Nhà cung cấp", endpoint: "/v1/procurement/vendors", hint: "Tham chiếu thanh toán được bảo vệ; nhà cung cấp tạm giữ không nhận khoản chi mới.", create: "vendor" },
+  "/admin/procurement/purchase-requests": { title: "Yêu cầu mua hàng", endpoint: "/v1/procurement/purchase-requests", hint: "Số lượng yêu cầu cần được gửi và phê duyệt độc lập.", create: "request" },
+  "/admin/procurement/purchase-orders": { title: "Đơn mua hàng", endpoint: "/v1/procurement/purchase-orders", hint: "Số đơn do máy chủ cấp; bản ghi đã phê duyệt không thể sửa." },
+  "/admin/procurement/receipts": { title: "Nhập hàng & dịch vụ", endpoint: "/v1/procurement/receipts", hint: "Nhập từng phần và hạn mức chênh lệch được kiểm soát ở máy chủ." },
+  "/admin/procurement/vendor-bills": { title: "Hóa đơn nhà cung cấp", endpoint: "/v1/procurement/vendor-bills", hint: "Kiểm tra hóa đơn trùng và đối chiếu ba bên trước khi ghi nhận." },
+  "/admin/procurement/ap": { title: "Công nợ phải trả", endpoint: "/v1/procurement/ap/open-items", hint: "Tuổi nợ, khoản giữ và số còn phải trả lấy từ phân bổ thực tế." },
+  "/admin/procurement/payment-proposals": { title: "Đề xuất thanh toán", endpoint: "/v1/procurement/payment-proposals", hint: "Giữ số tiền khoản mở trước khi phê duyệt kép." },
+  "/admin/procurement/vendor-payments": { title: "Thanh toán nhà cung cấp", endpoint: "/v1/procurement/vendor-payments", hint: "Worker xử lý nhà cung cấp; kết quả chưa xác định cần được đối soát." },
+  "/admin/procurement/credit-notes": { title: "Credit note nhà cung cấp", endpoint: "/v1/procurement/vendor-credit-notes", hint: "Kiểm tra đúng dòng hóa đơn và giới hạn cộng dồn." },
+  "/admin/procurement/returns": { title: "Trả hàng nhà cung cấp", endpoint: "/v1/procurement/vendor-returns", hint: "Số lượng trả không vượt quá số lượng đã nhận." },
 };
-const nav = Object.entries(views);
 
 async function read(path: string) {
   const response = await authorizedFetch(path);
   const body = await response.json().catch(() => ({}));
-  if (response.status === 401 || response.status === 403) throw Object.assign(new Error("Permission denied for this procurement scope."), { forbidden: true });
-  if (!response.ok) throw new Error(body.error?.message ?? "The request could not be completed.");
+  if (response.status === 401 || response.status === 403) throw Object.assign(new Error("Bạn không có quyền xem phạm vi mua hàng này."), { forbidden: true });
+  if (!response.ok) throw new Error(body.error?.message ?? "Không thể hoàn tất yêu cầu.");
   return body.data;
 }
+
 function listOf(value: any): any[] { return Array.isArray(value) ? value : value ? [value] : []; }
-function display(value: any) { if (value == null) return "—"; if (typeof value === "object") return JSON.stringify(value); return String(value); }
 
 export default function Sprint15Screen() {
   const pathname = usePathname();
@@ -56,48 +57,58 @@ export default function Sprint15Screen() {
   }, []);
 
   const load = useCallback(async () => {
-    setState("loading"); setError("");
-    try { const value = listOf(await read(view.endpoint)); setRows(value); setState(value.length ? "ready" : "empty"); }
-    catch (e: any) { setError(e.message); setState(e.forbidden ? "forbidden" : "error"); }
+    setState("loading");
+    setError("");
+    try {
+      const nextRows = listOf(await read(view.endpoint));
+      setRows(nextRows);
+      setState(nextRows.length ? "ready" : "empty");
+    } catch (cause: any) {
+      setError(cause?.message ?? "Không thể tải dữ liệu mua hàng.");
+      setState(cause?.forbidden ? "forbidden" : "error");
+    }
   }, [view.endpoint]);
   useEffect(() => { void load(); }, [load]);
-  const columns = useMemo(() => Array.from(new Set(rows.flatMap((r) => Object.keys(r)))).filter((key) => !key.toLowerCase().includes("json")).slice(0, 8), [rows]);
+
+  const columns = useMemo(() => Array.from(new Set(rows.flatMap((row) => Object.keys(row))))
+    .filter((key) => !key.toLowerCase().includes("json"))
+    .slice(0, 8)
+    .map((key) => ({ key, label: safeLabel(key) })), [rows]);
   const fields: Array<[string, string]> = view.create === "vendor"
-    ? [["code", "Code"], ["displayName", "Display name"], ["legalName", "Legal name"], ["currency", "Currency"], ["paymentTermsDays", "Payment terms (days)"]]
-    : [["description", "Description"], ["quantity", "Quantity"], ["unitPriceMinor", "Unit price (minor)"], ["currency", "Currency"], ["reason", "Reason"]];
+    ? [["code", "Mã nhà cung cấp"], ["displayName", "Tên hiển thị"], ["legalName", "Tên pháp lý"], ["currency", "Tiền tệ"], ["paymentTermsDays", "Số ngày thanh toán"]]
+    : [["description", "Nội dung yêu cầu"], ["quantity", "Số lượng"], ["unitPriceMinor", "Đơn giá (đơn vị nhỏ nhất)"], ["currency", "Tiền tệ"], ["reason", "Lý do"]];
 
   async function create() {
-    if (view.create === "request" && !branchId) { setError("Select an authorized branch before creating a purchase request."); return; }
+    if (view.create === "request" && !branchId) { setError("Hãy chọn một chi nhánh được cấp quyền trước khi tạo yêu cầu mua hàng."); return; }
     const payload = view.create === "vendor"
       ? { code: form.code, displayName: form.displayName, legalName: form.legalName || form.displayName, currency: form.currency || "VND", paymentTermsDays: Number(form.paymentTermsDays || 0) }
-      : { branchId, currency: form.currency || "VND", reason: form.reason || "Operational procurement", lines: [{ description: form.description || "Procurement item", quantity: form.quantity || "1", unitPriceMinor: form.unitPriceMinor || "0" }] };
+      : { branchId, currency: form.currency || "VND", reason: form.reason || "Nhu cầu vận hành", lines: [{ description: form.description || "Hạng mục mua hàng", quantity: form.quantity || "1", unitPriceMinor: form.unitPriceMinor || "0" }] };
     const response = await authorizedFetch(view.endpoint, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify(payload) });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok) { setError(body.error?.code === "VERSION_CONFLICT" ? "Version conflict. Refresh before retrying." : (body.error?.message ?? "Validation failed.")); return; }
-    setNotice("Saved successfully."); setForm({}); await load();
-  }
-  async function action(row: any, command: string) {
-    const response = await authorizedFetch(`${view.endpoint}/${row.id}/${command}`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ version: row.version, reason: `Reviewed in ${view.title}` }) });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) setError(body.error?.code === "VERSION_CONFLICT" ? "Version conflict. Refresh before retrying." : (body.error?.message ?? "Command failed safely."));
-    else { setNotice(`${command} completed.`); setError(""); await load(); }
+    if (!response.ok) { setError(body.error?.code === "VERSION_CONFLICT" ? "Dữ liệu vừa thay đổi. Hãy tải lại trước khi thử lại." : (body.error?.message ?? "Dữ liệu không hợp lệ.")); return; }
+    setNotice("Đã lưu và tải lại dữ liệu từ máy chủ.");
+    setForm({});
+    await load();
   }
 
-  return <main className="shell ops-shell">
-    <nav className="topbar">{nav.map(([href, item]) => <a key={href} href={href}>{item.title}</a>)}</nav>
-    <section className="card">
-      <p className="eyebrow">SPRINT 15 · PROCUREMENT & AP</p>
-      <div className="title-row"><div><h1>{view.title}</h1><p>{view.hint}</p></div><button onClick={() => void load()}>Refresh</button></div>
-      {branchLoading && <p role="status" aria-busy="true">Loading authorized branches…</p>}
-      {!branchLoading && branches.length > 1 && <label>Active branch<select value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Select a branch</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
-      {notice && <p role="status">{notice}</p>}
-      {state === "loading" && <p aria-busy="true">Loading authoritative procurement data…</p>}
-      {state === "forbidden" && <p role="alert">Permission denied. Your role or branch scope does not allow this view.</p>}
-      {state === "error" && <div role="alert"><p>{error}</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "empty" && <div><p>No records yet.</p><button onClick={() => void load()}>Retry</button></div>}
-      {state === "ready" && <div className="table-wrap"><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}<th>Actions</th></tr></thead><tbody>{rows.map((row, index) => <tr key={row.id ?? index}>{columns.map((column) => <td key={column}>{display(row[column])}</td>)}<td>{row.status === "SUBMITTED" && view.title === "Purchase requests" && <button onClick={() => void action(row, "approve")}>Approve</button>}{row.status === "PENDING_APPROVAL" && view.title === "Vendor payments" && <button onClick={() => void action(row, "approve")}>Approve</button>}{row.status === "APPROVED" && view.title === "Vendor payments" && <button onClick={() => void action(row, "process")}>Queue processing</button>}</td></tr>)}</tbody></table></div>}
-    </section>
-    {view.create && <section className="card"><h2>{view.create === "vendor" ? "Add vendor" : "New purchase request"}</h2><div className="form-grid">{fields.map(([name, label]) => <label key={name}>{label}<input value={form[name] ?? ""} onChange={(event) => setForm({ ...form, [name]: event.target.value })} required={name === "code" || name === "displayName" || name === "description"} /></label>)}</div><button onClick={() => void create()}>Save</button></section>}
-    <aside className="card"><h2>Safeguards</h2><p>Every command is tenant/branch scoped, idempotent, version checked, audited and emitted through the durable outbox. Provider calls remain outside database transactions.</p></aside>
+  async function action(row: any, command: string) {
+    const response = await authorizedFetch(`${view.endpoint}/${row.id}/${command}`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() }, body: JSON.stringify({ version: row.version, reason: `Được xác nhận trong màn hình ${view.title}.` }) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) setError(body.error?.code === "VERSION_CONFLICT" ? "Dữ liệu vừa thay đổi. Hãy tải lại trước khi thử lại." : (body.error?.message ?? "Không thể thực hiện thao tác."));
+    else { setNotice(command === "approve" ? "Đã phê duyệt." : "Đã gửi lệnh xử lý."); setError(""); await load(); }
+  }
+
+  return <main className="ns-data-workspace">
+    <header className="ns-page-header"><div><p className="eyebrow">MUA HÀNG &amp; CÔNG NỢ</p><h1>{view.title}</h1><p className="hint">{view.hint}</p></div><button className="ns-button ns-button--secondary" onClick={() => void load()}>Làm mới</button></header>
+    {branchLoading && <p className="ns-inline-notice" role="status" aria-busy="true">Đang tải chi nhánh được cấp quyền…</p>}
+    {!branchLoading && branches.length > 1 && <label className="ns-filter-field"><span>Chi nhánh thao tác</span><select value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Chọn chi nhánh</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
+    {notice && <p className="ns-inline-notice" role="status">{notice}</p>}
+    {state === "loading" && <div className="ns-state" role="status" aria-busy="true"><strong>Đang tải dữ liệu mua hàng…</strong><span>Đang đồng bộ từ máy chủ.</span></div>}
+    {state === "forbidden" && <div className="ns-state ns-state--danger" role="alert"><strong>Không có quyền truy cập</strong><span>Vai trò hoặc phạm vi chi nhánh hiện tại không cho phép xem màn hình này.</span></div>}
+    {state === "error" && <div className="ns-state ns-state--danger" role="alert"><strong>Không thể tải dữ liệu</strong><span>{error}</span><button className="ns-button ns-button--secondary" onClick={() => void load()}>Thử lại</button></div>}
+    {state === "empty" && <div className="ns-empty-state"><strong>Chưa có dữ liệu</strong><span>Hệ thống chưa ghi nhận bản ghi phù hợp với phạm vi hiện tại.</span><button className="ns-button ns-button--secondary" onClick={() => void load()}>Kiểm tra lại</button></div>}
+    {state === "ready" && <section className="ns-data-card"><div className="ns-section-heading"><div><p className="eyebrow">DỮ LIỆU NGUỒN</p><h2>{rows.length} bản ghi</h2></div><span className="ns-chip">Theo phạm vi chi nhánh</span></div><SafeDataTable rows={rows} columns={columns} caption={`Danh sách ${view.title}`} renderCell={(value) => value === "SUBMITTED" || value === "PENDING_APPROVAL" ? <span className="ns-status ns-status--warning">{value === "SUBMITTED" ? "Chờ phê duyệt" : "Đang chờ"}</span> : undefined} />{rows.slice(0, 1).map((row) => <div className="ns-action-row" key={row.id}>{row.status === "SUBMITTED" && pathname === "/admin/procurement/purchase-requests" && <button className="ns-button ns-button--secondary" onClick={() => void action(row, "approve")}>Phê duyệt</button>}{row.status === "PENDING_APPROVAL" && pathname === "/admin/procurement/vendor-payments" && <button className="ns-button ns-button--secondary" onClick={() => void action(row, "approve")}>Phê duyệt</button>}{row.status === "APPROVED" && pathname === "/admin/procurement/vendor-payments" && <button className="ns-button ns-button--secondary" onClick={() => void action(row, "process")}>Đưa vào xử lý</button>}</div>)}</section>}
+    {view.create && <section className="ns-data-card"><div className="ns-section-heading"><div><p className="eyebrow">TẠO BẢN GHI</p><h2>{view.create === "vendor" ? "Thêm nhà cung cấp" : "Tạo yêu cầu mua hàng"}</h2></div></div><div className="ns-form-grid">{fields.map(([name, label]) => <label className="ns-filter-field" key={name}><span>{label}</span><input value={form[name] ?? ""} onChange={(event) => setForm({ ...form, [name]: event.target.value })} required={name === "code" || name === "displayName" || name === "description"} /></label>)}</div><button className="ns-button ns-button--primary" onClick={() => void create()}>Lưu bản ghi</button></section>}
+    <aside className="ns-data-card ns-data-card--muted"><p className="eyebrow">KIỂM SOÁT</p><h2>Luôn kiểm tra bằng chứng trước khi chi</h2><p>Mọi lệnh đều được giới hạn theo tenant/chi nhánh, có idempotency key, kiểm tra phiên bản, audit và outbox. Gọi nhà cung cấp nằm ngoài transaction cơ sở dữ liệu.</p></aside>
   </main>;
 }

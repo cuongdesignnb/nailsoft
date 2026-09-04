@@ -255,7 +255,7 @@ function Workspace({
         ))}
       </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 12 · WORKFORCE & PAYROLL</p>
+        <p className="eyebrow">NHÂN SỰ & BẢNG LƯƠNG</p>
         <div className="title-row">
           <div>
             <h1>{config.title}</h1>

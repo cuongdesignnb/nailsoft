@@ -199,6 +199,58 @@ li {
     margin-top: 32px;
   }
 }
+
+/* Hierarchical product navigation. The registry owns route semantics; these
+   rules only provide the expanded, compact and mobile presentations. */
+.ns-admin-sidebar { overflow: visible; }
+.ns-admin-sidebar > .ns-navigation-tree { min-height: 0; overflow-y: auto; overflow-x: visible; overscroll-behavior: contain; scrollbar-width: thin; }
+.ns-admin-sidebar .ns-nav-section { margin-top: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.ns-nav-section { position: relative; display: grid; gap: 2px; margin: 0 0 6px; }
+.ns-nav-parent, .ns-nav-child { display: flex; width: 100%; min-height: 42px; align-items: center; gap: 11px; padding: 9px 13px; border: 0; border-radius: 10px; color: #4a4549; background: transparent; font: inherit; font-size: 13px; font-weight: 650; text-align: left; text-decoration: none; cursor: pointer; }
+.ns-nav-parent { justify-content: flex-start; }
+.ns-nav-parent > svg:first-child { width: 19px; height: 19px; flex: 0 0 auto; color: #c28e98; stroke-width: 1.8; }
+.ns-nav-parent > svg:last-child { width: 15px; height: 15px; margin-left: auto; color: #aa9499; transition: transform 140ms ease; }
+.ns-nav-section--open .ns-nav-parent > svg:last-child { transform: rotate(180deg); }
+.ns-nav-parent:hover, .ns-nav-parent:focus-visible, .ns-nav-section--active > .ns-nav-parent { color: var(--ns-dashboard-primary-strong); background: #fff0f2; }
+.ns-nav-section--active > .ns-nav-parent > svg:first-child { color: var(--ns-dashboard-primary); }
+.ns-nav-parent--single[aria-current="page"] { color: #fff; background: linear-gradient(90deg, #e94562, #df3f5c); box-shadow: 0 8px 16px rgba(233,69,98,.18); }
+.ns-nav-parent--single[aria-current="page"] > svg:first-child { color: #fff; }
+.ns-nav-children { display: grid; gap: 2px; margin: 0 0 7px 16px; padding: 3px 0 3px 13px; border-left: 1px solid #f0d9de; }
+.ns-nav-section:not(.ns-nav-section--open) .ns-nav-children { display: none; }
+.ns-nav-child { min-height: 38px; gap: 10px; padding: 8px 11px; color: #73686d; font-size: 12px; font-weight: 550; }
+.ns-nav-child > svg { width: 16px; height: 16px; flex: 0 0 auto; color: #d0a7ae; stroke-width: 1.7; }
+.ns-nav-child:hover, .ns-nav-child:focus-visible { color: var(--ns-dashboard-primary-strong); background: #fff4f5; }
+.ns-nav-child[aria-current="page"] { color: var(--ns-dashboard-primary-strong); background: #ffe8ed; box-shadow: inset 3px 0 var(--ns-dashboard-primary); font-weight: 750; }
+.ns-nav-child[aria-current="page"] > svg { color: var(--ns-dashboard-primary); }
+.ns-nav-parent:focus-visible, .ns-nav-child:focus-visible { outline: 3px solid rgba(233,69,98,.26); outline-offset: 2px; }
+
+/* Keep the legacy navigation hook available to the Wave 0 gallery while the
+   rendered shell uses the two-level tree above. */
+.ns-admin-sidebar .ns-navigation-tree.ns-nav-group { display: grid; gap: 2px; margin: 0; padding: 0; background: transparent; }
+.ns-admin-sidebar .ns-navigation-tree.ns-nav-group > .ns-nav-section a { min-height: unset; padding: unset; border-radius: unset; background: unset; font-size: unset; font-weight: unset; }
+.ns-admin-sidebar .ns-navigation-tree.ns-nav-group > .ns-nav-section .ns-nav-parent { min-height: 42px; padding: 9px 13px; border-radius: 10px; background: transparent; font-size: 13px; font-weight: 500; }
+.ns-admin-sidebar .ns-navigation-tree.ns-nav-group > .ns-nav-section .ns-nav-child { min-height: 38px; padding: 8px 11px; border-radius: 10px; background: transparent; color: #73686d; font-size: 12px; font-weight: 550; }
+.ns-admin-sidebar .ns-navigation-tree.ns-nav-group > .ns-nav-section .ns-nav-child[aria-current="page"] { color: var(--ns-dashboard-primary-strong); background: #ffe8ed; box-shadow: inset 3px 0 var(--ns-dashboard-primary); font-weight: 750; }
+
+@media (max-width: 1199px) {
+  .ns-admin-sidebar > .ns-navigation-tree { overflow: visible; }
+  .ns-nav-parent span, .ns-nav-child span { display: none; }
+  .ns-nav-parent { justify-content: center; padding-inline: 8px; }
+  .ns-nav-parent > svg:last-child { display: none; }
+  .ns-nav-children { position: absolute; z-index: 80; top: 0; left: calc(100% + 9px); min-width: 226px; margin: 0; padding: 8px; border: 1px solid #f0dfe2; border-radius: 13px; background: rgba(255,255,255,.98); box-shadow: 0 18px 38px rgba(82,39,48,.16); }
+  .ns-nav-section:hover .ns-nav-children, .ns-nav-section:focus-within .ns-nav-children, .ns-nav-section[data-open="true"] .ns-nav-children { display: grid; }
+  .ns-nav-child { min-height: 40px; }
+}
+
+@media (max-width: 767px) {
+  .ns-admin-sidebar > .ns-navigation-tree { overflow-y: auto; overflow-x: hidden; }
+  .ns-admin-sidebar .ns-nav-parent span, .ns-admin-sidebar .ns-nav-child span { display: initial; }
+  .ns-admin-sidebar .ns-nav-parent { justify-content: flex-start; padding-inline: 13px; }
+  .ns-admin-sidebar .ns-nav-parent > svg:last-child { display: initial; }
+  .ns-admin-sidebar .ns-nav-children { position: static; min-width: 0; margin: 0 0 7px 16px; padding: 3px 0 3px 13px; border-width: 1px; border-radius: 0; box-shadow: none; background: transparent; }
+  .ns-admin-sidebar .ns-nav-section:hover .ns-nav-children, .ns-admin-sidebar .ns-nav-section:focus-within .ns-nav-children { display: none; }
+  .ns-admin-sidebar .ns-nav-section.ns-nav-section--open .ns-nav-children { display: grid; }
+}
 label {
   display: grid;
   gap: 6px;
@@ -987,7 +1039,7 @@ textarea:focus-visible {
 /* NailSoft dashboard visual system: rose, blush and warm neutrals. */
 :root {
   --ns-dashboard-primary: #e94562;
-  --ns-dashboard-primary-strong: #d93656;
+  --ns-dashboard-primary-strong: #a41f3d;
   --ns-dashboard-primary-soft: #fff0f3;
   --ns-dashboard-sidebar: #fff7f8;
   --ns-dashboard-canvas: #fffdfd;
@@ -1525,4 +1577,623 @@ body { background: var(--ns-dashboard-canvas); color: var(--ns-dashboard-text); 
 .ns-create-status--pending_deposit,
 .ns-create-status--pending_confirmation {
   color: #7a5200;
+}
+
+/* Keep compact child flyouts above the later shell overflow defaults. */
+.ns-admin-sidebar { overflow: visible; }
+.ns-admin-sidebar > .ns-navigation-tree { overflow-y: auto; overflow-x: visible; }
+@media (max-width: 1199px) {
+  .ns-admin-sidebar > .ns-navigation-tree { overflow: visible; }
+}
+@media (max-width: 767px) {
+  .ns-admin-sidebar > .ns-navigation-tree { overflow-y: auto; overflow-x: hidden; }
+}
+
+/* Domain-specific structure for the remaining catalog and workforce routes. */
+.ns-data-workspace,
+.ns-detail-workspace {
+  gap: 18px;
+}
+
+.ns-app-frame main.ns-data-workspace,
+.ns-app-frame main.ns-detail-workspace {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 30px 28px 56px;
+  background: #fffafb;
+  color: #332b30;
+}
+
+.ns-data-workspace > .card,
+.ns-detail-workspace > .card {
+  width: min(1480px, 100%);
+  margin: 0 auto;
+  padding: 24px;
+  border: 1px solid #eee3e8;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(90, 48, 66, 0.06);
+}
+
+.ns-data-workspace h1,
+.ns-detail-workspace h1 {
+  margin: 3px 0 8px;
+  color: #2d252b;
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.ns-data-workspace h2,
+.ns-detail-workspace h2 {
+  color: #3b3037;
+  font-size: 1.05rem;
+}
+
+.ns-data-workspace .hint,
+.ns-detail-workspace .hint {
+  color: #7b6b74;
+  line-height: 1.55;
+}
+
+.ns-data-workspace .table-wrap,
+.ns-detail-workspace .table-wrap {
+  overflow-x: auto;
+  border: 1px solid #f0e7eb;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ns-data-workspace table,
+.ns-detail-workspace table {
+  min-width: 640px;
+}
+
+.ns-data-workspace th,
+.ns-detail-workspace th {
+  color: #7c6972;
+  background: #fffafd;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.ns-data-workspace td,
+.ns-detail-workspace td {
+  color: #332b30;
+  vertical-align: middle;
+}
+
+.ns-data-workspace td strong,
+.ns-detail-workspace td strong {
+  color: #231c20;
+}
+
+.ns-data-workspace .actions,
+.ns-detail-workspace .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 170px;
+}
+
+.ns-data-workspace .actions button,
+.ns-data-workspace .actions a,
+.ns-detail-workspace .actions button,
+.ns-detail-workspace .actions a {
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid #ead8e0;
+  border-radius: 9px;
+  background: #fff;
+  color: #a52e5b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.ns-data-workspace .actions button:hover,
+.ns-data-workspace .actions a:hover,
+.ns-detail-workspace .actions button:hover,
+.ns-detail-workspace .actions a:hover {
+  border-color: #d94d7c;
+  background: #fff4f8;
+}
+
+.ns-domain-tabs {
+  margin: 18px 0;
+  padding: 5px;
+  border: 1px solid #f0e5ea;
+  border-radius: 12px;
+  background: #fffafd;
+  gap: 5px;
+}
+
+.ns-domain-tabs button,
+.ns-domain-tabs span {
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #7e6a74;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.ns-domain-tabs button[aria-selected="true"],
+.ns-domain-tabs span[aria-selected="true"] {
+  background: #fff;
+  color: #b72f61;
+  box-shadow: 0 4px 14px rgba(116, 52, 78, 0.08);
+}
+
+.ns-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 20px;
+}
+
+.ns-detail-grid > div {
+  padding: 13px 14px;
+  border: 1px solid #f0e5ea;
+  border-radius: 12px;
+  background: #fffafd;
+}
+
+.ns-detail-grid dt {
+  color: #8a7881;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.ns-detail-grid dd {
+  margin: 5px 0 0;
+  color: #2b2328;
+  font-size: 0.92rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.ns-detail-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 18px 0;
+}
+
+.ns-subcard {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #f0e5ea;
+  border-radius: 14px;
+  background: #fffafd;
+}
+
+.ns-subcard h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ns-inline-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.ns-inline-form label {
+  flex: 1;
+  color: #6e5b65;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.ns-inline-form select {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  margin-top: 5px;
+  padding: 8px 10px;
+  border: 1px solid #e8d8df;
+  border-radius: 9px;
+  background: #fff;
+  color: #2b2328;
+}
+
+.ns-inline-form button {
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 0;
+  border-radius: 9px;
+  background: #c83b6b;
+  color: #fff;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .ns-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ns-detail-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .ns-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ns-inline-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ns-inline-form button {
+    width: 100%;
+  }
+}
+
+.ns-safe-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #eee4e8;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ns-safe-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.ns-safe-table th,
+.ns-safe-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f3eaee;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ns-safe-table th {
+  color: #77656e;
+  background: #fffafd;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.ns-safe-table td {
+  color: #30272c;
+  font-size: 0.84rem;
+}
+
+.ns-safe-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ns-safe-empty {
+  margin: 0;
+  padding: 22px;
+  border: 1px dashed #e7d9df;
+  border-radius: 12px;
+  color: #806f78;
+  text-align: center;
+}
+
+/* Analytics uses the same full-width canvas as the operational hubs. The
+   starter article rule is intentionally narrow, which made this route look
+   empty on desktop even though the server returned a complete projection. */
+.ns-app-frame main.ns-analytics-workspace {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 30px 28px 56px;
+}
+
+.ns-analytics-workspace > .ns-page-header {
+  margin: 0 0 20px;
+}
+
+.ns-analytics-workspace > .ns-card,
+.ns-analytics-workspace > .ns-state,
+.ns-analytics-workspace > .ns-chart {
+  margin: 0 0 18px;
+}
+
+.ns-analytics-workspace > .ns-card {
+  padding: 20px;
+}
+
+.ns-analytics-workspace > .ns-card h2 {
+  margin: 0;
+  color: #2d252b;
+  font-size: 1.05rem;
+}
+
+.ns-analytics-workspace > .ns-card > p {
+  margin: 10px 0 0;
+  color: #776a72;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.ns-analytics-workspace .filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
+  align-items: end;
+  gap: 14px;
+}
+
+.ns-analytics-workspace .filters label {
+  color: #6e5f68;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.ns-analytics-workspace .filters input {
+  width: 100%;
+  min-height: 42px;
+  margin-top: 5px;
+  padding: 9px 11px;
+  border: 1px solid #eadde2;
+  border-radius: 9px;
+  background: #fff;
+  color: #2d252b;
+}
+
+.ns-analytics-workspace .filters .ns-button {
+  min-width: 94px;
+}
+
+.ns-analytics-workspace > .metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin: 0 0 18px;
+}
+
+.ns-analytics-workspace .metric-card {
+  display: grid;
+  min-height: 116px;
+  align-content: center;
+  gap: 9px;
+  padding: 18px;
+  border: 1px solid #f0e5e8;
+  border-top: 3px solid #e94562;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(85, 43, 52, 0.06);
+}
+
+.ns-analytics-workspace .metric-card:nth-child(2) {
+  border-top-color: #9b7bd4;
+}
+
+.ns-analytics-workspace .metric-card:nth-child(3) {
+  border-top-color: #4e91d8;
+}
+
+.ns-analytics-workspace .metric-card:nth-child(4) {
+  border-top-color: #d79a32;
+}
+
+.ns-analytics-workspace .metric-card:nth-child(5) {
+  border-top-color: #29a35a;
+}
+
+.ns-analytics-workspace .metric-card:nth-child(6) {
+  border-top-color: #e9788d;
+}
+
+.ns-analytics-workspace .metric-card:nth-child(7) {
+  border-top-color: #8a889f;
+}
+
+.ns-analytics-workspace .metric-card:nth-child(8) {
+  border-top-color: #ba8d62;
+}
+
+.ns-analytics-workspace .metric-card span {
+  color: #776a72;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.ns-analytics-workspace .metric-card strong {
+  color: #252027;
+  font-size: clamp(1.45rem, 2.2vw, 2rem);
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.ns-analytics-workspace .ns-chart {
+  padding: 20px;
+  border: 1px solid #f0e5e8;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(85, 43, 52, 0.05);
+}
+
+.ns-analytics-workspace .ns-chart table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.ns-analytics-workspace .ns-chart th,
+.ns-analytics-workspace .ns-chart td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f4ecef;
+  text-align: left;
+}
+
+.ns-analytics-workspace .ns-chart tbody tr:last-child th,
+.ns-analytics-workspace .ns-chart tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ns-analytics-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-top: 14px;
+  color: #806f78;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.ns-analytics-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.85fr);
+  gap: 18px;
+  margin: 0 0 18px;
+}
+
+.ns-analytics-grid--secondary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ns-analytics-detail-card {
+  min-width: 0;
+}
+
+.ns-analytics-detail-card .title-row {
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.ns-analytics-detail-card .title-row h2 {
+  margin-top: 2px;
+}
+
+.ns-analytics-detail-card table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.ns-analytics-detail-card th,
+.ns-analytics-detail-card td {
+  padding: 11px 10px;
+  border-bottom: 1px solid #f4ecef;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.ns-analytics-detail-card thead th {
+  color: #806f78;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ns-analytics-detail-card tbody tr:last-child th,
+.ns-analytics-detail-card tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ns-analytics-metric-list,
+.ns-analytics-definition-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.ns-analytics-metric-list > div,
+.ns-analytics-definition-list > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid #f4ecef;
+}
+
+.ns-analytics-metric-list > div:last-child,
+.ns-analytics-definition-list > div:last-child {
+  border-bottom: 0;
+}
+
+.ns-analytics-metric-list dt,
+.ns-analytics-definition-list dt {
+  color: #806f78;
+  font-size: 0.82rem;
+}
+
+.ns-analytics-metric-list dd,
+.ns-analytics-definition-list dd {
+  margin: 0;
+  color: #2d252b;
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-align: right;
+}
+
+.ns-analytics-alert-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ns-analytics-alert-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #f0e5e8;
+  border-radius: 10px;
+  background: #fffafc;
+  color: #4b3d44;
+  font-size: 0.84rem;
+}
+
+/* Wave 3 customer pages are rendered directly inside AdminShell. The starter
+   article rule otherwise constrains them to a narrow 900px column, leaving a
+   large empty gutter beside the navigation on desktop. */
+.ns-app-frame main.s19-customer-page,
+.ns-app-frame main.s19-benefit-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.ns-app-frame main.s19-customer-page > *,
+.ns-app-frame main.s19-benefit-page > * {
+  max-width: 1480px;
+}
+
+@media (max-width: 900px) {
+  .ns-app-frame main.ns-analytics-workspace {
+    padding: 24px 18px 44px;
+  }
+
+  .ns-analytics-workspace > .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ns-analytics-grid,
+  .ns-analytics-grid--secondary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .ns-app-frame main.ns-analytics-workspace {
+    padding: 18px 13px 36px;
+  }
+
+  .ns-analytics-workspace .filters {
+    grid-template-columns: 1fr;
+  }
+
+  .ns-analytics-workspace .filters .ns-button {
+    width: 100%;
+  }
 }

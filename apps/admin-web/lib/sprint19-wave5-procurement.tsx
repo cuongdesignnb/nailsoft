@@ -142,7 +142,7 @@ export default function Sprint19Wave5Procurement({ pathname }: { pathname: strin
 
   return <main className="shell ops-shell">
     <section className="card">
-      <p className="eyebrow">SPRINT 19 · WAVE 5 · PROCUREMENT</p>
+      <p className="eyebrow">MUA HÀNG & CÔNG NỢ</p>
       <div className="title-row"><div><h1>{view.title}</h1><p className="hint">{view.description}</p></div><button onClick={() => void load()} disabled={state === "loading"}>Refresh</button></div>
       {branchLoading && <p role="status" aria-busy="true">Loading authorized branches…</p>}
       {!branchLoading && branches.length > 1 && <label>Active branch<select aria-label="Active branch" value={branchId ?? ""} onChange={(event) => { const next = event.target.value || undefined; setBranchId(next); setActiveBranchId(next); }}><option value="">Select an authorized branch</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}

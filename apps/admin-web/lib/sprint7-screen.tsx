@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { activeSession, authorizedFetch } from "./auth";
+import { SafeDataTable } from "./safe-data-view";
 
 type ViewState = "loading" | "ready" | "empty" | "error" | "forbidden";
 async function api(path: string, init?: RequestInit) {
@@ -119,23 +120,13 @@ function Shell({
 }) {
   return (
     <main className="shell ops-shell">
-      <nav className="topbar">
-        <a href="/admin/refunds">Refunds</a>
-        <a href="/admin/credit-notes">Credit notes</a>
-        <a href="/admin/commission/rules">Rules</a>
-        <a href="/admin/commission/entries">Entries</a>
-        <a href="/admin/commission/periods">Periods</a>
-        <a href="/admin/commission/adjustments">Adjustments</a>
-        <a href="/admin/financial/refunds">Reports</a>
-      </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 7 · FINANCIAL CORRECTIONS</p>
+        <p className="eyebrow">ĐIỀU CHỈNH TÀI CHÍNH</p>
         <div className="title-row">
           <div>
             <h1>{title}</h1>
             <p className="hint">
-              Original invoices and captured payments remain immutable.
-              PostgreSQL evidence is authoritative.
+              Hóa đơn gốc và khoản thanh toán đã ghi nhận không thể sửa; dữ liệu máy chủ là nguồn chính thức.
             </p>
           </div>
           <span className="timezone">Online only</span>
@@ -152,7 +143,7 @@ const money = (value: number, currency = "VND") =>
     maximumFractionDigits: currency === "VND" ? 0 : 2,
   }).format((value ?? 0) / (currency === "VND" ? 1 : 100));
 const rows = (data: any) =>
-  Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : [];
+  Array.isArray(data) ? data : Array.isArray(data?.rows) ? data.rows : data == null ? [] : [data];
 const label = (item: any) =>
   item.refundReference ??
   item.creditNoteNumber ??
@@ -478,17 +469,7 @@ function RefundDetail({ id, mode }: { id: string; mode?: string | undefined }) {
           </div>
           <details>
             <summary>Immutable item and tender evidence</summary>
-            <pre className="data-panel">
-              {JSON.stringify(
-                {
-                  items: value.data.items,
-                  paymentAllocations: value.data.paymentAllocations,
-                  creditNote: value.data.creditNote,
-                },
-                null,
-                2,
-              )}
-            </pre>
+          <SafeDataTable rows={[{ items: value.data.items, paymentAllocations: value.data.paymentAllocations, creditNote: value.data.creditNote }]} caption="Bằng chứng khoản hoàn tiền" />
           </details>
         </>
       )}
@@ -523,9 +504,7 @@ function CreditNote({ id }: { id: string }) {
             <button onClick={() => void deliver("PRINT")}>Print</button>
             <button onClick={() => void deliver("EMAIL")}>Deliver</button>
           </div>
-          <pre className="data-panel">
-            {JSON.stringify(value.data.lines, null, 2)}
-          </pre>
+          <SafeDataTable rows={rows(value.data.lines)} caption="Dòng Credit Note" />
         </>
       )}
     </Shell>
@@ -691,17 +670,7 @@ function Period({ id }: { id: string }) {
             </button>
             <button onClick={() => void act("lock")}>Lock evidence</button>
           </div>
-          <pre className="data-panel">
-            {JSON.stringify(
-              {
-                totals: value.data.totals,
-                statements: value.data.statements,
-                integrityHash: value.data.integrityHash,
-              },
-              null,
-              2,
-            )}
-          </pre>
+          <SafeDataTable rows={[{ totals: value.data.totals, statements: value.data.statements, integrityHash: value.data.integrityHash }]} caption="Tổng hợp kỳ hoa hồng" />
         </>
       )}
     </Shell>
@@ -797,7 +766,7 @@ function Reports({ pathname }: { pathname: string }) {
       {message && <p role="alert">{message}</p>}
       <States value={value} label={title} />
       {value.state === "ready" && (
-        <pre className="data-panel">{JSON.stringify(value.data, null, 2)}</pre>
+        <SafeDataTable rows={rows(value.data)} caption={`Báo cáo ${title}`} />
       )}
     </Shell>
   );

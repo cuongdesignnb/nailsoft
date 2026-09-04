@@ -212,7 +212,7 @@ function InventoryPage({
         ))}
       </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 9 · INVENTORY OPERATIONS</p>
+        <p className="eyebrow">VẬN HÀNH KHO</p>
         <div className="title-row">
           <div>
             <h1>{title}</h1>

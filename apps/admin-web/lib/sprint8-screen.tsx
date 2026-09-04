@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { activeSession, authorizedFetch } from "./auth";
+import { SafeDataTable } from "./safe-data-view";
 
 type State = "loading" | "ready" | "empty" | "error" | "forbidden";
 async function api(path: string, init?: RequestInit) {
@@ -115,26 +116,16 @@ function Shell({
 }) {
   return (
     <main className="shell ops-shell">
-      <nav className="topbar">
-        <a href="/admin/benefits">Wallet</a>
-        <a href="/admin/vouchers/campaigns">Vouchers</a>
-        <a href="/admin/loyalty/programs">Loyalty</a>
-        <a href="/admin/membership/tiers">Membership</a>
-        <a href="/admin/packages/catalog">Packages</a>
-        <a href="/admin/benefits/reports">Reports</a>
-        <a href="/admin/benefits/liability">Liability</a>
-      </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 8 · CUSTOMER BENEFITS</p>
+        <p className="eyebrow">QUYỀN LỢI KHÁCH HÀNG</p>
         <div className="title-row">
           <div>
             <h1>{title}</h1>
             <p className="hint">
-              Eligibility → reservation → commit/release. PostgreSQL ledgers
-              remain authoritative.
+              Điều kiện, giữ chỗ và ghi nhận được xử lý bởi máy chủ; sổ dữ liệu vẫn là nguồn chính thức.
             </p>
           </div>
-          <span className="timezone">Online commands only</span>
+          <span className="timezone">Chỉ thao tác khi trực tuyến</span>
         </div>
         {children}
       </section>
@@ -142,7 +133,7 @@ function Shell({
   );
 }
 const rows = (value: any) =>
-  Array.isArray(value) ? value : Array.isArray(value?.rows) ? value.rows : [];
+  Array.isArray(value) ? value : Array.isArray(value?.rows) ? value.rows : value == null ? [] : [value];
 const label = (x: any) =>
   x.name ??
   x.code ??
@@ -302,9 +293,7 @@ function Resource({
           </table>
         </div>
       )}
-      {value.state === "ready" && !Array.isArray(value.data) && (
-        <pre className="response">{JSON.stringify(value.data, null, 2)}</pre>
-      )}
+      {value.state === "ready" && !Array.isArray(value.data) && <SafeDataTable rows={rows(value.data)} caption="Chi tiết quyền lợi" />}
     </Shell>
   );
 }
@@ -349,7 +338,7 @@ function Detail({
               </button>
             ))}
           </div>
-          <pre className="response">{JSON.stringify(value.data, null, 2)}</pre>
+          <SafeDataTable rows={rows(value.data)} caption={title} />
         </>
       )}
     </Shell>
@@ -625,19 +614,19 @@ function Wallet({ customerId }: { customerId: string }) {
       <div className="form-grid">
         <section>
           <h2>Loyalty</h2>
-          <pre>{JSON.stringify(resource.data, null, 2)}</pre>
+          <SafeDataTable rows={rows(resource.data)} caption="Loyalty" />
         </section>
         <section>
           <h2>Membership</h2>
-          <pre>{JSON.stringify(membership.data, null, 2)}</pre>
+          <SafeDataTable rows={rows(membership.data)} caption="Membership" />
         </section>
         <section>
           <h2>Vouchers</h2>
-          <pre>{JSON.stringify(vouchers.data, null, 2)}</pre>
+          <SafeDataTable rows={rows(vouchers.data)} caption="Voucher" />
         </section>
         <section>
           <h2>Packages</h2>
-          <pre>{JSON.stringify(packages.data, null, 2)}</pre>
+          <SafeDataTable rows={rows(packages.data)} caption="Gói dịch vụ" />
         </section>
       </div>
     </Shell>
@@ -879,9 +868,7 @@ function ReportCard({ name, path }: { name: string; path: string }) {
     <section className="state">
       <h2>{name}</h2>
       <States value={value} label={name.toLowerCase()} />
-      {value.state === "ready" && (
-        <pre>{JSON.stringify(value.data, null, 2)}</pre>
-      )}
+      {value.state === "ready" && <SafeDataTable rows={rows(value.data)} caption={name} />}
     </section>
   );
 }

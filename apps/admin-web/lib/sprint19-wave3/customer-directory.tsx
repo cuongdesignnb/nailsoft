@@ -16,15 +16,23 @@ function formatDate(value: unknown) {
 }
 
 function localizedStatus(value: unknown) {
-  return String(value ?? "UNKNOWN").replaceAll("_", " ");
+  const labels: Record<string, string> = {
+    ACTIVE: "Đang hoạt động",
+    INACTIVE: "Tạm ngưng",
+    ARCHIVED: "Đã lưu trữ",
+    BLOCKED: "Đã chặn",
+    UNKNOWN: "Chưa xác định",
+  };
+  const key = String(value ?? "UNKNOWN").toUpperCase();
+  return labels[key] ?? key.replaceAll("_", " ");
 }
 
 function StatePanel({ state, error, retry, label }: { state: DirectoryState; error: string; retry: () => void; label: string }) {
-  if (state === "loading") return <div className="s19-state" role="status" aria-live="polite"><span className="s19-spinner" />Loading {label}...</div>;
-  if (state === "forbidden") return <div className="s19-state s19-state-danger" role="alert"><h2>Permission denied</h2><span>Your role does not have permission to view customer profiles.</span></div>;
-  if (state === "offline") return <div className="s19-state" role="alert"><strong>Internet connection required</strong><span>Customer data is not available offline.</span><button className="s19-button s19-button-secondary" type="button" onClick={retry}>Retry</button></div>;
-  if (state === "error") return <div className="s19-state s19-state-danger" role="alert"><strong>Unable to load customers</strong><span>{error}</span><button className="s19-button s19-button-secondary" type="button" onClick={retry}>Retry</button></div>;
-  if (state === "empty") return <div className="s19-state" role="status"><strong>No customers found</strong><span>Try a different name, phone or email search.</span><button className="s19-button s19-button-secondary" type="button" onClick={retry}>Refresh</button></div>;
+  if (state === "loading") return <div className="s19-state" role="status" aria-live="polite"><span className="s19-spinner" />Đang tải {label}…</div>;
+  if (state === "forbidden") return <div className="s19-state s19-state-danger" role="alert"><h2>Không có quyền truy cập</h2><span>Vai trò hiện tại không được phép xem hồ sơ khách hàng.</span></div>;
+  if (state === "offline") return <div className="s19-state" role="alert"><strong>Cần kết nối Internet</strong><span>Dữ liệu khách hàng không thể tải khi đang ngoại tuyến.</span><button className="s19-button s19-button-secondary" type="button" onClick={retry}>Thử lại</button></div>;
+  if (state === "error") return <div className="s19-state s19-state-danger" role="alert"><strong>Không thể tải danh sách khách hàng</strong><span>{error}</span><button className="s19-button s19-button-secondary" type="button" onClick={retry}>Thử lại</button></div>;
+  if (state === "empty") return <div className="s19-state" role="status"><strong>Không tìm thấy khách hàng</strong><span>Hãy thử tên, số điện thoại hoặc email khác.</span><button className="s19-button s19-button-secondary" type="button" onClick={retry}>Làm mới</button></div>;
   return null;
 }
 
@@ -114,23 +122,23 @@ export default function CustomerDirectory() {
   return (
     <main className="s19-customer-page">
       <header className="s19-page-heading">
-        <div><p className="s19-eyebrow">CUSTOMER 360</p><h1>Customers</h1><p>Search the tenant customer directory and open a complete, permission-aware customer profile.</p></div>
-        <div className="s19-page-actions"><a className="s19-button s19-button-primary" href="/admin/customers/new">Create customer</a></div>
+        <div><p className="s19-eyebrow">KHÁCH HÀNG 360</p><h1>Danh sách khách hàng</h1><p>Tra cứu khách hàng trong salon và mở hồ sơ đầy đủ theo quyền truy cập được cấp.</p></div>
+        <div className="s19-page-actions"><a className="s19-button s19-button-primary" href="/admin/customers/new">Thêm khách hàng</a></div>
       </header>
       <section className="s19-card s19-customer-directory-card">
         <form className="s19-customer-search" role="search" onSubmit={submit}>
-          <label className="s19-field s19-customer-search-field" htmlFor="customer-search"><span>Search customers</span><input id="customer-search" name="search" value={directory.draft} onChange={(event) => directory.setDraft(event.target.value)} placeholder="Name, phone or email" autoComplete="off" /></label>
-          <button className="s19-button s19-button-secondary" type="submit">Search</button>
+          <label className="s19-field s19-customer-search-field" htmlFor="customer-search"><span>Tìm khách hàng</span><input id="customer-search" name="search" value={directory.draft} onChange={(event) => directory.setDraft(event.target.value)} placeholder="Tên, số điện thoại hoặc email" autoComplete="off" /></label>
+          <button className="s19-button s19-button-secondary" type="submit">Tìm kiếm</button>
         </form>
-        {directory.errorCode === "INVALID_CUSTOMER_CURSOR" ? <div className="s19-notice s19-notice-error" role="alert">The customer page expired. Search again to restart pagination.</div> : null}
-        <StatePanel state={directory.state} error={directory.error} retry={() => void directory.load()} label="customers" />
+        {directory.errorCode === "INVALID_CUSTOMER_CURSOR" ? <div className="s19-notice s19-notice-error" role="alert">Trang danh sách đã hết hiệu lực. Hãy tìm kiếm lại để bắt đầu phân trang.</div> : null}
+        <StatePanel state={directory.state} error={directory.error} retry={() => void directory.load()} label="khách hàng" />
         {directory.state === "ready" ? <>
           <div className="s19-customer-table-wrap">
-            <table className="s19-customer-table"><caption className="s19-sr-only">Customer search results</caption><thead><tr><th>Name</th><th>Status</th><th>Locale</th><th>Contact</th><th>Created</th><th><span className="s19-sr-only">Actions</span></th></tr></thead><tbody>
-              {directory.rows.map((customer) => <tr key={customer.id}><td data-label="Name"><strong>{customer.displayName}</strong>{customer.isGuest ? <small>Guest profile</small> : null}</td><td data-label="Status"><span className="s19-status s19-status-info">{localizedStatus(customer.status)}</span></td><td data-label="Locale">{customer.locale ?? "-"}</td><td data-label="Contact"><span>{customer.phone ?? "-"}</span><small>{customer.email ?? "-"}</small></td><td data-label="Created">{formatDate(customer.createdAt)}</td><td data-label="Actions"><a className="s19-inline-action" href={`/admin/customers/${customer.id}`}>Open customer</a></td></tr>)}
+            <table className="s19-customer-table"><caption className="s19-sr-only">Kết quả tìm kiếm khách hàng</caption><thead><tr><th>Khách hàng</th><th>Trạng thái</th><th>Ngôn ngữ</th><th>Liên hệ</th><th>Ngày tạo</th><th><span className="s19-sr-only">Thao tác</span></th></tr></thead><tbody>
+              {directory.rows.map((customer) => <tr key={customer.id}><td data-label="Khách hàng"><strong>{customer.displayName}</strong>{customer.isGuest ? <small>Hồ sơ khách vãng lai</small> : null}</td><td data-label="Trạng thái"><span className="s19-status s19-status-info">{localizedStatus(customer.status)}</span></td><td data-label="Ngôn ngữ">{customer.locale ?? "-"}</td><td data-label="Liên hệ"><span>{customer.phone ?? "-"}</span><small>{customer.email ?? "-"}</small></td><td data-label="Ngày tạo">{formatDate(customer.createdAt)}</td><td data-label="Thao tác"><a className="s19-inline-action" href={`/admin/customers/${customer.id}`}>Mở hồ sơ</a></td></tr>)}
             </tbody></table>
           </div>
-          <div className="s19-customer-pagination"><span>{directory.rows.length} customers shown</span>{directory.hasMore ? <button className="s19-button s19-button-secondary" type="button" onClick={() => void directory.loadMore()} disabled={directory.loadingMore}>{directory.loadingMore ? "Loading..." : "Load more"}</button> : <span>End of results</span>}</div>
+          <div className="s19-customer-pagination"><span>Đang hiển thị {directory.rows.length} khách hàng</span>{directory.hasMore ? <button className="s19-button s19-button-secondary" type="button" onClick={() => void directory.loadMore()} disabled={directory.loadingMore}>{directory.loadingMore ? "Đang tải…" : "Tải thêm"}</button> : <span>Đã hiển thị hết kết quả</span>}</div>
         </> : null}
       </section>
     </main>

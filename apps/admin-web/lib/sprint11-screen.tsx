@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { activeSession, authorizedFetch } from "./auth";
 import { io } from "socket.io-client";
+import { SafeDataTable } from "./safe-data-view";
 
 type State = "loading" | "ready" | "empty" | "error" | "forbidden";
 const routes: Record<
@@ -243,7 +244,7 @@ function Shell({
         ))}
       </nav>
       <section className="card">
-        <p className="eyebrow">SPRINT 11 · EMAIL ENGAGEMENT</p>
+        <p className="eyebrow">EMAIL & GIAO TIẾP</p>
         <div className="title-row">
           <div>
             <h1>{title}</h1>
@@ -343,33 +344,9 @@ function Table({ rows }: { rows: any[] }) {
           "rendered_text",
         ].includes(x),
     )
-    .slice(0, 8);
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {columns.map((c) => (
-              <th key={c}>{c}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={row.id ?? i}>
-              {columns.map((c) => (
-                <td key={c}>
-                  {typeof row[c] === "object"
-                    ? JSON.stringify(row[c])
-                    : String(row[c] ?? "—")}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+    .slice(0, 8)
+    .map((key) => ({ key, label: key.replace(/([A-Z])/g, " $1").replace(/^./, (value) => value.toUpperCase()) }));
+  return <SafeDataTable rows={rows} columns={columns} caption="Dữ liệu giao tiếp" />;
 }
 function Detail({
   title,
@@ -421,10 +398,8 @@ function Detail({
               </button>
             ))}
           </div>
-          <pre className="data-panel">
-            {JSON.stringify(resource.rows[0], null, 2)}
-          </pre>
-          <small>Record {id}</small>
+          <SafeDataTable rows={resource.rows[0] ? [resource.rows[0]] : []} caption={title} />
+          <small>Mã tham chiếu: #{id?.slice(0, 8)}</small>
         </>
       )}
     </Shell>

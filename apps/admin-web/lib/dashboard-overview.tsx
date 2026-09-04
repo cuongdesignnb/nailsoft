@@ -182,13 +182,13 @@ function RevenueChart({ remote, currency }: { remote: Remote; currency: string }
           {[0, .25, .5, .75, 1].map((ratio) => <line key={ratio} x1={pad.left} x2={width - pad.right} y1={pad.top + innerHeight * ratio} y2={pad.top + innerHeight * ratio} className="ns-dashboard-chart-grid" />)}
           <path d={area} fill="url(#ns-revenue-fill)" />
           <path d={line} className="ns-dashboard-chart-line" />
-          {points.map((item, index) => <circle key={rows[index]?.date} cx={item.x} cy={item.y} r="4.5" className="ns-dashboard-chart-point" />)}
+          {points.map((item, index) => <circle key={`${rows[index]?.date ?? "point"}-${index}`} cx={item.x} cy={item.y} r="4.5" className="ns-dashboard-chart-point" />)}
           <text x="10" y={pad.top + 4}>MAX</text>
           <text x="20" y={height - pad.bottom + 4}>0</text>
         </svg>
-        <div className="ns-dashboard-chart-labels">{rows.map((row) => <span key={row.date}>{formatShortDate(row.date)}</span>)}</div>
+        <div className="ns-dashboard-chart-labels">{rows.map((row, index) => <span key={`${row.date}-${index}`}>{formatShortDate(row.date)}</span>)}</div>
       </div>
-      <div className="ns-dashboard-chart-table" aria-label="Bảng doanh thu theo ngày">{rows.map((row) => <div key={row.date}><span>{formatShortDate(row.date)}</span><strong>{formatMinor(row.value, currency)}</strong></div>)}</div>
+      <div className="ns-dashboard-chart-table" aria-label="Bảng doanh thu theo ngày">{rows.map((row, index) => <div key={`${row.date}-${index}`}><span>{formatShortDate(row.date)}</span><strong>{formatMinor(row.value, currency)}</strong></div>)}</div>
     </>}
   </Panel>;
 }

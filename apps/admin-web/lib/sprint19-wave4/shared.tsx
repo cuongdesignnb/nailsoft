@@ -37,15 +37,15 @@ export function useResource(path: string) {
   return { state, rows, error, reload: load };
 }
 
-export function StatePanel({ state, error, retry, empty = "No records found." }: { state: LoadState; error?: string; retry: () => void; empty?: string }) {
-  if (state === "loading") return <div className="s19-state" role="status"><div><h2>Loading workspace</h2><p>Loading live data from the server…</p></div></div>;
-  if (state === "forbidden") return <div className="s19-state" role="alert"><div><h2>Permission denied</h2><p>Your current role or branch scope does not allow this view.</p></div></div>;
-  if (state === "error") return <div className="s19-state" role="alert"><div><h2>Unable to load</h2><p>{error || "The service returned an error."}</p><button className="s19-button s19-button-secondary" onClick={retry}>Retry</button></div></div>;
-  if (state === "empty") return <div className="s19-state"><div><h2>Nothing here yet</h2><p>{empty}</p></div></div>;
+export function StatePanel({ state, error, retry, empty = "Chưa có bản ghi phù hợp." }: { state: LoadState; error?: string; retry: () => void; empty?: string }) {
+  if (state === "loading") return <div className="s19-state" role="status"><div><h2>Đang tải dữ liệu</h2><p>Đang lấy dữ liệu mới nhất từ máy chủ…</p></div></div>;
+  if (state === "forbidden") return <div className="s19-state" role="alert"><div><h2>Không có quyền truy cập</h2><p>Vai trò hoặc phạm vi chi nhánh hiện tại không cho phép xem màn hình này.</p></div></div>;
+  if (state === "error") return <div className="s19-state" role="alert"><div><h2>Không thể tải dữ liệu</h2><p>{error || "Máy chủ chưa trả về dữ liệu."}</p><button className="s19-button s19-button-secondary" onClick={retry}>Thử lại</button></div></div>;
+  if (state === "empty") return <div className="s19-state"><div><h2>Chưa có dữ liệu</h2><p>{empty}</p></div></div>;
   return null;
 }
 
-export function Page({ eyebrow = "Workforce operations", title, description, children, actions }: { eyebrow?: string; title: string; description: string; children: React.ReactNode; actions?: React.ReactNode }) {
+export function Page({ eyebrow = "VẬN HÀNH NHÂN SỰ", title, description, children, actions }: { eyebrow?: string; title: string; description: string; children: React.ReactNode; actions?: React.ReactNode }) {
   return <main className="s19-w4-page"><header className="s19-page-heading"><div><p className="s19-eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{actions && <div className="s19-page-heading-actions">{actions}</div>}</header>{children}</main>;
 }
 
@@ -55,8 +55,10 @@ export function Table({ rows, columns, onSelect }: { rows: Row[]; columns: Array
 
 export function format(value: any) {
   if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "object") return value.name?.["vi-VN"] ?? value.name?.["en-US"] ?? value.displayName ?? JSON.stringify(value);
+  if (typeof value === "boolean") return value ? "Có" : "Không";
+  if (typeof value === "object") return value.name?.["vi-VN"] ?? value.name?.["en-US"] ?? value.displayName ?? value.code ?? (value.id ? `#${String(value.id).slice(0, 8)}` : "Đã có dữ liệu");
+  const labels: Record<string, string> = { ACTIVE: "Đang hoạt động", INACTIVE: "Không hoạt động", PENDING: "Đang chờ", PENDING_APPROVAL: "Chờ phê duyệt", APPROVED: "Đã phê duyệt", SUBMITTED: "Đã gửi", COMPLETED: "Đã hoàn tất", CANCELLED: "Đã hủy", FAILED: "Thất bại", OPEN: "Đang mở", CLOSED: "Đã đóng", FULL_TIME: "Toàn thời gian", PART_TIME: "Bán thời gian", CONTRACTOR: "Cộng tác viên", TEMPORARY: "Tạm thời", HOURLY: "Theo giờ", SALARY: "Theo lương", COMMISSION_ONLY: "Chỉ hoa hồng", HOURLY_PLUS_COMMISSION: "Theo giờ + hoa hồng", SALARY_PLUS_COMMISSION: "Theo lương + hoa hồng" };
+  if (typeof value === "string" && labels[value]) return labels[value];
   return String(value);
 }
 
