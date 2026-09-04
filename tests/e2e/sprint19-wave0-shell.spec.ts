@@ -27,6 +27,10 @@ async function prepareVisualPage(page: Page) {
         transition-delay: 0s !important;
         caret-color: transparent !important;
       }
+      /* Next dev tools are environment chrome, not part of the shell baseline. */
+      #next-logo {
+        display: none !important;
+      }
     `,
   });
   const fontState = await page.evaluate(() => ({
